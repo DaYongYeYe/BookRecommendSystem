@@ -24,6 +24,9 @@ def create_app(config_class=Config):
     
     from app.rbac import bp as rbac_bp
     app.register_blueprint(rbac_bp, url_prefix='/rbac')
+
+    from app.api import bp as api_bp
+    app.register_blueprint(api_bp, url_prefix='/api')
     
     @app.before_first_request
     def create_tables():

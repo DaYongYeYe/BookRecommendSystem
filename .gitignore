@@ -1,0 +1,62 @@
+########################
+# 通用
+########################
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.swo
+*.orig
+
+########################
+# Python / 后端
+########################
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 打包 / 分发
+build/
+dist/
+*.egg-info/
+*.egg
+
+# 覆盖率 / 测试
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# 本地配置/敏感信息（如有）
+.env
+.env.*
+*.sqlite3
+
+########################
+# Node / 前端 (Vite + Vue)
+########################
+node_modules/
+frontend/node_modules/
+
+# 构建产物
+frontend/dist/
+dist/
+
+# Vite / 工具缓存
+.vite/
+frontend/.vite/
+.eslintcache
+
+########################
+# IDE / 编辑器
+########################
+.idea/
+.vscode/
+*.iml
+

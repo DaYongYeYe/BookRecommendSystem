@@ -1,25 +1,13 @@
-from flask import request, jsonify, session
+from flask import request, jsonify
 from app.admin import bp
 from app import db
 from app.models import User
-from functools import wraps
+from app.rbac.decorators import admin_required
 
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            return jsonify({'error': '需要登录'}), 401
-        
-        user = User.query.get(session['user_id'])
-        if not user or not user.is_admin():
-            return jsonify({'error': '需要管理员权限'}), 403
-        
-        return f(*args, **kwargs)
-    return decorated_function
 
 @bp.route('/users', methods=['GET'])
 @admin_required
-def get_users():
+def get_users(current_user):
     users = User.query.all()
     return jsonify({
         'users': [user.to_dict() for user in users]
@@ -27,7 +15,7 @@ def get_users():
 
 @bp.route('/users/<int:user_id>', methods=['GET'])
 @admin_required
-def get_user(user_id):
+def get_user(current_user, user_id):
     user = User.query.get(user_id)
     if not user:
         return jsonify({'error': '用户不存在'}), 404
@@ -36,7 +24,7 @@ def get_user(user_id):
 
 @bp.route('/users/<int:user_id>', methods=['PUT'])
 @admin_required
-def update_user(user_id):
+def update_user(current_user, user_id):
     user = User.query.get(user_id)
     if not user:
         return jsonify({'error': '用户不存在'}), 404
@@ -72,13 +60,13 @@ def update_user(user_id):
 
 @bp.route('/users/<int:user_id>', methods=['DELETE'])
 @admin_required
-def delete_user(user_id):
+def delete_user(current_user, user_id):
     user = User.query.get(user_id)
     if not user:
         return jsonify({'error': '用户不存在'}), 404
     
     # 不允许用户删除自己
-    if user.id == session['user_id']:
+    if user.id == current_user.id:
         return jsonify({'error': '不能删除自己的账户'}), 400
     
     db.session.delete(user)

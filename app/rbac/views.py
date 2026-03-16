@@ -1,28 +1,12 @@
-from flask import request, jsonify, session
+from flask import request, jsonify
 from app.rbac import bp
 from app import db
 from app.models import User, Role, Permission, RolePermission, UserRole
-from functools import wraps
-
-def admin_required(f):
-    """
-    管理员权限验证装饰器
-    """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            return jsonify({'error': '需要登录'}), 401
-        
-        user = User.query.get(session['user_id'])
-        if not user or not user.is_admin():
-            return jsonify({'error': '需要管理员权限'}), 403
-        
-        return f(*args, **kwargs)
-    return decorated_function
+from app.rbac.decorators import admin_required
 
 @bp.route('/roles', methods=['GET'])
 @admin_required
-def get_roles():
+def get_roles(current_user):
     """
     获取所有角色列表
     """
@@ -33,7 +17,7 @@ def get_roles():
 
 @bp.route('/roles', methods=['POST'])
 @admin_required
-def create_role():
+def create_role(current_user):
     """
     创建新角色
     """
@@ -61,7 +45,7 @@ def create_role():
 
 @bp.route('/roles/<int:role_id>', methods=['PUT'])
 @admin_required
-def update_role(role_id):
+def update_role(current_user, role_id):
     """
     更新角色信息
     """
@@ -92,7 +76,7 @@ def update_role(role_id):
 
 @bp.route('/roles/<int:role_id>', methods=['DELETE'])
 @admin_required
-def delete_role(role_id):
+def delete_role(current_user, role_id):
     """
     删除角色
     """
@@ -112,7 +96,7 @@ def delete_role(role_id):
 
 @bp.route('/permissions', methods=['GET'])
 @admin_required
-def get_permissions():
+def get_permissions(current_user):
     """
     获取所有权限列表
     """
@@ -123,7 +107,7 @@ def get_permissions():
 
 @bp.route('/permissions', methods=['POST'])
 @admin_required
-def create_permission():
+def create_permission(current_user):
     """
     创建新权限
     """
@@ -151,7 +135,7 @@ def create_permission():
 
 @bp.route('/roles/<int:role_id>/permissions', methods=['POST'])
 @admin_required
-def assign_permission_to_role(role_id):
+def assign_permission_to_role(current_user, role_id):
     """
     为角色分配权限
     """
@@ -191,7 +175,7 @@ def assign_permission_to_role(role_id):
 
 @bp.route('/roles/<int:role_id>/permissions/<int:permission_id>', methods=['DELETE'])
 @admin_required
-def remove_permission_from_role(role_id, permission_id):
+def remove_permission_from_role(current_user, role_id, permission_id):
     """
     移除角色的权限
     """
@@ -210,7 +194,7 @@ def remove_permission_from_role(role_id, permission_id):
 
 @bp.route('/users/<int:user_id>/roles', methods=['POST'])
 @admin_required
-def assign_role_to_user(user_id):
+def assign_role_to_user(current_user, user_id):
     """
     为用户分配角色
     """
@@ -250,7 +234,7 @@ def assign_role_to_user(user_id):
 
 @bp.route('/users/<int:user_id>/roles/<int:role_id>', methods=['DELETE'])
 @admin_required
-def remove_role_from_user(user_id, role_id):
+def remove_role_from_user(current_user, user_id, role_id):
     """
     移除用户的角色
     """
@@ -275,7 +259,7 @@ def remove_role_from_user(user_id, role_id):
 
 @bp.route('/users/<int:user_id>/permissions', methods=['GET'])
 @admin_required
-def get_user_permissions(user_id):
+def get_user_permissions(current_user, user_id):
     """
     获取用户的所有权限（基于其角色）
     """
