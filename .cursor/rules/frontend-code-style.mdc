@@ -59,6 +59,14 @@ alwaysApply: false
   - 禁止随意写行内样式，除非是临时/动态且难以抽离的场景。
   - 响应式布局遵循移动优先或桌面优先的一致策略，避免在同一项目中风格混乱。
 
+- **Tailwind CSS（本项目为 v4）**
+  - 入口 CSS 必须使用 v4 语法：`@import "tailwindcss";`。禁止使用 v3 的 `@tailwind base;` / `@tailwind components;` / `@tailwind utilities;`，否则样式不会生效。
+  - 检测 Tailwind 是否生效：
+    1. **开发者工具**：在元素上右键「检查」，看 Styles 面板中是否存在 `.w-10`、`.h-10`、`.rounded-full` 等类及其对应样式（如 `width`、`height`、`border-radius`）。
+    2. **快速自测**：临时给某元素加 `class="text-red-600 text-3xl font-bold"`，若页面出现红色大号加粗文字则生效，测完删除。
+    3. **Network**：DevTools → Network → 筛选 CSS，刷新后打开主样式文件，搜索 `w-10` 或 `rounded-full`，能搜到即说明 Tailwind 已参与构建。
+  - 修改 Tailwind 入口或配置后需重启开发服务器（`npm run dev`）再验证。
+
 - **路由与导航**
   - 路由路径语义化，避免无意义路径名，如 `/a`, `/page1`。
   - 路由配置与组件解耦，避免在组件中硬编码大量路由字符串，尽量集中管理常用路由常量。

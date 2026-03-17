@@ -1,18 +1,18 @@
 <template>
-  <div class="home-page selection:bg-amber-100">
-    <!-- 顶部导航栏 -->
+  <div class="selection:bg-amber-100">
+    <!-- 1. 顶部导航栏 -->
     <nav class="glass-nav fixed top-0 w-full z-50">
       <div class="max-w-[1440px] mx-auto px-6 h-16 flex items-center justify-between">
         <div class="flex items-center gap-8">
-          <a class="text-2xl font-bold serif tracking-tighter flex items-center gap-2" href="#">
+          <a href="#" class="text-2xl font-bold serif tracking-tighter flex items-center gap-2">
             <span class="inline-block w-8 h-8 bg-black text-white text-center leading-8 rounded-sm">墨</span>
             雅筑
           </a>
           <div class="hidden md:flex gap-6 text-sm font-medium text-gray-600">
-            <a class="hover:text-black transition-colors" href="#">书库精选</a>
-            <a class="hover:text-black transition-colors" href="#">文学榜单</a>
-            <a class="hover:text-black transition-colors" href="#">心境找书</a>
-            <a class="hover:text-black transition-colors" href="#">出版前瞻</a>
+            <a href="#" class="hover:text-black transition-colors">书库精选</a>
+            <a href="#" class="hover:text-black transition-colors">文学榜单</a>
+            <a href="#" class="hover:text-black transition-colors">心境找书</a>
+            <a href="#" class="hover:text-black transition-colors">出版前瞻</a>
           </div>
         </div>
         <div class="flex-1 max-w-xl mx-8 relative hidden lg:block">
@@ -20,9 +20,9 @@
             <span class="iconify" data-icon="hugeicons:search-02"></span>
           </span>
           <input
+            type="text"
             class="w-full bg-gray-100 border-none rounded-full py-2 pl-12 pr-4 text-sm focus:ring-2 focus:ring-black transition-all"
             placeholder="搜索书名、作者、ISBN或题材关键词..."
-            type="text"
           />
           <div class="absolute right-4 top-1/2 -translate-y-1/2 flex gap-2">
             <kbd class="bg-white px-1.5 py-0.5 rounded text-[10px] border shadow-sm text-gray-400">⌘</kbd>
@@ -50,7 +50,7 @@
       </div>
     </nav>
 
-    <!-- Hero 区域 -->
+    <!-- 2. Hero 区域 -->
     <section class="pt-32 pb-16 px-6 max-w-[1440px] mx-auto">
       <div
         class="relative overflow-hidden rounded-3xl bg-[#1A1A1A] text-white p-8 md:p-16 flex flex-col md:flex-row items-center gap-12"
@@ -87,7 +87,7 @@
             </div>
           </div>
         </div>
-        <div class="relative w-64 md:w-80 perspective-1000">
+        <div class="relative w-64 md:w-80">
           <img
             alt="Featured Book Cover"
             class="w-full rounded shadow-2xl shadow-black transform rotate-3 hover:rotate-0 transition-transform duration-500"
@@ -102,7 +102,7 @@
       </div>
     </section>
 
-    <!-- 按心境筛选 -->
+    <!-- 3. 按心境筛选 -->
     <section class="px-6 mb-16 max-w-[1440px] mx-auto">
       <div class="flex items-center justify-between mb-8">
         <h2 class="text-xl font-bold flex items-center gap-2">
@@ -156,13 +156,16 @@
       </div>
     </section>
 
-    <!-- 个性化推荐与榜单 -->
+    <!-- 4. 个性化推荐与榜单 -->
     <section class="px-6 mb-16 max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-4 gap-12">
       <!-- 猜你喜欢 -->
       <div class="lg:col-span-3">
         <div class="flex items-center justify-between mb-8">
           <h3 class="text-2xl serif font-bold">为你定制</h3>
-          <a class="text-sm text-gray-500 flex items-center gap-1 hover:text-black transition-colors" href="#">
+          <a
+            href="#"
+            class="text-sm text-gray-500 flex items-center gap-1 hover:text-black transition-colors"
+          >
             查看全部 <span class="iconify" data-icon="hugeicons:arrow-right-01"></span>
           </a>
         </div>
@@ -218,7 +221,7 @@
               <span class="iconify" data-icon="hugeicons:star"></span>
               <span class="iconify" data-icon="hugeicons:star"></span>
               <span class="iconify" data-icon="hugeicons:star"></span>
-              <span class="iconify-none" data-icon="hugeicons:star"></span>
+              <span class="iconify text-gray-200" data-icon="hugeicons:star"></span>
               <span class="ml-1 text-gray-400 font-medium">8.8</span>
             </div>
           </div>
@@ -264,17 +267,20 @@
               <span class="iconify" data-icon="hugeicons:star"></span>
               <span class="iconify" data-icon="hugeicons:star"></span>
               <span class="iconify" data-icon="hugeicons:star"></span>
-              <span class="text-gray-200 iconify" data-icon="hugeicons:star"></span>
+              <span class="iconify text-gray-200" data-icon="hugeicons:star"></span>
               <span class="ml-1 text-gray-400 font-medium">8.2</span>
             </div>
           </div>
 
-          <!-- Row 2 extra card -->
+          <!-- Row 2 占位 -->
           <div class="group cursor-pointer">
             <div
               class="relative aspect-[3/4] mb-4 overflow-hidden rounded-lg shadow-md book-card transition-all duration-300 text-center flex flex-col items-center justify-center border-2 border-dashed border-gray-200 hover:border-black transition-colors"
             >
-              <span class="iconify text-3xl text-gray-300 mb-2" data-icon="hugeicons:add-01"></span>
+              <span
+                class="iconify text-3xl text-gray-300 mb-2"
+                data-icon="hugeicons:add-01"
+              ></span>
               <span class="text-xs text-gray-400 font-medium">发现更多惊喜</span>
             </div>
           </div>
@@ -288,7 +294,6 @@
           <span class="iconify text-gray-300" data-icon="hugeicons:chart-bar-01"></span>
         </div>
         <div class="space-y-6">
-          <!-- Ranking Item 1 -->
           <div class="flex items-center gap-4 group cursor-pointer">
             <span class="text-2xl font-black text-gray-200 group-hover:text-amber-500 transition-colors">01</span>
             <img
@@ -301,8 +306,6 @@
               <p class="text-[10px] text-gray-400">迟子建 · 12.4w人评价</p>
             </div>
           </div>
-
-          <!-- Ranking Item 2 -->
           <div class="flex items-center gap-4 group cursor-pointer">
             <span class="text-2xl font-black text-gray-200 group-hover:text-amber-500 transition-colors">02</span>
             <img
@@ -315,8 +318,6 @@
               <p class="text-[10px] text-gray-400">兰小欢 · 9.8w人评价</p>
             </div>
           </div>
-
-          <!-- Ranking Item 3 -->
           <div class="flex items-center gap-4 group cursor-pointer">
             <span class="text-2xl font-black text-gray-200 group-hover:text-amber-500 transition-colors">03</span>
             <img
@@ -329,8 +330,6 @@
               <p class="text-[10px] text-gray-400">马伯庸 · 8.1w人评价</p>
             </div>
           </div>
-
-          <!-- Ranking Item 4 -->
           <div class="flex items-center gap-4 group cursor-pointer">
             <span class="text-2xl font-black text-gray-200 group-hover:text-amber-500 transition-colors">04</span>
             <img
@@ -364,7 +363,7 @@
       </div>
     </section>
 
-    <!-- 沉浸式分类网格 -->
+    <!-- 5. 沉浸式分类网格 -->
     <section class="bg-gray-50 py-20 px-6">
       <div class="max-w-[1440px] mx-auto">
         <div class="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
@@ -383,7 +382,6 @@
         </div>
 
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
-          <!-- Category 1 -->
           <div class="relative h-64 rounded-2xl overflow-hidden group cursor-pointer">
             <img
               alt="Category Sci-Fi"
@@ -394,11 +392,12 @@
             <div class="absolute bottom-6 left-6 text-white text-left">
               <p class="text-xs uppercase tracking-widest opacity-60 mb-1">Sci-Fi</p>
               <h4 class="text-xl font-bold">赛博民俗</h4>
-              <p class="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-2">当芯片遇见古老传说 →</p>
+              <p class="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-2">
+                当芯片遇见古老传说 →
+              </p>
             </div>
           </div>
 
-          <!-- Category 2 -->
           <div class="relative h-64 rounded-2xl overflow-hidden group cursor-pointer">
             <img
               alt="Category History"
@@ -409,11 +408,12 @@
             <div class="absolute bottom-6 left-6 text-white text-left">
               <p class="text-xs uppercase tracking-widest opacity-60 mb-1">Geography</p>
               <h4 class="text-xl font-bold">地理叙事</h4>
-              <p class="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-2">行走在大地上的文字 →</p>
+              <p class="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-2">
+                行走在大地上的文字 →
+              </p>
             </div>
           </div>
 
-          <!-- Category 3 -->
           <div class="relative h-64 rounded-2xl overflow-hidden group cursor-pointer">
             <img
               alt="Category Arts"
@@ -430,7 +430,6 @@
             </div>
           </div>
 
-          <!-- Category 4 -->
           <div class="relative h-64 rounded-2xl overflow-hidden group cursor-pointer">
             <img
               alt="Category Mystery"
@@ -441,7 +440,9 @@
             <div class="absolute bottom-6 left-6 text-white text-left">
               <p class="text-xs uppercase tracking-widest opacity-60 mb-1">Social</p>
               <h4 class="text-xl font-bold">方言小说</h4>
-              <p class="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-2">最地道的草根生命力 →</p>
+              <p class="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-2">
+                最地道的草根生命力 →
+              </p>
             </div>
           </div>
         </div>
@@ -450,50 +451,42 @@
           <div class="flex flex-wrap items-center justify-center gap-2 max-w-3xl">
             <span
               class="px-3 py-1 bg-white border rounded-full text-xs text-gray-500 hover:border-black cursor-pointer transition-colors"
+              >硬核推理</span
             >
-              硬核推理
-            </span>
             <span
               class="px-3 py-1 bg-white border rounded-full text-xs text-gray-500 hover:border-black cursor-pointer transition-colors"
+              >女性主义</span
             >
-              女性主义
-            </span>
             <span
               class="px-3 py-1 bg-white border rounded-full text-xs text-gray-500 hover:border-black cursor-pointer transition-colors"
+              >环境史</span
             >
-              环境史
-            </span>
             <span
               class="px-3 py-1 bg-white border rounded-full text-xs text-gray-500 hover:border-black cursor-pointer transition-colors"
+              >后启示录</span
             >
-              后启示录
-            </span>
             <span
               class="px-3 py-1 bg-white border rounded-full text-xs text-gray-500 hover:border-black cursor-pointer transition-colors"
+              >人工智能理论</span
             >
-              人工智能理论
-            </span>
             <span
               class="px-3 py-1 bg-white border rounded-full text-xs text-gray-500 hover:border-black cursor-pointer transition-colors"
+              >唐诗美学</span
             >
-              唐诗美学
-            </span>
             <span
               class="px-3 py-1 bg-white border rounded-full text-xs text-gray-500 hover:border-black cursor-pointer transition-colors"
+              >现代医学</span
             >
-              现代医学
-            </span>
             <span
               class="px-3 py-1 bg-white border rounded-full text-xs text-gray-500 hover:border-black cursor-pointer transition-colors"
+              >更多题材 (18+)</span
             >
-              更多题材 (18+)
-            </span>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- 用户社交广场 -->
+    <!-- 6. 用户社交广场 -->
     <section class="py-20 px-6 max-w-[1440px] mx-auto">
       <div class="text-center mb-16">
         <h3 class="text-3xl font-bold serif mb-4 underline-offset-8 decoration-amber-300 decoration-4">
@@ -501,12 +494,9 @@
         </h3>
         <p class="text-gray-500">每一本书都是跨越时空的会面</p>
       </div>
-
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         <!-- Review 1 -->
-        <div
-          class="p-8 bg-white border border-gray-100 rounded-3xl shadow-sm hover:shadow-xl transition-shadow group"
-        >
+        <div class="p-8 bg-white border border-gray-100 rounded-3xl shadow-sm hover:shadow-xl transition-shadow group">
           <div class="flex items-center gap-3 mb-6">
             <img
               alt="Review User"
@@ -541,9 +531,7 @@
         </div>
 
         <!-- Review 2 -->
-        <div
-          class="p-8 bg-white border border-gray-100 rounded-3xl shadow-sm hover:shadow-xl transition-shadow group"
-        >
+        <div class="p-8 bg-white border border-gray-100 rounded-3xl shadow-sm hover:shadow-xl transition-shadow group">
           <div class="flex items-center gap-3 mb-6">
             <img
               alt="Review User"
@@ -578,9 +566,7 @@
         </div>
 
         <!-- Review 3 -->
-        <div
-          class="p-8 bg-white border border-gray-100 rounded-3xl shadow-sm hover:shadow-xl transition-shadow group"
-        >
+        <div class="p-8 bg-white border border-gray-100 rounded-3xl shadow-sm hover:shadow-xl transition-shadow group">
           <div class="flex items-center gap-3 mb-6">
             <img
               alt="Review User"
@@ -616,14 +602,12 @@
       </div>
     </section>
 
-    <!-- 页脚区域 -->
+    <!-- 7. 页脚区域 -->
     <footer class="bg-white border-t border-gray-100 pt-20 pb-10 px-6">
       <div class="max-w-[1440px] mx-auto">
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 mb-20">
           <div class="lg:col-span-2">
-            <h2
-              class="text-2xl font-bold serif mb-6 tracking-tighter flex items-center gap-2"
-            >
+            <h2 class="text-2xl font-bold serif mb-6 tracking-tighter flex items-center gap-2">
               <span class="inline-block w-8 h-8 bg-black text-white text-center leading-8 rounded-sm">墨</span>
               雅筑
             </h2>
@@ -632,20 +616,20 @@
             </p>
             <div class="flex gap-4">
               <a
-                class="w-8 h-8 rounded-full border flex items-center justify-center text-gray-400 hover:bg-black hover:text-white transition-all"
                 href="#"
+                class="w-8 h-8 rounded-full border flex items-center justify-center text-gray-400 hover:bg-black hover:text-white transition-all"
               >
                 <span class="iconify" data-icon="brandico:weibo"></span>
               </a>
               <a
-                class="w-8 h-8 rounded-full border flex items-center justify-center text-gray-400 hover:bg-black hover:text-white transition-all"
                 href="#"
+                class="w-8 h-8 rounded-full border flex items-center justify-center text-gray-400 hover:bg黑 hover:text-white transition-all"
               >
                 <span class="iconify" data-icon="hugeicons:square-arrow-up-right"></span>
               </a>
               <a
-                class="w-8 h-8 rounded-full border flex items-center justify-center text-gray-400 hover:bg-black hover:text-white transition-all"
                 href="#"
+                class="w-8 h-8 rounded-full border flex items-center justify-center text-gray-400 hover:bg-black hover:text-white transition-all"
               >
                 <span class="iconify" data-icon="hugeicons:mail-01"></span>
               </a>
@@ -655,39 +639,34 @@
           <div>
             <h5 class="font-bold text-sm mb-6">探索发现</h5>
             <ul class="space-y-4 text-xs text-gray-500">
-              <li><a class="hover:text-black" href="#">年度必读榜单</a></li>
-              <li><a class="hover:text-black" href="#">精选专题库</a></li>
-              <li><a class="hover:text-black" href="#">出版社合作专区</a></li>
-              <li><a class="hover:text-black" href="#">获奖作品集</a></li>
+              <li><a href="#" class="hover:text-black">年度必读榜单</a></li>
+              <li><a href="#" class="hover:text黑">精选专题库</a></li>
+              <li><a href="#" class="hover:text-black">出版社合作专区</a></li>
+              <li><a href="#" class="hover:text-black">获奖作品集</a></li>
             </ul>
           </div>
-
           <div>
             <h5 class="font-bold text-sm mb-6">产品服务</h5>
             <ul class="space-y-4 text-xs text-gray-500">
-              <li><a class="hover:text-black" href="#">墨香阅读器 APP</a></li>
-              <li><a class="hover:text-black" href="#">Premium 会员</a></li>
-              <li><a class="hover:text-black" href="#">个人知识图谱</a></li>
-              <li><a class="hover:text-black" href="#">开发者接口</a></li>
+              <li><a href="#" class="hover:text-black">墨香阅读器 APP</a></li>
+              <li><a href="#" class="hover:text-black">Premium 会员</a></li>
+              <li><a href="#" class="hover:text-black">个人知识图谱</a></li>
+              <li><a href="#" class="hover:text-black">开发者接口</a></li>
             </ul>
           </div>
-
           <div>
             <h5 class="font-bold text-sm mb-6">关于我们</h5>
             <ul class="space-y-4 text-xs text-gray-500">
-              <li><a class="hover:text-black" href="#">品牌故事</a></li>
-              <li><a class="hover:text-black" href="#">版权声明</a></li>
-              <li><a class="hover:text-black" href="#">联系我们</a></li>
-              <li><a class="hover:text-black" href="#">加入我们</a></li>
+              <li><a href="#" class="hover:text-black">品牌故事</a></li>
+              <li><a href="#" class="hover:text-black">版权声明</a></li>
+              <li><a href="#" class="hover:text-black">联系我们</a></li>
+              <li><a href="#" class="hover:text-black">加入我们</a></li>
             </ul>
           </div>
         </div>
-
-        <div
-          class="flex flex-col md:flex-row items-center justify-between gap-6 border-t border-gray-50 pt-10"
-        >
+        <div class="flex flex-col md:flex-row items-center justify-between gap-6 border-t border-gray-50 pt-10">
           <p class="text-[10px] text-gray-400 uppercase tracking-widest">
-            © 2026 INK &amp; AMBIENCE. ALL RIGHTS RESERVED. 沪ICP备20260316号
+            © 2026 INK & AMBIENCE. ALL RIGHTS RESERVED. 沪ICP备20260316号
           </p>
           <div class="flex items-center gap-6">
             <button class="flex items-center gap-2 text-xs text-gray-400 hover:text-black">
@@ -707,55 +686,19 @@
     <div
       class="md:hidden fixed bottom-6 left-6 right-6 h-16 bg-black/90 backdrop-blur-md rounded-full flex items-center justify-around px-8 z-50 border border-white/10 shadow-2xl"
     >
-      <a class="text-white" href="#">
+      <a href="#" class="text-white">
         <span class="iconify text-xl" data-icon="hugeicons:home-02"></span>
       </a>
-      <a class="text-gray-400" href="#">
+      <a href="#" class="text-gray-400">
         <span class="iconify text-xl" data-icon="hugeicons:book-02"></span>
       </a>
-      <a class="text-gray-400" href="#">
+      <a href="#" class="text-gray-400">
         <span class="iconify text-xl" data-icon="hugeicons:discovery-01"></span>
       </a>
-      <a class="text-gray-400" href="#">
+      <a href="#" class="text-gray-400">
         <span class="iconify text-xl" data-icon="hugeicons:user-circle"></span>
       </a>
     </div>
   </div>
 </template>
-
-<script setup lang="ts">
-</script>
-
-<style scoped>
-.home-page {
-  min-height: 100vh;
-  font-family: 'Noto Sans SC', sans-serif;
-  background-color: #fdfcf8;
-  color: #1a1a1a;
-}
-
-.serif {
-  font-family: 'Noto Serif SC', serif;
-}
-
-.glass-nav {
-  background: rgba(253, 252, 248, 0.8);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.book-card:hover {
-  transform: translateY(-8px) scale(1.02);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08);
-}
-
-.custom-scroll::-webkit-scrollbar {
-  height: 4px;
-}
-
-.custom-scroll::-webkit-scrollbar-thumb {
-  background: #e5e7eb;
-  border-radius: 10px;
-}
-</style>
 
