@@ -1,4 +1,6 @@
 <template>
+
+  
   <div class="selection:bg-amber-100">
     <!-- 1. 顶部导航栏 -->
     <nav class="glass-nav fixed top-0 w-full z-50">
@@ -15,6 +17,7 @@
             <a href="#" class="hover:text-black transition-colors">出版前瞻</a>
           </div>
         </div>
+        <p class="text-red-600 text-3xl font-bold">Tailwind 生效时这里是红色大字</p>
         <div class="flex-1 max-w-xl mx-8 relative hidden lg:block">
           <span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
             <span class="iconify" data-icon="hugeicons:search-02"></span>

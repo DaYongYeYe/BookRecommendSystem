@@ -1,8 +1,15 @@
 <template>
   <div class="auth-page">
     <el-card class="auth-card">
-      <h2 class="title">图书推荐系统 - 注册</h2>
-      <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">
+      <h2 class="title">后台管理 - 注册</h2>
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        title="需要管理员注册码（ADMIN_REGISTER_CODE）"
+        style="margin-bottom: 16px"
+      />
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="form.username" autocomplete="username" />
         </el-form-item>
@@ -10,34 +17,20 @@
           <el-input v-model="form.email" autocomplete="email" />
         </el-form-item>
         <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="form.password"
-            type="password"
-            show-password
-            autocomplete="new-password"
-          />
+          <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
         </el-form-item>
         <el-form-item label="确认密码" prop="confirmPassword">
-          <el-input
-            v-model="form.confirmPassword"
-            type="password"
-            show-password
-            autocomplete="new-password"
-          />
+          <el-input v-model="form.confirmPassword" type="password" show-password autocomplete="new-password" />
+        </el-form-item>
+        <el-form-item label="管理员注册码" prop="register_code">
+          <el-input v-model="form.register_code" />
         </el-form-item>
         <el-form-item>
-          <el-button
-            type="primary"
-            :loading="loading"
-            style="width: 100%"
-            @click="onSubmit"
-          >
-            注册
-          </el-button>
+          <el-button type="primary" :loading="loading" style="width: 100%" @click="onSubmit">注册管理员</el-button>
         </el-form-item>
         <el-form-item>
           <div class="footer-text">
-            已有账号？
+            已有管理员账号？
             <el-link type="primary" @click="goLogin">去登录</el-link>
           </div>
         </el-form-item>
@@ -50,10 +43,9 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, FormInstance, FormRules } from 'element-plus'
-import { register } from '../api/auth'
+import { adminRegister } from '../../api/admin'
 
 const router = useRouter()
-
 const formRef = ref<FormInstance>()
 const loading = ref(false)
 
@@ -62,6 +54,7 @@ const form = reactive({
   email: '',
   password: '',
   confirmPassword: '',
+  register_code: '',
 })
 
 const rules: FormRules = {
@@ -84,6 +77,7 @@ const rules: FormRules = {
       trigger: ['blur', 'change'],
     },
   ],
+  register_code: [{ required: true, message: '请输入管理员注册码', trigger: 'blur' }],
 }
 
 const onSubmit = () => {
@@ -92,16 +86,16 @@ const onSubmit = () => {
     if (!valid) return
     loading.value = true
     try {
-      await register({
+      await adminRegister({
         username: form.username,
         email: form.email,
         password: form.password,
+        register_code: form.register_code,
       })
-      ElMessage.success('注册成功，请登录')
-      router.push('/login')
+      ElMessage.success('管理员注册成功，请登录')
+      router.push('/manage/login')
     } catch (error: any) {
-      const msg = error?.response?.data?.error || '注册失败'
-      ElMessage.error(msg)
+      ElMessage.error(error?.response?.data?.error || '注册失败')
     } finally {
       loading.value = false
     }
@@ -109,7 +103,7 @@ const onSubmit = () => {
 }
 
 const goLogin = () => {
-  router.push('/login')
+  router.push('/manage/login')
 }
 </script>
 
@@ -123,7 +117,7 @@ const goLogin = () => {
 }
 
 .auth-card {
-  width: 400px;
+  width: 460px;
 }
 
 .title {
@@ -136,4 +130,3 @@ const goLogin = () => {
   text-align: right;
 }
 </style>
-

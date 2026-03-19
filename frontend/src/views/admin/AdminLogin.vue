@@ -1,32 +1,20 @@
 <template>
   <div class="auth-page">
     <el-card class="auth-card">
-      <h2 class="title">图书推荐系统 - 登录</h2>
-      <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">
+      <h2 class="title">后台管理 - 登录</h2>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="form.username" autocomplete="username" />
         </el-form-item>
         <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="form.password"
-            type="password"
-            show-password
-            autocomplete="current-password"
-          />
+          <el-input v-model="form.password" type="password" show-password autocomplete="current-password" />
         </el-form-item>
         <el-form-item>
-          <el-button
-            type="primary"
-            :loading="loading"
-            style="width: 100%"
-            @click="onSubmit"
-          >
-            登录
-          </el-button>
+          <el-button type="primary" :loading="loading" style="width: 100%" @click="onSubmit">登录管理端</el-button>
         </el-form-item>
         <el-form-item>
           <div class="footer-text">
-            还没有账号？
+            没有管理员账号？
             <el-link type="primary" @click="goRegister">去注册</el-link>
           </div>
         </el-form-item>
@@ -39,14 +27,14 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, FormInstance, FormRules } from 'element-plus'
-import { login } from '../api/auth'
+import { adminLogin } from '../../api/admin'
+import { setToken } from '../../api/request'
 
 const router = useRouter()
 const route = useRoute()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
-
 const form = reactive({
   username: '',
   password: '',
@@ -63,13 +51,15 @@ const onSubmit = () => {
     if (!valid) return
     loading.value = true
     try {
-      await login(form)
-      ElMessage.success('登录成功')
-      const redirect = (route.query.redirect as string) || '/'
+      const res = await adminLogin(form)
+      if (res.token) {
+        setToken(res.token)
+      }
+      ElMessage.success('管理员登录成功')
+      const redirect = (route.query.redirect as string) || '/manage/dashboard'
       router.push(redirect)
     } catch (error: any) {
-      const msg = error?.response?.data?.error || '登录失败'
-      ElMessage.error(msg)
+      ElMessage.error(error?.response?.data?.error || '登录失败')
     } finally {
       loading.value = false
     }
@@ -77,7 +67,7 @@ const onSubmit = () => {
 }
 
 const goRegister = () => {
-  router.push('/register')
+  router.push('/manage/register')
 }
 </script>
 
@@ -91,7 +81,7 @@ const goRegister = () => {
 }
 
 .auth-card {
-  width: 400px;
+  width: 420px;
 }
 
 .title {
@@ -104,4 +94,3 @@ const goRegister = () => {
   text-align: right;
 }
 </style>
-

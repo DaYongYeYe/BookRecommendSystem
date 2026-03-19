@@ -8,14 +8,20 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
+    # Werkzeug scrypt hashes are longer than legacy pbkdf2 hashes.
+    password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='user')  # user or admin
     
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
     
     def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+        # Some historical/imported records may contain invalid hash strings.
+        # Treat them as authentication failures instead of raising 500.
+        try:
+            return check_password_hash(self.password_hash, password)
+        except (ValueError, TypeError):
+            return False
     
     def is_admin(self):
         return self.role == 'admin'
@@ -88,4 +94,38 @@ class UserRole(db.Model):
             'id': self.id,
             'user_id': self.user_id,
             'role_id': self.role_id
+        }
+
+
+class Book(db.Model):
+    __tablename__ = 'books'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    subtitle = db.Column(db.String(255))
+    author = db.Column(db.String(255))
+    description = db.Column(db.Text)
+    cover = db.Column(db.String(500))
+    score = db.Column(db.Float)
+    rating = db.Column(db.Float)
+    rating_count = db.Column(db.BigInteger, default=0)
+    recent_reads = db.Column(db.BigInteger, default=0)
+    is_featured = db.Column(db.Boolean, default=False)
+    category_id = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'subtitle': self.subtitle,
+            'author': self.author,
+            'description': self.description,
+            'cover': self.cover,
+            'score': self.score,
+            'rating': self.rating,
+            'rating_count': int(self.rating_count or 0),
+            'recent_reads': int(self.recent_reads or 0),
+            'is_featured': bool(self.is_featured),
+            'category_id': self.category_id
         }

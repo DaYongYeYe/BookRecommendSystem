@@ -36,6 +36,7 @@ htmlcov/
 # 本地配置/敏感信息（如有）
 .env
 .env.*
+!.env.example
 *.sqlite3
 
 ########################

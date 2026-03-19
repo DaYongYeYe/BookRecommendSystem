@@ -179,7 +179,3 @@
 1. MySQL / Redis 是否启动且连接配置正确；
 2. 数据库是否已经执行过 `schema.sql`；
 3. 前端请求的后端基地址是否与 Flask 实际监听地址一致。
-
-4. 页面效果图
-
-![img.png](img.png)![img_1.png](img_1.png)![img_2.png](img_2.png)

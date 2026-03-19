@@ -16,7 +16,7 @@ export function clearToken() {
 }
 
 const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '',
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000',
   timeout: 10000,
 })
 
@@ -43,9 +43,11 @@ request.interceptors.response.use(
       clearToken()
       if (!isRedirecting) {
         isRedirecting = true
+        const isAdminPage = router.currentRoute.value.path.startsWith('/manage')
+        const loginPath = isAdminPage ? '/manage/login' : '/login'
         router
           .push({
-            path: '/login',
+            path: loginPath,
             query: { redirect: router.currentRoute.value.fullPath },
           })
           .finally(() => {
