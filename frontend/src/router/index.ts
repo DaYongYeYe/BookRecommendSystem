@@ -14,8 +14,10 @@ import AdminDashboard from '@/views/admin/AdminDashboard.vue'
 import AdminComments from '@/views/admin/AdminComments.vue'
 import AdminBooks from '@/views/admin/AdminBooks.vue'
 import AdminUsers from '@/views/admin/AdminUsers.vue'
+import AdminManuscriptsReview from '@/views/admin/AdminManuscriptsReview.vue'
+import CreatorManuscripts from '@/views/creator/CreatorManuscripts.vue'
 import { getToken } from '@/api/request'
-import { isAdminToken } from '@/utils/auth'
+import { isAdminToken, isCreatorToken } from '@/utils/auth'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -119,7 +121,18 @@ const routes: RouteRecordRaw[] = [
         name: 'AdminUsers',
         component: AdminUsers,
       },
+      {
+        path: 'manuscripts/review',
+        name: 'AdminManuscriptsReview',
+        component: AdminManuscriptsReview,
+      },
     ],
+  },
+  {
+    path: '/creator/manuscripts',
+    name: 'CreatorManuscripts',
+    component: CreatorManuscripts,
+    meta: { requiresAuth: true, requiresCreator: true },
   },
 ]
 
@@ -152,6 +165,21 @@ router.beforeEach((to, _from, next) => {
 
     if (!isAdminToken()) {
       next({ path: '/login' })
+      return
+    }
+  }
+
+  if (to.meta.requiresCreator) {
+    const token = getToken()
+    if (!token) {
+      next({
+        path: '/login',
+        query: { redirect: to.fullPath },
+      })
+      return
+    }
+    if (!isCreatorToken()) {
+      next({ path: '/' })
       return
     }
   }

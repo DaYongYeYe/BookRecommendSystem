@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="admin-layout">
     <el-container class="admin-container">
       <el-aside width="220px" class="aside">
@@ -15,6 +15,10 @@
           <el-menu-item index="/manage/books">
             <el-icon><Reading /></el-icon>
             <span>书本管理</span>
+          </el-menu-item>
+          <el-menu-item index="/manage/manuscripts/review">
+            <el-icon><Document /></el-icon>
+            <span>稿件审核</span>
           </el-menu-item>
           <el-menu-item index="/manage/users">
             <el-icon><User /></el-icon>
@@ -39,7 +43,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ChatDotRound, House, Reading, User } from '@element-plus/icons-vue'
+import { ChatDotRound, Document, House, Reading, User } from '@element-plus/icons-vue'
 import { clearToken } from '../../api/request'
 
 const route = useRoute()
@@ -50,6 +54,7 @@ const activeMenu = computed(() => route.path)
 const pageTitle = computed(() => {
   if (route.path.startsWith('/manage/comments')) return '评论管理'
   if (route.path.startsWith('/manage/books')) return '书本管理'
+  if (route.path.startsWith('/manage/manuscripts/review')) return '稿件审核'
   if (route.path.startsWith('/manage/users')) return '用户管理'
   return '首页'
 })

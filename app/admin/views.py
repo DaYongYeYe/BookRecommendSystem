@@ -4,8 +4,9 @@ import jwt
 from flask import request, jsonify, current_app
 from app.admin import bp
 from app import db
-from app.models import User, Book
+from app.models import User, Book, BookManuscript
 from app.rbac.decorators import admin_required
+from app.services.publishing_service import publish_manuscript
 
 
 @bp.route('/auth/register', methods=['POST'])
@@ -121,7 +122,7 @@ def create_user(current_user):
 
     if not username or not email or not password:
         return jsonify({'error': '用户名、邮箱和密码是必需的'}), 400
-    if role not in ['user', 'admin']:
+    if role not in ['user', 'admin', 'creator', 'editor']:
         return jsonify({'error': '角色必须是"user"或"admin"'}), 400
 
     if User.query.filter_by(username=username).first():
@@ -172,7 +173,7 @@ def update_user(current_user, user_id):
         user.email = data['email']
     
     if 'role' in data:
-        if data['role'] in ['user', 'admin']:
+        if data['role'] in ['user', 'admin', 'creator', 'editor']:
             user.role = data['role']
         else:
             return jsonify({'error': '角色必须是"user"或"admin"'}), 400
@@ -357,3 +358,63 @@ def delete_book(current_user, book_id):
     db.session.delete(book)
     db.session.commit()
     return jsonify({'message': '图书删除成功'}), 200
+
+@bp.route('/manuscripts', methods=['GET'])
+@admin_required
+def get_manuscripts(current_user):
+    status = (request.args.get('status') or '').strip()
+    creator_id = request.args.get('creator_id')
+
+    query = BookManuscript.query
+    if status:
+        query = query.filter_by(status=status)
+    if creator_id not in (None, ''):
+        try:
+            query = query.filter_by(creator_id=int(creator_id))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid creator_id'}), 400
+
+    manuscripts = query.order_by(BookManuscript.updated_at.desc(), BookManuscript.id.desc()).all()
+    return jsonify({'items': [row.to_dict() for row in manuscripts]}), 200
+
+
+@bp.route('/manuscripts/<int:manuscript_id>/review', methods=['POST'])
+@admin_required
+def review_manuscript(current_user, manuscript_id):
+    manuscript = BookManuscript.query.get(manuscript_id)
+    if not manuscript:
+        return jsonify({'error': 'manuscript not found'}), 404
+
+    payload = request.get_json() or {}
+    action = (payload.get('action') or '').strip().lower()
+    review_comment = (payload.get('review_comment') or '').strip() or None
+    if action not in ('approve', 'reject'):
+        return jsonify({'error': 'action must be approve or reject'}), 400
+    if manuscript.status not in ('submitted', 'approved', 'rejected'):
+        return jsonify({'error': 'manuscript is not in reviewable status'}), 400
+
+    manuscript.reviewed_by = current_user.id
+    manuscript.reviewed_at = datetime.utcnow()
+    manuscript.review_comment = review_comment
+    manuscript.status = 'approved' if action == 'approve' else 'rejected'
+    db.session.commit()
+    return jsonify({'message': 'review updated', 'manuscript': manuscript.to_dict()}), 200
+
+
+@bp.route('/manuscripts/<int:manuscript_id>/publish', methods=['POST'])
+@admin_required
+def publish_reviewed_manuscript(current_user, manuscript_id):
+    manuscript = BookManuscript.query.get(manuscript_id)
+    if not manuscript:
+        return jsonify({'error': 'manuscript not found'}), 404
+
+    version, error = publish_manuscript(manuscript, current_user)
+    if error:
+        return jsonify({'error': error}), 400
+
+    return jsonify({
+        'message': 'manuscript published',
+        'book_id': manuscript.book_id,
+        'manuscript': manuscript.to_dict(),
+        'version': version.to_dict(),
+    }), 200

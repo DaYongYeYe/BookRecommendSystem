@@ -24,6 +24,10 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true,
       },
+      '/creator': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
       '/rbac': {
         target: 'http://localhost:5000',
         changeOrigin: true,

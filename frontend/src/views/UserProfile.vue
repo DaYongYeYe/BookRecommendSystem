@@ -1,8 +1,9 @@
-<script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+﻿<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { getUserProfile, updateUserProfile, type UserProfile } from '@/api/user'
+import { isCreatorToken } from '@/utils/auth'
 
 const router = useRouter()
 const loading = ref(false)
@@ -16,6 +17,8 @@ const form = reactive({
 
 const defaultAvatar =
   'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=240&q=80'
+
+const canOpenCreator = computed(() => isCreatorToken())
 
 async function loadProfile() {
   loading.value = true
@@ -55,7 +58,16 @@ onMounted(loadProfile)
   <div class="min-h-screen bg-stone-100 px-4 py-10 text-stone-900">
     <div class="mx-auto max-w-4xl">
       <div class="mb-4 flex items-center justify-between">
-        <button class="rounded-full border border-stone-300 px-4 py-2 text-sm" @click="router.push('/')">返回首页</button>
+        <div class="flex items-center gap-2">
+          <button class="rounded-full border border-stone-300 px-4 py-2 text-sm" @click="router.push('/')">返回首页</button>
+          <button
+            v-if="canOpenCreator"
+            class="rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700"
+            @click="router.push('/creator/manuscripts')"
+          >
+            创作者工作台
+          </button>
+        </div>
         <button class="rounded-full bg-stone-900 px-4 py-2 text-sm text-white" @click="router.push('/user/library')">
           我的阅读
         </button>

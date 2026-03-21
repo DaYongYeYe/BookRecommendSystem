@@ -20,13 +20,13 @@ export interface AdminCreateUserPayload {
   username: string
   email: string
   password: string
-  role: 'user' | 'admin'
+  role: 'user' | 'admin' | 'creator' | 'editor'
 }
 
 export interface AdminUpdateUserPayload {
   username?: string
   email?: string
-  role?: 'user' | 'admin'
+  role?: 'user' | 'admin' | 'creator' | 'editor'
 }
 
 export interface AdminUsersResponse {
@@ -34,7 +34,7 @@ export interface AdminUsersResponse {
     id: number
     username: string
     email: string
-    role: 'user' | 'admin'
+    role: 'user' | 'admin' | 'creator' | 'editor'
   }>
   pagination?: {
     total: number
@@ -85,6 +85,24 @@ export interface AdminCreateBookPayload {
 
 export interface AdminUpdateBookPayload extends Partial<AdminCreateBookPayload> {}
 
+export interface AdminManuscriptItem {
+  id: number
+  book_id: number
+  creator_id: number
+  title: string
+  cover?: string | null
+  description?: string | null
+  content_text?: string | null
+  status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'published'
+  review_comment?: string | null
+  submitted_at?: string | null
+  reviewed_at?: string | null
+  reviewed_by?: number | null
+  published_at?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
 export function adminLogin(data: AdminLoginPayload) {
   return request.post<AdminLoginResponse, AdminLoginResponse>('/admin/auth/login', data)
 }
@@ -127,4 +145,21 @@ export function updateAdminBook(bookId: number, data: AdminUpdateBookPayload) {
 
 export function deleteAdminBook(bookId: number) {
   return request.delete(`/admin/books/${bookId}`)
+}
+
+export function getAdminManuscripts(params?: { status?: string; creator_id?: number }) {
+  return request.get<{ items: AdminManuscriptItem[] }, { items: AdminManuscriptItem[] }>('/admin/manuscripts', {
+    params,
+  })
+}
+
+export function reviewAdminManuscript(
+  manuscriptId: number,
+  data: { action: 'approve' | 'reject'; review_comment?: string }
+) {
+  return request.post(`/admin/manuscripts/${manuscriptId}/review`, data)
+}
+
+export function publishAdminManuscript(manuscriptId: number) {
+  return request.post(`/admin/manuscripts/${manuscriptId}/publish`)
 }

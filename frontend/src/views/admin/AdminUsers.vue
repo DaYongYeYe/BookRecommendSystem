@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="admin-page">
     <div class="toolbar">
       <h2>用户管理</h2>
@@ -16,7 +16,7 @@
         <el-table-column prop="email" label="邮箱" />
         <el-table-column prop="role" label="角色" width="120">
           <template #default="{ row }">
-            <el-tag :type="row.role === 'admin' ? 'danger' : 'info'">{{ row.role }}</el-tag>
+            <el-tag :type="roleTagType(row.role)">{{ row.role }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="300">
@@ -50,6 +50,8 @@
           <el-select v-model="createForm.role" style="width: 100%">
             <el-option label="普通用户" value="user" />
             <el-option label="管理员" value="admin" />
+            <el-option label="创作者" value="creator" />
+            <el-option label="编辑" value="editor" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -67,6 +69,8 @@
           <el-select v-model="editForm.role" style="width: 100%">
             <el-option label="普通用户" value="user" />
             <el-option label="管理员" value="admin" />
+            <el-option label="创作者" value="creator" />
+            <el-option label="编辑" value="editor" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -101,11 +105,13 @@ import {
   updateAdminUser,
 } from '../../api/admin'
 
+type UserRole = 'user' | 'admin' | 'creator' | 'editor'
+
 type UserItem = {
   id: number
   username: string
   email: string
-  role: 'user' | 'admin'
+  role: UserRole
 }
 
 const users = ref<UserItem[]>([])
@@ -122,7 +128,7 @@ const createForm = reactive({
   username: '',
   email: '',
   password: '',
-  role: 'user' as 'user' | 'admin',
+  role: 'user' as UserRole,
 })
 const createRules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -141,7 +147,7 @@ const editFormRef = ref<FormInstance>()
 const editForm = reactive({
   username: '',
   email: '',
-  role: 'user' as 'user' | 'admin',
+  role: 'user' as UserRole,
 })
 const editRules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -161,6 +167,13 @@ const resetForm = reactive({
 })
 const resetRules: FormRules = {
   newPassword: [{ required: true, message: '请输入新密码', trigger: 'blur' }],
+}
+
+const roleTagType = (role: UserRole) => {
+  if (role === 'admin') return 'danger'
+  if (role === 'creator') return 'success'
+  if (role === 'editor') return 'warning'
+  return 'info'
 }
 
 const loadUsers = async () => {
@@ -256,7 +269,7 @@ const openResetDialog = (row: UserItem) => {
 
 const onResetPassword = async () => {
   const userId = resetUserId.value
-  if (!resetFormRef.value || userId === null) return
+  if (!resetFormRef.value || userId == null) return
   resetFormRef.value.validate(async (valid) => {
     if (!valid) return
     resetLoading.value = true
@@ -274,9 +287,7 @@ const onResetPassword = async () => {
 
 const onDelete = async (row: UserItem) => {
   try {
-    await ElMessageBox.confirm(`确认删除用户 "${row.username}" 吗？`, '提示', {
-      type: 'warning',
-    })
+    await ElMessageBox.confirm(`确认删除用户 "${row.username}" 吗？`, '提示', { type: 'warning' })
     await deleteAdminUser(row.id)
     ElMessage.success('删除成功')
     loadUsers()

@@ -7,6 +7,8 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS `book_chapters`;
+DROP TABLE IF EXISTS `book_versions`;
+DROP TABLE IF EXISTS `book_manuscripts`;
 DROP TABLE IF EXISTS `book_rankings`;
 DROP TABLE IF EXISTS `book_tags`;
 DROP TABLE IF EXISTS `books`;
@@ -137,10 +139,55 @@ CREATE TABLE `books` (
   `recent_reads`  BIGINT UNSIGNED DEFAULT 0,
   `is_featured`   TINYINT(1) NOT NULL DEFAULT 0,
   `category_id`   BIGINT UNSIGNED DEFAULT NULL,
+  `status`        VARCHAR(20) NOT NULL DEFAULT 'published',
+  `creator_id`    BIGINT UNSIGNED DEFAULT NULL,
+  `published_at`  DATETIME DEFAULT NULL,
   `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_books_category` (`category_id`),
   CONSTRAINT `fk_books_category` FOREIGN KEY (`category_id`) REFERENCES `categories`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `book_manuscripts` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `book_id`       BIGINT UNSIGNED NOT NULL,
+  `creator_id`    BIGINT UNSIGNED NOT NULL,
+  `title`         VARCHAR(255) NOT NULL,
+  `cover`         VARCHAR(500) DEFAULT NULL,
+  `description`   TEXT,
+  `content_text`  LONGTEXT,
+  `status`        VARCHAR(20) NOT NULL DEFAULT 'draft',
+  `review_comment` TEXT,
+  `submitted_at`  DATETIME DEFAULT NULL,
+  `reviewed_at`   DATETIME DEFAULT NULL,
+  `reviewed_by`   BIGINT UNSIGNED DEFAULT NULL,
+  `published_at`  DATETIME DEFAULT NULL,
+  `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_bm_book` (`book_id`),
+  KEY `idx_bm_creator` (`creator_id`),
+  KEY `idx_bm_status` (`status`),
+  CONSTRAINT `fk_bm_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bm_creator` FOREIGN KEY (`creator_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `book_versions` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `book_id`       BIGINT UNSIGNED NOT NULL,
+  `manuscript_id` BIGINT UNSIGNED DEFAULT NULL,
+  `version_no`    INT NOT NULL,
+  `title`         VARCHAR(255) NOT NULL,
+  `cover`         VARCHAR(500) DEFAULT NULL,
+  `description`   TEXT,
+  `content_text`  LONGTEXT,
+  `created_by`    BIGINT UNSIGNED DEFAULT NULL,
+  `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_book_version_no` (`book_id`, `version_no`),
+  KEY `idx_bv_book` (`book_id`),
+  CONSTRAINT `fk_bv_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bv_manuscript` FOREIGN KEY (`manuscript_id`) REFERENCES `book_manuscripts`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `book_tags` (

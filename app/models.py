@@ -116,6 +116,9 @@ class Book(db.Model):
     recent_reads = db.Column(db.BigInteger, default=0)
     is_featured = db.Column(db.Boolean, default=False)
     category_id = db.Column(db.Integer)
+    status = db.Column(db.String(20), nullable=False, default='published')
+    creator_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    published_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime)
 
     def to_dict(self):
@@ -131,7 +134,10 @@ class Book(db.Model):
             'rating_count': int(self.rating_count or 0),
             'recent_reads': int(self.recent_reads or 0),
             'is_featured': bool(self.is_featured),
-            'category_id': self.category_id
+            'category_id': self.category_id,
+            'status': self.status or 'published',
+            'creator_id': self.creator_id,
+            'published_at': self.published_at.isoformat() if self.published_at else None,
         }
 
 
@@ -261,3 +267,73 @@ class ReaderBookComment(db.Model):
     author = db.Column(db.String(64), nullable=False, default='当前读者')
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+
+class BookManuscript(db.Model):
+    __tablename__ = 'book_manuscripts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    creator_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    title = db.Column(db.String(255), nullable=False)
+    cover = db.Column(db.String(500))
+    description = db.Column(db.Text)
+    content_text = db.Column(db.Text)
+    status = db.Column(db.String(20), nullable=False, default='draft')
+    review_comment = db.Column(db.Text)
+    submitted_at = db.Column(db.DateTime)
+    reviewed_at = db.Column(db.DateTime)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    published_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'book_id': self.book_id,
+            'creator_id': self.creator_id,
+            'title': self.title,
+            'cover': self.cover,
+            'description': self.description,
+            'content_text': self.content_text,
+            'status': self.status,
+            'review_comment': self.review_comment,
+            'submitted_at': self.submitted_at.isoformat() if self.submitted_at else None,
+            'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None,
+            'reviewed_by': self.reviewed_by,
+            'published_at': self.published_at.isoformat() if self.published_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class BookVersion(db.Model):
+    __tablename__ = 'book_versions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    manuscript_id = db.Column(db.Integer, db.ForeignKey('book_manuscripts.id'))
+    version_no = db.Column(db.Integer, nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    cover = db.Column(db.String(500))
+    description = db.Column(db.Text)
+    content_text = db.Column(db.Text)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('book_id', 'version_no', name='uniq_book_version_no'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'book_id': self.book_id,
+            'manuscript_id': self.manuscript_id,
+            'version_no': self.version_no,
+            'title': self.title,
+            'cover': self.cover,
+            'description': self.description,
+            'content_text': self.content_text,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }

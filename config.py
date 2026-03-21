@@ -19,3 +19,6 @@ class Config:
     JWT_EXPIRES_IN = int(os.environ.get('JWT_EXPIRES_IN', 7200))  # 单位：秒，默认2小时
     # 管理员注册码（为空时禁止管理员自行注册）
     ADMIN_REGISTER_CODE = os.environ.get('ADMIN_REGISTER_CODE', '')
+    UPLOAD_DIR = os.environ.get('UPLOAD_DIR') or os.path.join('instance', 'uploads')
+    COVER_UPLOAD_SUBDIR = os.environ.get('COVER_UPLOAD_SUBDIR', 'book_covers')
+    MAX_COVER_UPLOAD_SIZE = int(os.environ.get('MAX_COVER_UPLOAD_SIZE', 5 * 1024 * 1024))

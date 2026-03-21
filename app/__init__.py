@@ -1,4 +1,6 @@
-from flask import Flask
+import os
+
+from flask import Flask, send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_redis import FlaskRedis
@@ -52,6 +54,79 @@ def _apply_schema_compatibility_patches(app: Flask):
                 .replace('{user_id_type}', user_id_type)
             )
 
+        if 'books' in table_names:
+            book_columns = {col['name'] for col in inspector.get_columns('books')}
+            if 'status' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'published'")
+            if 'creator_id' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN creator_id BIGINT NULL")
+            if 'published_at' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN published_at DATETIME NULL")
+
+        users_id_type = 'BIGINT'
+        users_id_column = next((col for col in inspector.get_columns('users') if col.get('name') == 'id'), None)
+        if users_id_column:
+            raw_type = str(users_id_column.get('type', '')).upper()
+            if 'INT' in raw_type and 'BIGINT' not in raw_type:
+                users_id_type = 'INT'
+            if 'UNSIGNED' in raw_type:
+                users_id_type = f'{users_id_type} UNSIGNED'
+
+        books_id_type = 'BIGINT'
+        if 'books' in table_names:
+            books_id_column = next((col for col in inspector.get_columns('books') if col.get('name') == 'id'), None)
+            if books_id_column:
+                raw_type = str(books_id_column.get('type', '')).upper()
+                if 'INT' in raw_type and 'BIGINT' not in raw_type:
+                    books_id_type = 'INT'
+                if 'UNSIGNED' in raw_type:
+                    books_id_type = f'{books_id_type} UNSIGNED'
+
+        if 'book_manuscripts' not in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE book_manuscripts (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    book_id {books_id_type} NOT NULL,
+                    creator_id {users_id_type} NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    cover VARCHAR(500) NULL,
+                    description TEXT NULL,
+                    content_text LONGTEXT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+                    review_comment TEXT NULL,
+                    submitted_at DATETIME NULL,
+                    reviewed_at DATETIME NULL,
+                    reviewed_by {users_id_type} NULL,
+                    published_at DATETIME NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    KEY idx_book_manuscripts_book (book_id),
+                    KEY idx_book_manuscripts_creator (creator_id)
+                )
+                """
+            )
+
+        if 'book_versions' not in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE book_versions (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    book_id {books_id_type} NOT NULL,
+                    manuscript_id BIGINT UNSIGNED NULL,
+                    version_no INT NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    cover VARCHAR(500) NULL,
+                    description TEXT NULL,
+                    content_text LONGTEXT NULL,
+                    created_by {users_id_type} NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_book_version_no (book_id, version_no),
+                    KEY idx_book_versions_book (book_id)
+                )
+                """
+            )
+
         if not patches:
             return
 
@@ -94,12 +169,20 @@ def create_app(config_class=Config):
     
     from app.admin import bp as admin_bp
     app.register_blueprint(admin_bp, url_prefix='/admin')
+
+    from app.creator import bp as creator_bp
+    app.register_blueprint(creator_bp, url_prefix='/creator')
     
     from app.rbac import bp as rbac_bp
     app.register_blueprint(rbac_bp, url_prefix='/rbac')
 
     from app.api import bp as api_bp
     app.register_blueprint(api_bp, url_prefix='/api')
+
+    @app.route('/uploads/<path:filename>', methods=['GET'])
+    def uploaded_files(filename):
+        upload_root = app.config.get('UPLOAD_DIR') or os.path.join(app.instance_path, 'uploads')
+        return send_from_directory(upload_root, filename)
     
     @app.cli.command('init-db')
     def init_db_command():

@@ -249,3 +249,44 @@ WHERE u.username = 'admin' AND r.name = 'admin';
 -- 授权 book_user 用户访问数据库
 GRANT ALL PRIVILEGES ON book_recommend_db.* TO 'book_user'@'%';
 FLUSH PRIVILEGES;
+
+-- Draft / Review / Publish workflow
+ALTER TABLE books ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'published';
+ALTER TABLE books ADD COLUMN creator_id INT DEFAULT NULL;
+ALTER TABLE books ADD COLUMN published_at DATETIME DEFAULT NULL;
+
+CREATE TABLE IF NOT EXISTS book_manuscripts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    book_id INT NOT NULL,
+    creator_id INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    cover VARCHAR(500),
+    description TEXT,
+    content_text LONGTEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    review_comment TEXT,
+    submitted_at DATETIME,
+    reviewed_at DATETIME,
+    reviewed_by INT,
+    published_at DATETIME,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
+    FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS book_versions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    book_id INT NOT NULL,
+    manuscript_id INT,
+    version_no INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    cover VARCHAR(500),
+    description TEXT,
+    content_text LONGTEXT,
+    created_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_book_version_no (book_id, version_no),
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
+    FOREIGN KEY (manuscript_id) REFERENCES book_manuscripts(id) ON DELETE SET NULL
+);

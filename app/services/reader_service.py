@@ -148,6 +148,8 @@ def build_reader_payload(book_id: int):
     book = Book.query.get(book_id)
     if not book:
         return None
+    if (book.status or 'published') != 'published':
+        return None
 
     sections = ReaderSection.query.filter_by(book_id=book_id).order_by(ReaderSection.order_no.asc()).all()
     section_ids = [item.id for item in sections]

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="admin-page">
     <div class="toolbar">
       <h2>书本管理</h2>
@@ -14,6 +14,7 @@
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="title" label="书名" min-width="180" />
         <el-table-column prop="author" label="作者" width="160" />
+        <el-table-column prop="status" label="状态" width="100" />
         <el-table-column prop="rating" label="评分" width="90" />
         <el-table-column prop="rating_count" label="评分人数" width="110" />
         <el-table-column prop="recent_reads" label="近期阅读" width="110" />

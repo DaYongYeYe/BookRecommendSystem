@@ -30,3 +30,11 @@ export function isAdminToken(): boolean {
   if (!payload) return false
   return payload.is_admin === true || payload.role === 'admin'
 }
+
+export function isCreatorToken(): boolean {
+  const token = getToken()
+  if (!token) return false
+  const payload = decodeJwtPayload(token)
+  if (!payload) return false
+  return payload.role === 'creator' || payload.role === 'admin'
+}
