@@ -17,7 +17,6 @@
             <a href="#" class="hover:text-black transition-colors">出版前瞻</a>
           </div>
         </div>
-        <p class="text-red-600 text-3xl font-bold">Tailwind 生效时这里是红色大字</p>
         <div class="flex-1 max-w-xl mx-8 relative hidden lg:block">
           <span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
             <span class="iconify" data-icon="hugeicons:search-02"></span>
@@ -69,12 +68,13 @@
             罗新教授新作。这不是一部高头讲章式的史学著作，而是一位女性史家对命运、记忆与时间的深度注视。
           </p>
           <div class="flex flex-wrap gap-4">
-            <button
+            <router-link
+              to="/books/1/entry"
               class="bg-white text-black px-8 py-4 rounded-full font-bold flex items-center gap-2 hover:bg-amber-50 transition-colors shadow-lg shadow-white/10"
             >
               <span class="iconify" data-icon="hugeicons:book-open-01"></span>
               立即试读
-            </button>
+            </router-link>
             <button class="border border-white/20 hover:bg-white/10 px-8 py-4 rounded-full font-bold transition-all">
               加入书架
             </button>

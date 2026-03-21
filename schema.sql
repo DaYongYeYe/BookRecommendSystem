@@ -134,6 +134,93 @@ CREATE TABLE `book_chapters` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ======================
+-- 用户阅读进度（首页续读）
+-- ======================
+
+CREATE TABLE `user_reading_progress` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`       BIGINT UNSIGNED NOT NULL,
+  `book_id`       BIGINT UNSIGNED NOT NULL,
+  `section_id`    VARCHAR(64) DEFAULT NULL,
+  `paragraph_id`  VARCHAR(64) DEFAULT NULL,
+  `scroll_percent` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+  `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_user_book_progress` (`user_id`, `book_id`),
+  KEY `idx_urp_user` (`user_id`),
+  KEY `idx_urp_book` (`book_id`),
+  CONSTRAINT `fk_urp_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_urp_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `reader_sections` (
+  `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `book_id`     BIGINT UNSIGNED NOT NULL,
+  `section_key` VARCHAR(64) NOT NULL,
+  `title`       VARCHAR(255) NOT NULL,
+  `summary`     TEXT,
+  `level`       INT NOT NULL DEFAULT 1,
+  `order_no`    INT NOT NULL DEFAULT 1,
+  `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_reader_section_key` (`book_id`, `section_key`),
+  KEY `idx_reader_sections_book` (`book_id`, `order_no`),
+  CONSTRAINT `fk_reader_sections_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `reader_paragraphs` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `section_id`    BIGINT UNSIGNED NOT NULL,
+  `paragraph_key` VARCHAR(64) NOT NULL,
+  `text`          TEXT NOT NULL,
+  `order_no`      INT NOT NULL DEFAULT 1,
+  `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_reader_paragraph_key` (`section_id`, `paragraph_key`),
+  KEY `idx_reader_paragraphs_section` (`section_id`, `order_no`),
+  CONSTRAINT `fk_reader_paragraphs_section` FOREIGN KEY (`section_id`) REFERENCES `reader_sections`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `reader_highlights` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `book_id`       BIGINT UNSIGNED NOT NULL,
+  `paragraph_key` VARCHAR(64) NOT NULL,
+  `start_offset`  INT NOT NULL,
+  `end_offset`    INT NOT NULL,
+  `selected_text` TEXT NOT NULL,
+  `color`         VARCHAR(32) NOT NULL DEFAULT 'amber',
+  `note`          TEXT,
+  `created_by`    VARCHAR(64) NOT NULL DEFAULT '当前读者',
+  `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_reader_highlights_book` (`book_id`, `paragraph_key`),
+  CONSTRAINT `fk_reader_highlights_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `reader_highlight_comments` (
+  `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `highlight_id` BIGINT UNSIGNED NOT NULL,
+  `author`       VARCHAR(64) NOT NULL DEFAULT '当前读者',
+  `content`      TEXT NOT NULL,
+  `created_at`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_reader_hc_highlight` (`highlight_id`),
+  CONSTRAINT `fk_reader_hc_highlight` FOREIGN KEY (`highlight_id`) REFERENCES `reader_highlights`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `reader_book_comments` (
+  `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `book_id`    BIGINT UNSIGNED NOT NULL,
+  `author`     VARCHAR(64) NOT NULL DEFAULT '当前读者',
+  `content`    TEXT NOT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_reader_book_comments_book` (`book_id`),
+  CONSTRAINT `fk_reader_book_comments_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ======================
 -- 心境（moods） & 基于心境的推荐
 -- ======================
 

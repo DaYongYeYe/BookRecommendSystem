@@ -129,3 +129,91 @@ class Book(db.Model):
             'is_featured': bool(self.is_featured),
             'category_id': self.category_id
         }
+
+
+class UserReadingProgress(db.Model):
+    __tablename__ = 'user_reading_progress'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    section_id = db.Column(db.String(64))
+    paragraph_id = db.Column(db.String(64))
+    scroll_percent = db.Column(db.Float, default=0)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'book_id', name='uniq_user_book_progress'),)
+
+    def to_dict(self):
+        return {
+            'user_id': self.user_id,
+            'book_id': self.book_id,
+            'section_id': self.section_id,
+            'paragraph_id': self.paragraph_id,
+            'scroll_percent': float(self.scroll_percent or 0),
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class ReaderSection(db.Model):
+    __tablename__ = 'reader_sections'
+
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    section_key = db.Column(db.String(64), nullable=False)
+    title = db.Column(db.String(255), nullable=False)
+    summary = db.Column(db.Text)
+    level = db.Column(db.Integer, default=1)
+    order_no = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('book_id', 'section_key', name='uniq_reader_section_key'),)
+
+
+class ReaderParagraph(db.Model):
+    __tablename__ = 'reader_paragraphs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('reader_sections.id'), nullable=False, index=True)
+    paragraph_key = db.Column(db.String(64), nullable=False)
+    text = db.Column(db.Text, nullable=False)
+    order_no = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('section_id', 'paragraph_key', name='uniq_reader_paragraph_key'),)
+
+
+class ReaderHighlight(db.Model):
+    __tablename__ = 'reader_highlights'
+
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    paragraph_key = db.Column(db.String(64), nullable=False, index=True)
+    start_offset = db.Column(db.Integer, nullable=False)
+    end_offset = db.Column(db.Integer, nullable=False)
+    selected_text = db.Column(db.Text, nullable=False)
+    color = db.Column(db.String(32), nullable=False, default='amber')
+    note = db.Column(db.Text)
+    created_by = db.Column(db.String(64), nullable=False, default='当前读者')
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+
+class ReaderHighlightComment(db.Model):
+    __tablename__ = 'reader_highlight_comments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    highlight_id = db.Column(db.Integer, db.ForeignKey('reader_highlights.id'), nullable=False, index=True)
+    author = db.Column(db.String(64), nullable=False, default='当前读者')
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+
+class ReaderBookComment(db.Model):
+    __tablename__ = 'reader_book_comments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    author = db.Column(db.String(64), nullable=False, default='当前读者')
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())

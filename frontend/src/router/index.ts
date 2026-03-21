@@ -2,6 +2,9 @@ import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 import Login from '@/views/Login.vue'
 import Register from '@/views/Register.vue'
 import Home from '@/views/Home.vue'
+import Reader from '@/views/Reader.vue'
+import BookDetail from '@/views/BookDetail.vue'
+import BookEntry from '@/views/BookEntry.vue'
 import AdminLogin from '@/views/admin/AdminLogin.vue'
 import AdminRegister from '@/views/admin/AdminRegister.vue'
 import AdminLayout from '@/views/admin/AdminLayout.vue'
@@ -27,6 +30,25 @@ const routes: RouteRecordRaw[] = [
     path: '/register',
     name: 'Register',
     component: Register,
+  },
+  {
+    path: '/reader/:bookId',
+    name: 'Reader',
+    component: Reader,
+  },
+  {
+    path: '/books/:bookId',
+    name: 'BookDetail',
+    component: BookDetail,
+  },
+  {
+    path: '/books/:bookId/entry',
+    name: 'BookEntry',
+    component: BookEntry,
+  },
+  {
+    path: '/reader',
+    redirect: '/reader/1',
   },
   {
     path: '/manage/login',

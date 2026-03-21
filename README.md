@@ -3,6 +3,8 @@
 前端使用 **Vue 3 + TypeScript + Vite + Element Plus**，后端使用 **Python Flask + SQLAlchemy + MySQL + Redis + JWT**。
 
 
+使用 **OpenAI Codex** 在本仓库自动化开发时，根目录的 [`AGENTS.md`](AGENTS.md) 写有推荐的依赖安装与前后端运行命令（Codex 会按 [官方说明](https://developers.openai.com/codex/guides/agents-md) 自动加载该文件）。
+
 页面效果:
 ![img.png](img.png)
 ![img_1.png](img_1.png)
