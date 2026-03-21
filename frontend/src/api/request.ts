@@ -16,7 +16,8 @@ export function clearToken() {
 }
 
 const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000',
+  // In local dev, prefer same-origin requests so Vite proxy can avoid CORS.
+  baseURL: import.meta.env.VITE_API_BASE_URL || '',
   timeout: 10000,
 })
 

@@ -72,6 +72,14 @@ export interface ReadingProgress {
   updated_at: string | null
 }
 
+export interface ReaderPreferences {
+  theme: 'light' | 'dark'
+  font_size: number
+  show_highlights: boolean
+  show_comments: boolean
+  updated_at?: string | null
+}
+
 export interface CreateHighlightPayload {
   paragraph_id: string
   start_offset: number
@@ -120,4 +128,16 @@ export function saveReadingProgress(
   payload: { section_id: string; paragraph_id?: string; scroll_percent: number }
 ) {
   return request.post<any, { progress: ReadingProgress }>(`/api/books/${bookId}/progress`, payload)
+}
+
+export function addBookToShelf(bookId: string | number) {
+  return request.post<any, { message: string; book_id: number }>('/api/shelf', { book_id: Number(bookId) })
+}
+
+export function getReaderPreferences() {
+  return request.get<any, ReaderPreferences>('/api/reader/preferences')
+}
+
+export function saveReaderPreferences(payload: Partial<ReaderPreferences>) {
+  return request.post<any, { message: string; preferences: ReaderPreferences }>('/api/reader/preferences', payload)
 }

@@ -1,5 +1,39 @@
 -- MySQL schema for BookRecommendSystem homepage-related features
 -- Charset: utf8mb4, Engine: InnoDB
+--
+-- 初始化：已存在的表先删除再创建（DROP IF EXISTS + CREATE）。
+-- 临时关闭外键检查，避免删除顺序受依赖约束。
+
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS `book_chapters`;
+DROP TABLE IF EXISTS `book_rankings`;
+DROP TABLE IF EXISTS `book_tags`;
+DROP TABLE IF EXISTS `books`;
+DROP TABLE IF EXISTS `categories`;
+DROP TABLE IF EXISTS `mood_book_recommendations`;
+DROP TABLE IF EXISTS `moods`;
+DROP TABLE IF EXISTS `notifications`;
+DROP TABLE IF EXISTS `permissions`;
+DROP TABLE IF EXISTS `reader_book_comments`;
+DROP TABLE IF EXISTS `reader_highlight_comments`;
+DROP TABLE IF EXISTS `reader_highlights`;
+DROP TABLE IF EXISTS `reader_paragraphs`;
+DROP TABLE IF EXISTS `reader_sections`;
+DROP TABLE IF EXISTS `recommendation_feedback`;
+DROP TABLE IF EXISTS `review_comments`;
+DROP TABLE IF EXISTS `review_likes`;
+DROP TABLE IF EXISTS `reviews`;
+DROP TABLE IF EXISTS `role_permissions`;
+DROP TABLE IF EXISTS `roles`;
+DROP TABLE IF EXISTS `tags`;
+DROP TABLE IF EXISTS `user_reading_progress`;
+DROP TABLE IF EXISTS `user_roles`;
+DROP TABLE IF EXISTS `user_shelf`;
+DROP TABLE IF EXISTS `users`;
+DROP TABLE IF EXISTS `weekly_reading_tasks`;
+
+SET FOREIGN_KEY_CHECKS = 1;
 
 -- ======================
 -- 用户 & 权限体系（对应现有 models）
@@ -154,6 +188,19 @@ CREATE TABLE `user_reading_progress` (
   KEY `idx_urp_book` (`book_id`),
   CONSTRAINT `fk_urp_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_urp_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `reader_user_preferences` (
+  `id`               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`          BIGINT UNSIGNED NOT NULL,
+  `theme`            VARCHAR(16) NOT NULL DEFAULT 'light',
+  `font_size`        INT NOT NULL DEFAULT 20,
+  `show_highlights`  TINYINT(1) NOT NULL DEFAULT 1,
+  `show_comments`    TINYINT(1) NOT NULL DEFAULT 1,
+  `updated_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_reader_pref_user` (`user_id`),
+  CONSTRAINT `fk_reader_pref_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `reader_sections` (

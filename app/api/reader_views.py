@@ -3,12 +3,14 @@ from flask import jsonify, request
 from app import db
 from app.api import bp
 from app.models import UserReadingProgress
-from app.rbac.decorators import login_required
+from app.rbac.decorators import login_optional, login_required
 from app.services.reader_service import (
     build_reader_payload,
     create_book_comment,
     create_highlight,
     create_highlight_comment,
+    get_reader_preferences,
+    save_reader_preferences,
 )
 
 
@@ -31,7 +33,7 @@ def api_get_book_landing(book_id: int):
 @bp.route('/books/<int:book_id>/highlights', methods=['POST'])
 @login_required
 def api_create_highlight(current_user, book_id: int):
-    highlight, error = create_highlight(book_id, request.get_json() or {})
+    highlight, error = create_highlight(book_id, request.get_json() or {}, current_user)
     if error:
         return jsonify({'error': error}), 400
     return jsonify({'message': 'highlight created', 'highlight': highlight}), 201
@@ -40,7 +42,7 @@ def api_create_highlight(current_user, book_id: int):
 @bp.route('/books/<int:book_id>/highlights/<int:highlight_id>/comments', methods=['POST'])
 @login_required
 def api_create_highlight_comment(current_user, book_id: int, highlight_id: int):
-    comment, error = create_highlight_comment(book_id, highlight_id, request.get_json() or {})
+    comment, error = create_highlight_comment(book_id, highlight_id, request.get_json() or {}, current_user)
     if error == 'highlight not found':
         return jsonify({'error': error}), 404
     if error:
@@ -51,15 +53,17 @@ def api_create_highlight_comment(current_user, book_id: int, highlight_id: int):
 @bp.route('/books/<int:book_id>/comments', methods=['POST'])
 @login_required
 def api_create_book_comment(current_user, book_id: int):
-    comment, error = create_book_comment(book_id, request.get_json() or {})
+    comment, error = create_book_comment(book_id, request.get_json() or {}, current_user)
     if error:
         return jsonify({'error': error}), 400
     return jsonify({'message': 'book comment created', 'comment': comment}), 201
 
 
 @bp.route('/books/<int:book_id>/progress', methods=['GET'])
-@login_required
+@login_optional
 def api_get_book_progress(current_user, book_id: int):
+    if not current_user:
+        return jsonify({'has_progress': False, 'progress': None}), 200
     progress = UserReadingProgress.query.filter_by(user_id=current_user.id, book_id=book_id).first()
     if not progress:
         return jsonify({'has_progress': False, 'progress': None}), 200
@@ -98,3 +102,18 @@ def api_save_book_progress(current_user, book_id: int):
 
     db.session.commit()
     return jsonify({'message': 'progress saved', 'progress': progress.to_dict()}), 200
+
+
+@bp.route('/reader/preferences', methods=['GET'])
+@login_optional
+def api_get_reader_preferences(current_user):
+    return jsonify(get_reader_preferences(current_user)), 200
+
+
+@bp.route('/reader/preferences', methods=['POST'])
+@login_required
+def api_save_reader_preferences(current_user):
+    preference, error = save_reader_preferences(current_user, request.get_json() or {})
+    if error:
+        return jsonify({'error': error}), 400
+    return jsonify({'message': 'preferences saved', 'preferences': preference}), 200

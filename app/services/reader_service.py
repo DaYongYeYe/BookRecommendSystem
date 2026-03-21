@@ -8,6 +8,7 @@ from app.models import (
     ReaderHighlightComment,
     ReaderParagraph,
     ReaderSection,
+    ReaderUserPreference,
 )
 
 
@@ -22,43 +23,11 @@ DEFAULT_READER_SECTIONS = [
         'paragraphs': [
             {
                 'paragraph_key': 'p1',
-                'text': '黄昏压低在港口上空，潮水把旧木栈桥拍得微微作响。她拖着行李走下最后一级台阶时，闻见了盐、铁锈和雨前石板的气味，那些气味像一封久未拆开的信，先于记忆抵达。'
+                'text': '黄昏压低在港口上空，潮水拍打着木栈桥。她拖着行李走下最后一级台阶，空气里是盐、铁锈和雨前石板的气味。'
             },
             {
                 'paragraph_key': 'p2',
-                'text': '旅馆老板递来钥匙，又指了指远处的灯塔，说今晚风会很大，最好别靠海走太久。她点头，却仍旧在门口站了几秒，因为天边那线将熄未熄的金光，让她忽然觉得自己并不是来避雨，而是来认领某段被搁置太久的人生。'
-            },
-        ],
-    },
-    {
-        'section_key': 'chapter-1-1',
-        'title': '1.1 海雾中的来信',
-        'summary': '一封未署名的信，将旧日关系慢慢重新牵引出来。',
-        'level': 2,
-        'paragraphs': [
-            {
-                'paragraph_key': 'p3',
-                'text': '信纸被海风吹得起了细小的波纹，字迹却比她记忆里的任何一次都更稳。写信的人没有解释离开的原因，只写道：有些人用一生绕远路，才走回最初想要靠近的灯。她把这句话读了三遍，像是把某种迟来的许可，轻轻压进心口。'
-            },
-            {
-                'paragraph_key': 'p4',
-                'text': '窗外的雾越来越浓，街灯在雾里化成模糊的圆斑。她突然意识到，自己这些年努力维持的秩序，并不是为了忘记谁，而是为了让某个名字不至于一出现，就立刻击穿全部防线。'
-            },
-        ],
-    },
-    {
-        'section_key': 'chapter-1-2',
-        'title': '1.2 灯塔下的对话',
-        'summary': '她终于走向海边，和守塔人聊起等待、缺席与回声。',
-        'level': 2,
-        'paragraphs': [
-            {
-                'paragraph_key': 'p5',
-                'text': '守塔人说，海上的船不会因为灯塔沉默而停下，但会因为看见那一点稳定的光，知道自己还在可归返的世界里。她听完笑了笑，像是终于明白，人并不总需要答案，有时只需要一个没有撤离的坐标。'
-            },
-            {
-                'paragraph_key': 'p6',
-                'text': '风穿过护栏，带来潮湿而锋利的凉意。她把外套裹紧，忽然很想把这些年所有未曾寄出的句子都说给海听，因为海从不追问，只负责把人类的犹豫反复拍回岸边，让他们自己看清。'
+                'text': '旅馆老板递来钥匙，又指了指远处灯塔，说今晚风会很大。她点头，却仍在门口站了几秒，像在等待某个迟来的信号。'
             },
         ],
     },
@@ -69,12 +38,12 @@ DEFAULT_READER_SECTIONS = [
         'level': 1,
         'paragraphs': [
             {
-                'paragraph_key': 'p7',
-                'text': '夜色深下去之后，雨终于落了。她摊开桌上的便笺，一张张抄录那些曾经被她匆匆读过的句子。墨水在纸面缓慢洇开，像迟到的情绪找到出口，也像时间终于允许某些痛感拥有更温柔的形状。'
+                'paragraph_key': 'p3',
+                'text': '信纸被海风吹起细小纹路，字迹却比记忆里的任何一次都更稳。她反复读那句：有些人要绕远路，才能回到最初想靠近的光。'
             },
             {
-                'paragraph_key': 'p8',
-                'text': '她明白，真正难的从来不是离别本身，而是承认彼此都尽力了，却仍旧没能在同一场风暴里学会相同的航行方法。理解不是原谅的附庸，它更像深夜里为自己留的一盏小灯，照见那些不必再苛责的部分。'
+                'paragraph_key': 'p4',
+                'text': '夜色深下去之后，雨终于落了。她抄录那些曾被匆匆读过的句子，像把迟到的情绪一行行安放。'
             },
         ],
     },
@@ -87,6 +56,12 @@ def _fmt(dt):
     return dt.strftime('%Y-%m-%d %H:%M')
 
 
+def _display_name(user):
+    if not user:
+        return 'Current Reader'
+    return (user.name or user.username or f'user-{user.id}').strip()
+
+
 def ensure_seed(book_id: int):
     if book_id != DEFAULT_BOOK_ID:
         return
@@ -96,9 +71,9 @@ def ensure_seed(book_id: int):
         book = Book(
             id=DEFAULT_BOOK_ID,
             title='阅读样章：漫长的余生',
-            subtitle='在命运的褶皱里寻找互相照亮的时刻',
+            subtitle='在命运的褶皱里寻找彼此照亮的时刻',
             author='罗新',
-            description='一部带有纪实质感的文学样章，适合展示阅读器的大纲、划线和评论互动。',
+            description='一部带有纪实质感的文学样章，适合展示阅读器的大纲、划线和评论交互。',
             cover='https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
             score=9.4,
             rating=9.1,
@@ -110,8 +85,7 @@ def ensure_seed(book_id: int):
         db.session.add(book)
         db.session.flush()
 
-    has_sections = ReaderSection.query.filter_by(book_id=book_id).first()
-    if has_sections:
+    if ReaderSection.query.filter_by(book_id=book_id).first():
         return
 
     for section_order, section_data in enumerate(DEFAULT_READER_SECTIONS, start=1):
@@ -140,18 +114,18 @@ def ensure_seed(book_id: int):
         ReaderHighlight(
             book_id=book_id,
             paragraph_key='p3',
-            start_offset=31,
-            end_offset=53,
-            selected_text='有些人用一生绕远路，才走回最初想要靠近的灯',
+            start_offset=18,
+            end_offset=36,
+            selected_text='有些人要绕远路，才能回到最初想靠近的光',
             color='amber',
-            note='像是在写所有迟到但仍然值得的靠近。',
+            note='像是在写所有迟到但仍值得的靠近。',
             created_by='读者 阿遥',
         )
     )
     db.session.add(
         ReaderBookComment(
             book_id=book_id,
-            author='读者 星檐',
+            author='读者 星槎',
             content='这个样章的节奏很舒服，适合夜里慢慢读。',
         )
     )
@@ -186,9 +160,7 @@ def build_reader_payload(book_id: int):
             .all()
         )
         for paragraph in paragraphs:
-            paragraph_map.setdefault(paragraph.section_id, []).append(
-                {'id': paragraph.paragraph_key, 'text': paragraph.text}
-            )
+            paragraph_map.setdefault(paragraph.section_id, []).append({'id': paragraph.paragraph_key, 'text': paragraph.text})
 
     highlights = ReaderHighlight.query.filter_by(book_id=book_id).order_by(ReaderHighlight.id.asc()).all()
     highlight_ids = [item.id for item in highlights]
@@ -209,45 +181,41 @@ def build_reader_payload(book_id: int):
                 }
             )
 
-    payload_sections = []
-    payload_outline = []
-    for section in sections:
-        payload_outline.append({'id': section.section_key, 'title': section.title, 'level': section.level})
-        payload_sections.append(
-            {
-                'id': section.section_key,
-                'title': section.title,
-                'summary': section.summary or '',
-                'paragraphs': paragraph_map.get(section.id, []),
-            }
-        )
-
-    payload_highlights = []
-    for highlight in highlights:
-        payload_highlights.append(
-            {
-                'id': highlight.id,
-                'paragraph_id': highlight.paragraph_key,
-                'start_offset': highlight.start_offset,
-                'end_offset': highlight.end_offset,
-                'selected_text': highlight.selected_text,
-                'color': highlight.color,
-                'note': highlight.note or '',
-                'created_by': highlight.created_by,
-                'created_at': _fmt(highlight.created_at),
-                'comments': comments_map.get(highlight.id, []),
-            }
-        )
+    payload_outline = [{'id': s.section_key, 'title': s.title, 'level': s.level} for s in sections]
+    payload_sections = [
+        {
+            'id': s.section_key,
+            'title': s.title,
+            'summary': s.summary or '',
+            'paragraphs': paragraph_map.get(s.id, []),
+        }
+        for s in sections
+    ]
+    payload_highlights = [
+        {
+            'id': h.id,
+            'paragraph_id': h.paragraph_key,
+            'start_offset': h.start_offset,
+            'end_offset': h.end_offset,
+            'selected_text': h.selected_text,
+            'color': h.color,
+            'note': h.note or '',
+            'created_by': h.created_by,
+            'created_at': _fmt(h.created_at),
+            'comments': comments_map.get(h.id, []),
+        }
+        for h in highlights
+    ]
 
     book_comments = ReaderBookComment.query.filter_by(book_id=book_id).order_by(ReaderBookComment.id.desc()).all()
     payload_book_comments = [
         {
-            'id': comment.id,
-            'author': comment.author,
-            'content': comment.content,
-            'created_at': _fmt(comment.created_at),
+            'id': c.id,
+            'author': c.author,
+            'content': c.content,
+            'created_at': _fmt(c.created_at),
         }
-        for comment in book_comments
+        for c in book_comments
     ]
 
     return {
@@ -268,13 +236,13 @@ def build_reader_payload(book_id: int):
     }
 
 
-def create_highlight(book_id: int, payload: dict):
+def create_highlight(book_id: int, payload: dict, user=None):
     ensure_seed(book_id)
     paragraph_id = (payload.get('paragraph_id') or '').strip()
     selected_text = (payload.get('selected_text') or '').strip()
     note = (payload.get('note') or '').strip()
     color = (payload.get('color') or 'amber').strip() or 'amber'
-    author = (payload.get('author') or '当前读者').strip() or '当前读者'
+    author = _display_name(user)
 
     try:
         start_offset = int(payload.get('start_offset'))
@@ -314,14 +282,14 @@ def create_highlight(book_id: int, payload: dict):
     }, None
 
 
-def create_highlight_comment(book_id: int, highlight_id: int, payload: dict):
+def create_highlight_comment(book_id: int, highlight_id: int, payload: dict, user=None):
     ensure_seed(book_id)
     highlight = ReaderHighlight.query.filter_by(id=highlight_id, book_id=book_id).first()
     if not highlight:
         return None, 'highlight not found'
 
     content = (payload.get('content') or '').strip()
-    author = (payload.get('author') or '当前读者').strip() or '当前读者'
+    author = _display_name(user)
     if not content:
         return None, 'content is required'
 
@@ -336,10 +304,10 @@ def create_highlight_comment(book_id: int, highlight_id: int, payload: dict):
     }, None
 
 
-def create_book_comment(book_id: int, payload: dict):
+def create_book_comment(book_id: int, payload: dict, user=None):
     ensure_seed(book_id)
     content = (payload.get('content') or '').strip()
-    author = (payload.get('author') or '当前读者').strip() or '当前读者'
+    author = _display_name(user)
     if not content:
         return None, 'content is required'
 
@@ -352,3 +320,46 @@ def create_book_comment(book_id: int, payload: dict):
         'content': comment.content,
         'created_at': _fmt(comment.created_at),
     }, None
+
+
+def get_reader_preferences(user):
+    defaults = {
+        'theme': 'light',
+        'font_size': 20,
+        'show_highlights': True,
+        'show_comments': True,
+    }
+    if not user:
+        return defaults
+
+    preference = ReaderUserPreference.query.filter_by(user_id=user.id).first()
+    if not preference:
+        return defaults
+    return preference.to_dict()
+
+
+def save_reader_preferences(user, payload: dict):
+    preference = ReaderUserPreference.query.filter_by(user_id=user.id).first()
+    if not preference:
+        preference = ReaderUserPreference(user_id=user.id)
+        db.session.add(preference)
+
+    theme = (payload.get('theme') or '').strip().lower()
+    if theme in ('light', 'dark'):
+        preference.theme = theme
+
+    font_size = payload.get('font_size')
+    if font_size is not None:
+        try:
+            value = int(font_size)
+            preference.font_size = max(16, min(30, value))
+        except (TypeError, ValueError):
+            return None, 'invalid font_size'
+
+    if 'show_highlights' in payload:
+        preference.show_highlights = bool(payload.get('show_highlights'))
+    if 'show_comments' in payload:
+        preference.show_comments = bool(payload.get('show_comments'))
+
+    db.session.commit()
+    return preference.to_dict(), None

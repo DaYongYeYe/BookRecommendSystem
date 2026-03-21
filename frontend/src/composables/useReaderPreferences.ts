@@ -20,6 +20,13 @@ export function useReaderPreferences() {
     readerFontSize.value = Math.max(16, readerFontSize.value - 1)
   }
 
+  function setFontSize(size: number) {
+    if (Number.isNaN(size)) {
+      return
+    }
+    readerFontSize.value = Math.max(16, Math.min(30, Math.round(size)))
+  }
+
   watch(readerFontSize, (value) => {
     localStorage.setItem(fontSizeStorageKey, String(value))
   })
@@ -30,5 +37,6 @@ export function useReaderPreferences() {
     setTheme,
     increaseFont,
     decreaseFont,
+    setFontSize,
   }
 }

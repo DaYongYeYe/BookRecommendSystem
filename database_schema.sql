@@ -1,15 +1,16 @@
-﻿-- 鍥句功鎺ㄨ崘绯荤粺鏁版嵁搴撹〃缁撴瀯
+-- 图书推荐系统数据库表结构
+-- 初始化：库若已存在则删除后重建；创建库使用 IF NOT EXISTS，便于在「未建库」时单独执行建库语句
 
--- 鍒犻櫎宸插瓨鍦ㄧ殑鏁版嵁搴擄紙濡傛灉瀛樺湪锛?
+-- 若已存在则删除（清空整库，便于重复初始化）
 DROP DATABASE IF EXISTS book_recommend_db;
 
--- 鍒涘缓鏁版嵁搴?
-CREATE DATABASE book_recommend_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- 不存在则创建（整库删除后必然不存在；若只执行本行则不会覆盖已有库）
+CREATE DATABASE IF NOT EXISTS book_recommend_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- 浣跨敤鏁版嵁搴?
+-- 使用数据库
 USE book_recommend_db;
 
--- 鐢ㄦ埛琛?
+-- 用户表
 CREATE TABLE users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(80) NOT NULL UNIQUE,
@@ -22,21 +23,21 @@ CREATE TABLE users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 瑙掕壊琛?
+-- 角色表
 CREATE TABLE roles (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(80) NOT NULL UNIQUE,
     description VARCHAR(255)
 );
 
--- 鏉冮檺琛?
+-- 权限表
 CREATE TABLE permissions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
     description VARCHAR(255)
 );
 
--- 瑙掕壊鏉冮檺鍏宠仈琛?
+-- 角色权限关联表
 CREATE TABLE role_permissions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     role_id INT NOT NULL,
@@ -46,7 +47,7 @@ CREATE TABLE role_permissions (
     UNIQUE KEY unique_role_permission (role_id, permission_id)
 );
 
--- 鐢ㄦ埛瑙掕壊鍏宠仈琛?
+-- 用户角色关联表
 CREATE TABLE user_roles (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -56,7 +57,7 @@ CREATE TABLE user_roles (
     UNIQUE KEY unique_user_role (user_id, role_id)
 );
 
--- 鍥句功琛紙棰勭暀锛?
+-- 图书表（预留）
 CREATE TABLE books (
     id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
@@ -73,7 +74,7 @@ CREATE TABLE books (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 鐢ㄦ埛鍥句功璇勫垎琛紙棰勭暀锛?
+-- 用户图书评分表（预留）
 CREATE TABLE user_ratings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -87,7 +88,7 @@ CREATE TABLE user_ratings (
     UNIQUE KEY unique_user_book (user_id, book_id)
 );
 
--- 鐢ㄦ埛闃呰鍘嗗彶琛紙棰勭暀锛?
+-- 用户阅读历史表（预留）
 CREATE TABLE reading_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -100,7 +101,7 @@ CREATE TABLE reading_history (
     UNIQUE KEY unique_user_book_status (user_id, book_id)
 );
 
--- 鐢ㄦ埛闃呰杩涘害锛堢敤浜庝粠棣栭〉鐩存帴缁锛?
+-- 用户阅读进度（用于从首页直接续读）
 CREATE TABLE user_reading_progress (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -115,7 +116,18 @@ CREATE TABLE user_reading_progress (
     UNIQUE KEY uniq_user_book_progress (user_id, book_id)
 );
 
--- 闃呰姝ｆ枃缁撴瀯锛堢珷鑺?娈佃惤锛?
+CREATE TABLE reader_user_preferences (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL UNIQUE,
+    theme VARCHAR(16) NOT NULL DEFAULT 'light',
+    font_size INT NOT NULL DEFAULT 20,
+    show_highlights TINYINT(1) NOT NULL DEFAULT 1,
+    show_comments TINYINT(1) NOT NULL DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 阅读正文结构（章节、段落）
 CREATE TABLE reader_sections (
     id INT AUTO_INCREMENT PRIMARY KEY,
     book_id INT NOT NULL,
@@ -140,7 +152,7 @@ CREATE TABLE reader_paragraphs (
     UNIQUE KEY uniq_reader_paragraph_key (section_id, paragraph_key)
 );
 
--- 闃呰鍒掔嚎涓庤瘎璁?
+-- 阅读划线与评论
 CREATE TABLE reader_highlights (
     id INT AUTO_INCREMENT PRIMARY KEY,
     book_id INT NOT NULL,
@@ -173,7 +185,7 @@ CREATE TABLE reader_book_comments (
     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
 );
 
--- 鍒涘缓绱㈠紩浠ユ彁楂樻煡璇㈡€ц兘
+-- 创建索引以提升查询性能
 CREATE INDEX idx_books_title ON books(title);
 CREATE INDEX idx_books_author ON books(author);
 CREATE INDEX idx_books_genre ON books(genre);
@@ -183,57 +195,57 @@ CREATE INDEX idx_reading_history_user_id ON reading_history(user_id);
 CREATE INDEX idx_reading_history_book_id ON reading_history(book_id);
 CREATE INDEX idx_reading_progress_user_id ON user_reading_progress(user_id);
 CREATE INDEX idx_reading_progress_book_id ON user_reading_progress(book_id);
+CREATE INDEX idx_reader_pref_user_id ON reader_user_preferences(user_id);
 CREATE INDEX idx_reader_sections_book ON reader_sections(book_id, order_no);
 CREATE INDEX idx_reader_paragraphs_section ON reader_paragraphs(section_id, order_no);
 CREATE INDEX idx_reader_highlights_book ON reader_highlights(book_id, paragraph_key);
 CREATE INDEX idx_reader_hc_highlight ON reader_highlight_comments(highlight_id);
 CREATE INDEX idx_reader_book_comments_book ON reader_book_comments(book_id);
 
--- 鎻掑叆榛樿瑙掕壊
-INSERT INTO roles (name, description) VALUES 
-('admin', '绯荤粺绠＄悊鍛?),
-('user', '鏅€氱敤鎴?),
-('moderator', '鐗堜富');
+-- 插入默认角色
+INSERT INTO roles (name, description) VALUES
+('admin', '系统管理员'),
+('user', '普通用户'),
+('moderator', '版主');
 
--- 鎻掑叆榛樿鏉冮檺
-INSERT INTO permissions (name, description) VALUES 
-('user_create', '鍒涘缓鐢ㄦ埛'),
-('user_read', '鏌ョ湅鐢ㄦ埛'),
-('user_update', '鏇存柊鐢ㄦ埛'),
-('user_delete', '鍒犻櫎鐢ㄦ埛'),
-('book_create', '鍒涘缓鍥句功'),
-('book_read', '鏌ョ湅鍥句功'),
-('book_update', '鏇存柊鍥句功'),
-('book_delete', '鍒犻櫎鍥句功'),
-('rating_create', '鍒涘缓璇勫垎'),
-('rating_read', '鏌ョ湅璇勫垎'),
-('rating_update', '鏇存柊璇勫垎'),
-('rating_delete', '鍒犻櫎璇勫垎');
+-- 插入默认权限
+INSERT INTO permissions (name, description) VALUES
+('user_create', '创建用户'),
+('user_read', '查看用户'),
+('user_update', '更新用户'),
+('user_delete', '删除用户'),
+('book_create', '创建图书'),
+('book_read', '查看图书'),
+('book_update', '更新图书'),
+('book_delete', '删除图书'),
+('rating_create', '创建评分'),
+('rating_read', '查看评分'),
+('rating_update', '更新评分'),
+('rating_delete', '删除评分');
 
--- 涓虹鐞嗗憳瑙掕壊鍒嗛厤鎵€鏈夋潈闄?
+-- 为管理员角色分配所有权限
 INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id 
-FROM roles r, permissions p 
+SELECT r.id, p.id
+FROM roles r, permissions p
 WHERE r.name = 'admin';
 
--- 涓烘櫘閫氱敤鎴峰垎閰嶅熀鏈潈闄?
+-- 为普通用户分配基本权限
 INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id 
-FROM roles r, permissions p 
-WHERE r.name = 'user' 
+SELECT r.id, p.id
+FROM roles r, permissions p
+WHERE r.name = 'user'
 AND p.name IN ('book_read', 'rating_create', 'rating_read', 'rating_update');
 
--- 鎻掑叆榛樿绠＄悊鍛樼敤鎴凤紙瀵嗙爜涓?admin123"鐨勫搱甯屽€硷級
-INSERT INTO users (username, email, password_hash, role) VALUES 
+-- 插入默认管理员用户（密码为 "admin123" 的 bcrypt 哈希）
+INSERT INTO users (username, email, password_hash, role) VALUES
 ('admin', 'admin@example.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj/RK.PZvO.S', 'admin');
 
--- 灏嗛粯璁ょ敤鎴峰垎閰嶇粰绠＄悊鍛樿鑹?
+-- 将默认用户分配给管理员角色
 INSERT INTO user_roles (user_id, role_id)
-SELECT u.id, r.id 
-FROM users u, roles r 
+SELECT u.id, r.id
+FROM users u, roles r
 WHERE u.username = 'admin' AND r.name = 'admin';
 
--- 鎺堟潈book_user鐢ㄦ埛璁块棶鏁版嵁搴?
+-- 授权 book_user 用户访问数据库
 GRANT ALL PRIVILEGES ON book_recommend_db.* TO 'book_user'@'%';
 FLUSH PRIVILEGES;
-

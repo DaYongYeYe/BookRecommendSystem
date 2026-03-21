@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
+  addBookToShelf,
   createBookComment,
   createHighlight,
   createHighlightComment,
   getReader,
+  getReaderPreferences,
+  saveReaderPreferences,
   type ReaderHighlight,
   type ReaderPayload,
 } from '@/api/reader'
+import { getToken } from '@/api/request'
 import { useReaderPreferences } from '@/composables/useReaderPreferences'
 import { useReadingProgress } from '@/composables/useReadingProgress'
 
@@ -24,11 +28,16 @@ type HighlightSegment =
   | { kind: 'text'; text: string }
   | { kind: 'highlight'; text: string; highlight: ReaderHighlight }
 
+type PanelType = 'none' | 'outline' | 'settings' | 'highlight' | 'book-comments'
+
 const route = useRoute()
+const router = useRouter()
 const bookId = computed(() => String(route.params.bookId || '1'))
 
 const reader = ref<ReaderPayload | null>(null)
 const loading = ref(false)
+const addingToShelf = ref(false)
+
 const selectionDraft = ref<SelectionDraft | null>(null)
 const draftNote = ref('')
 const draftColor = ref('amber')
@@ -37,7 +46,13 @@ const highlightCommentDraft = ref('')
 const bookCommentDraft = ref('')
 const activeSectionId = ref<string>('')
 
-const { readerTheme, readerFontSize, setTheme, increaseFont, decreaseFont } = useReaderPreferences()
+const activePanel = ref<PanelType>('none')
+const highlightModeEnabled = ref(false)
+const showHighlights = ref(true)
+const showComments = ref(true)
+const preferenceLoaded = ref(false)
+
+const { readerTheme, readerFontSize, setTheme, setFontSize } = useReaderPreferences()
 const { resumeIfNeeded, syncReadingProgress } = useReadingProgress(bookId, activeSectionId)
 
 const colorMap: Record<string, string> = {
@@ -53,7 +68,13 @@ const rootClass = computed(() =>
 )
 
 const cardClass = computed(() =>
-  readerTheme.value === 'dark' ? 'rounded-[2rem] bg-[#111b28] shadow-sm' : 'rounded-[2rem] bg-white shadow-sm'
+  readerTheme.value === 'dark' ? 'rounded-[1.5rem] bg-[#111b28] shadow-sm' : 'rounded-[1.5rem] bg-white shadow-sm'
+)
+
+const panelCardClass = computed(() =>
+  readerTheme.value === 'dark'
+    ? 'border border-white/10 bg-[#1a2533] text-stone-100'
+    : 'border border-stone-200 bg-white text-stone-800'
 )
 
 const activeHighlight = computed(() => {
@@ -78,12 +99,70 @@ async function loadReader() {
   }
 }
 
+async function loadReaderPreferences() {
+  try {
+    const data = await getReaderPreferences()
+    setTheme(data.theme === 'dark' ? 'dark' : 'light')
+    setFontSize(Number(data.font_size) || 20)
+    showHighlights.value = data.show_highlights !== false
+    showComments.value = data.show_comments !== false
+  } catch (_error) {
+    // Keep defaults when preference loading fails.
+  } finally {
+    preferenceLoaded.value = true
+  }
+}
+
+async function persistReaderPreferences() {
+  if (!preferenceLoaded.value || !getToken()) {
+    return
+  }
+  try {
+    await saveReaderPreferences({
+      theme: readerTheme.value,
+      font_size: readerFontSize.value,
+      show_highlights: showHighlights.value,
+      show_comments: showComments.value,
+    })
+  } catch (_error) {
+    // Do not block reading flow on preference save failures.
+  }
+}
+
 function clearSelectionDraft() {
   selectionDraft.value = null
   draftNote.value = ''
   draftColor.value = 'amber'
   const selection = window.getSelection()
   selection?.removeAllRanges()
+}
+
+function togglePanel(panel: PanelType) {
+  activePanel.value = activePanel.value === panel ? 'none' : panel
+}
+
+function toggleHighlightMode() {
+  highlightModeEnabled.value = !highlightModeEnabled.value
+  if (!highlightModeEnabled.value) {
+    clearSelectionDraft()
+  } else {
+    ElMessage.info('已开启划线模式，请在正文中选中单段文本')
+  }
+}
+
+function toggleHighlightVisibility() {
+  showHighlights.value = !showHighlights.value
+  if (!showHighlights.value) {
+    clearSelectionDraft()
+    activeHighlightId.value = null
+  }
+}
+
+function toggleCommentVisibility() {
+  showComments.value = !showComments.value
+  if (!showComments.value && (activePanel.value === 'highlight' || activePanel.value === 'book-comments')) {
+    activePanel.value = 'none'
+  }
 }
 
 function getParagraphHighlights(paragraphId: string) {
@@ -93,6 +172,10 @@ function getParagraphHighlights(paragraphId: string) {
 }
 
 function buildSegments(text: string, paragraphId: string): HighlightSegment[] {
+  if (!showHighlights.value) {
+    return [{ kind: 'text', text }]
+  }
+
   const highlights = getParagraphHighlights(paragraphId)
   if (!highlights.length) {
     return [{ kind: 'text', text }]
@@ -120,7 +203,11 @@ function buildSegments(text: string, paragraphId: string): HighlightSegment[] {
 }
 
 function openHighlight(highlightId: number) {
+  if (!showHighlights.value || !showComments.value) {
+    return
+  }
   activeHighlightId.value = highlightId
+  activePanel.value = 'highlight'
   clearSelectionDraft()
 }
 
@@ -130,6 +217,10 @@ function scrollToSection(sectionId: string) {
 }
 
 function handleSelection() {
+  if (!highlightModeEnabled.value || !showHighlights.value) {
+    return
+  }
+
   const selection = window.getSelection()
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
     return
@@ -146,7 +237,7 @@ function handleSelection() {
   )?.closest?.('[data-paragraph-id]') as HTMLElement | null
 
   if (!startParagraph || !endParagraph || startParagraph !== endParagraph) {
-    ElMessage.info('当前只支持单段落内划线')
+    ElMessage.info('当前仅支持单段落内划线')
     clearSelectionDraft()
     return
   }
@@ -189,6 +280,7 @@ async function submitHighlight() {
     })
     reader.value?.highlights.push(response.highlight)
     activeHighlightId.value = response.highlight.id
+    activePanel.value = 'highlight'
     clearSelectionDraft()
     ElMessage.success('划线已保存')
   } catch (_error) {
@@ -221,9 +313,21 @@ async function submitBookComment() {
     const response = await createBookComment(bookId.value, { content: bookCommentDraft.value })
     reader.value.book_comments.unshift(response.comment)
     bookCommentDraft.value = ''
-    ElMessage.success('书本评论已发布')
+    ElMessage.success('书评发布成功')
   } catch (_error) {
-    ElMessage.error('发表评论失败')
+    ElMessage.error('书评发布失败')
+  }
+}
+
+async function handleAddToShelf() {
+  addingToShelf.value = true
+  try {
+    await addBookToShelf(bookId.value)
+    ElMessage.success('已加入书架')
+  } catch (_error) {
+    ElMessage.error('加入书架失败，请先登录')
+  } finally {
+    addingToShelf.value = false
   }
 }
 
@@ -247,6 +351,7 @@ function handleScroll() {
 }
 
 onMounted(async () => {
+  await loadReaderPreferences()
   await loadReader()
   window.addEventListener('scroll', handleScroll, { passive: true })
   document.addEventListener('mouseup', handleSelection)
@@ -262,266 +367,313 @@ watch(
   () => route.params.bookId,
   async () => {
     clearSelectionDraft()
+    activePanel.value = 'none'
     await nextTick()
     await loadReader()
   }
 )
 
+watch([readerTheme, readerFontSize, showHighlights, showComments], () => {
+  persistReaderPreferences()
+})
 </script>
 
 <template>
-  <div :class="rootClass">
-    <div class="mx-auto flex max-w-[1600px] gap-6 px-4 py-6 lg:px-6">
-      <aside class="sticky top-6 hidden h-[calc(100vh-3rem)] w-72 shrink-0 rounded-[2rem] bg-[#122620] p-6 text-stone-100 shadow-2xl lg:flex lg:flex-col">
-        <template v-if="reader">
-          <div class="mb-6">
-            <p class="text-xs uppercase tracking-[0.35em] text-emerald-200/70">Outline</p>
-            <h1 class="mt-3 text-2xl font-semibold leading-tight">{{ reader.book.title }}</h1>
-            <p class="mt-2 text-sm text-stone-300">{{ reader.book.author }}</p>
-          </div>
+  <div :class="rootClass" class="pb-14">
+    <main class="mx-auto max-w-[1100px] px-4 py-6 md:px-8">
+      <div v-if="loading" :class="cardClass" class="p-10 text-center text-stone-500">正在加载正文...</div>
 
-          <div class="mb-4 flex items-center justify-between text-xs uppercase tracking-[0.3em] text-stone-400">
-            <span>章节</span>
-            <span>{{ reader.highlights.length }} 条划线</span>
+      <template v-else-if="reader">
+        <section
+          class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] px-5 py-4"
+          :class="readerTheme === 'dark' ? 'bg-[#111b28]' : 'bg-white'"
+        >
+          <div class="min-w-0">
+            <h1 class="truncate text-xl font-semibold">{{ reader.book.title }}</h1>
+            <p class="text-sm" :class="readerTheme === 'dark' ? 'text-stone-300' : 'text-stone-500'">{{ reader.book.author }}</p>
           </div>
-          <div class="space-y-2 overflow-y-auto pr-2">
+          <div class="flex items-center gap-2">
+            <button class="rounded-full border px-4 py-2 text-sm" @click="router.push('/')">返回首页</button>
             <button
-              v-for="item in reader.outline"
-              :key="item.id"
-              :class="[
-                'block w-full rounded-2xl px-4 py-3 text-left text-sm transition',
-                item.level === 2 ? 'ml-4 w-[calc(100%-1rem)] text-stone-300' : 'font-medium',
-                activeSectionId === item.id ? 'bg-emerald-100 text-emerald-950' : 'bg-white/5 hover:bg-white/10',
-              ]"
-              @click="scrollToSection(item.id)"
+              class="rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+              :disabled="addingToShelf"
+              @click="handleAddToShelf"
             >
-              {{ item.title }}
+              {{ addingToShelf ? '加入中...' : '加入书架' }}
             </button>
           </div>
-        </template>
-      </aside>
+        </section>
 
-      <main class="min-w-0 flex-1">
-        <div v-if="loading" :class="cardClass" class="p-10 text-center text-stone-500">
-          正在加载正文...
-        </div>
-
-        <template v-else-if="reader">
-          <section
-            class="mb-6 overflow-hidden rounded-[2rem] p-6 md:p-8"
-            :class="readerTheme === 'dark' ? 'bg-[#111b28]' : 'bg-[#f5efe4]'"
+        <article :class="cardClass" class="p-6 md:p-8">
+          <div
+            v-if="selectionDraft"
+            class="mb-8 rounded-[1.2rem] border border-amber-200 bg-amber-50 p-5 text-stone-900"
           >
-            <div class="grid gap-6 md:grid-cols-[1.15fr_0.85fr]">
-              <div>
-                <p class="text-sm uppercase tracking-[0.4em]" :class="readerTheme === 'dark' ? 'text-stone-400' : 'text-stone-500'">Reader</p>
-                <h2 class="mt-4 max-w-3xl text-4xl font-semibold leading-tight md:text-5xl">
-                  {{ reader.book.title }}
-                </h2>
-                <p class="mt-4 max-w-2xl text-lg leading-8" :class="readerTheme === 'dark' ? 'text-stone-300' : 'text-stone-600'">
-                  {{ reader.book.description }}
-                </p>
-              </div>
+            <p class="text-xs uppercase tracking-[0.3em] text-amber-700">新建划线</p>
+            <p class="mt-3 rounded-2xl bg-white px-4 py-4 text-lg leading-8 shadow-sm">“{{ selectionDraft.selectedText }}”</p>
+            <div class="mt-4 flex flex-wrap gap-2">
+              <button
+                v-for="option in ['amber', 'sky', 'rose']"
+                :key="option"
+                :class="[
+                  'rounded-full px-3 py-2 text-xs font-medium uppercase tracking-[0.25em]',
+                  draftColor === option ? 'bg-stone-900 text-white' : 'bg-white text-stone-500',
+                ]"
+                @click="draftColor = option"
+              >
+                {{ option }}
+              </button>
+            </div>
+            <textarea
+              v-model="draftNote"
+              class="mt-4 min-h-24 w-full rounded-2xl border border-amber-100 bg-white px-4 py-3 outline-none focus:border-stone-400"
+              placeholder="写下这段文字的批注..."
+            />
+            <div class="mt-4 flex flex-wrap gap-3">
+              <button class="rounded-full bg-stone-900 px-5 py-2.5 text-sm font-medium text-white" @click="submitHighlight">
+                保存划线
+              </button>
+              <button class="rounded-full bg-white px-5 py-2.5 text-sm font-medium text-stone-500" @click="clearSelectionDraft">
+                取消
+              </button>
+            </div>
+          </div>
 
-              <div class="rounded-[1.75rem] bg-[#122620] p-6 text-stone-100">
-                <div class="flex items-center gap-4">
-                  <img :src="reader.book.cover" :alt="reader.book.title" class="h-36 w-24 rounded-2xl object-cover" />
-                  <div>
-                    <p class="text-sm uppercase tracking-[0.35em] text-emerald-200/70">Tips</p>
-                    <p class="mt-3 text-lg font-medium">选中正文可划线</p>
-                    <p class="mt-2 text-sm leading-6 text-stone-300">点击划线可查看评论。阅读进度会自动保存，回到首页可直接续读。</p>
-                  </div>
-                </div>
-              </div>
+          <section
+            v-for="section in reader.sections"
+            :id="section.id"
+            :key="section.id"
+            class="scroll-mt-24 border-b py-7 first:pt-0 last:border-b-0"
+            :class="readerTheme === 'dark' ? 'border-white/10' : 'border-stone-100'"
+          >
+            <p class="text-xs uppercase tracking-[0.35em]" :class="readerTheme === 'dark' ? 'text-stone-400' : 'text-stone-400'">
+              Section
+            </p>
+            <h3 class="mt-3 text-3xl font-semibold">{{ section.title }}</h3>
+            <p class="mt-3 max-w-2xl text-sm leading-7" :class="readerTheme === 'dark' ? 'text-stone-300' : 'text-stone-500'">
+              {{ section.summary }}
+            </p>
+
+            <div class="mt-6 space-y-6">
+              <p
+                v-for="paragraph in section.paragraphs"
+                :key="paragraph.id"
+                :data-paragraph-id="paragraph.id"
+                class="rounded-3xl px-3 py-3 transition"
+                :class="readerTheme === 'dark' ? 'text-stone-100 hover:bg-white/5' : 'text-stone-700 hover:bg-stone-50'"
+                :style="{ fontSize: `${readerFontSize}px`, lineHeight: '2.1' }"
+              >
+                <template v-for="(segment, index) in buildSegments(paragraph.text, paragraph.id)" :key="`${paragraph.id}-${index}`">
+                  <span v-if="segment.kind === 'text'">{{ segment.text }}</span>
+                  <button
+                    v-else
+                    type="button"
+                    :class="[
+                      'cursor-pointer rounded-md px-1 align-baseline underline decoration-2 underline-offset-4 transition',
+                      colorMap[segment.highlight.color] || colorMap.amber,
+                    ]"
+                    @click="openHighlight(segment.highlight.id)"
+                  >
+                    {{ segment.text }}
+                  </button>
+                </template>
+              </p>
             </div>
           </section>
+        </article>
+      </template>
+    </main>
 
-          <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-            <article :class="cardClass" class="p-6 md:p-8">
-              <div v-if="selectionDraft" class="mb-8 rounded-[1.5rem] border border-amber-200 bg-amber-50 p-5 text-stone-900">
-                <p class="text-xs uppercase tracking-[0.3em] text-amber-700">新建划线</p>
-                <p class="mt-3 rounded-2xl bg-white px-4 py-4 text-lg leading-8 shadow-sm">“{{ selectionDraft.selectedText }}”</p>
-                <div class="mt-4 flex flex-wrap gap-2">
-                  <button
-                    v-for="option in ['amber', 'sky', 'rose']"
-                    :key="option"
-                    :class="[
-                      'rounded-full px-3 py-2 text-xs font-medium uppercase tracking-[0.25em]',
-                      draftColor === option ? 'bg-stone-900 text-white' : 'bg-white text-stone-500',
-                    ]"
-                    @click="draftColor = option"
-                  >
-                    {{ option }}
-                  </button>
-                </div>
-                <textarea
-                  v-model="draftNote"
-                  class="mt-4 min-h-28 w-full rounded-3xl border border-amber-100 bg-white px-4 py-3 outline-none focus:border-stone-400"
-                  placeholder="写下你对这段文字的感受..."
-                />
-                <div class="mt-4 flex flex-wrap gap-3">
-                  <button class="rounded-full bg-stone-900 px-5 py-3 text-sm font-medium text-white" @click="submitHighlight">
-                    保存划线
-                  </button>
-                  <button class="rounded-full bg-white px-5 py-3 text-sm font-medium text-stone-500" @click="clearSelectionDraft">
-                    取消
-                  </button>
-                </div>
-              </div>
+    <div class="fixed right-3 top-1/2 z-40 -translate-y-1/2 md:right-5">
+      <div class="rounded-[1.2rem] bg-[#1b1f28] p-2 shadow-2xl">
+        <div class="flex flex-col gap-2">
+          <button
+            class="h-11 w-11 rounded-full text-xs font-medium"
+            :class="activePanel === 'outline' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
+            @click="togglePanel('outline')"
+          >
+            目录
+          </button>
+          <button
+            class="h-11 w-11 rounded-full text-xs font-medium"
+            :class="activePanel === 'settings' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
+            @click="togglePanel('settings')"
+          >
+            字体
+          </button>
+          <button
+            class="h-11 w-11 rounded-full text-xs font-medium"
+            :class="highlightModeEnabled ? 'bg-amber-500 text-white' : 'bg-[#101319] text-stone-200'"
+            @click="toggleHighlightMode"
+          >
+            划线
+          </button>
+          <button
+            class="h-11 w-11 rounded-full text-xs font-medium"
+            :class="showHighlights ? 'bg-[#101319] text-stone-200' : 'bg-rose-500 text-white'"
+            @click="toggleHighlightVisibility"
+          >
+            {{ showHighlights ? '显线' : '隐线' }}
+          </button>
+          <button
+            class="h-11 w-11 rounded-full text-xs font-medium"
+            :class="showComments ? 'bg-[#101319] text-stone-200' : 'bg-rose-500 text-white'"
+            @click="toggleCommentVisibility"
+          >
+            {{ showComments ? '显评' : '隐评' }}
+          </button>
+          <button
+            class="h-11 w-11 rounded-full text-xs font-medium"
+            :class="activePanel === 'highlight' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
+            @click="togglePanel('highlight')"
+          >
+            批注
+          </button>
+          <button
+            class="h-11 w-11 rounded-full text-xs font-medium"
+            :class="activePanel === 'book-comments' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
+            @click="togglePanel('book-comments')"
+          >
+            书评
+          </button>
+          <button
+            class="h-11 w-11 rounded-full text-xs font-medium"
+            :class="readerTheme === 'dark' ? 'bg-[#101319] text-stone-200' : 'bg-amber-400 text-stone-900'"
+            @click="setTheme(readerTheme === 'dark' ? 'light' : 'dark')"
+          >
+            {{ readerTheme === 'dark' ? '浅色' : '深色' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
-              <section
-                v-for="section in reader.sections"
-                :id="section.id"
-                :key="section.id"
-                class="scroll-mt-28 border-b py-8 first:pt-0 last:border-b-0"
-                :class="readerTheme === 'dark' ? 'border-white/10' : 'border-stone-100'"
+    <div
+      v-if="activePanel !== 'none' && reader"
+      class="fixed right-20 top-1/2 z-40 w-[310px] -translate-y-1/2 rounded-[1.2rem] p-4 shadow-2xl md:w-[360px]"
+      :class="panelCardClass"
+    >
+      <template v-if="activePanel === 'outline'">
+        <h3 class="mb-3 text-lg font-semibold">目录</h3>
+        <div class="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+          <button
+            v-for="item in reader.outline"
+            :key="item.id"
+            :class="[
+              'block w-full rounded-xl px-3 py-2 text-left text-sm transition',
+              item.level === 2 ? 'ml-3 w-[calc(100%-0.75rem)]' : 'font-medium',
+              activeSectionId === item.id ? 'bg-emerald-500 text-white' : 'bg-black/10 hover:bg-black/20',
+            ]"
+            @click="scrollToSection(item.id)"
+          >
+            {{ item.title }}
+          </button>
+        </div>
+      </template>
+
+      <template v-else-if="activePanel === 'settings'">
+        <h3 class="mb-3 text-lg font-semibold">字体设置</h3>
+        <div class="space-y-4">
+          <div>
+            <p class="mb-2 text-sm">字号大小：{{ readerFontSize }}px</p>
+            <input
+              class="w-full accent-emerald-500"
+              type="range"
+              min="16"
+              max="30"
+              :value="readerFontSize"
+              @input="setFontSize(Number(($event.target as HTMLInputElement).value))"
+            />
+          </div>
+          <div>
+            <p class="mb-2 text-sm">阅读模式</p>
+            <div class="flex gap-2">
+              <button
+                class="rounded-full px-4 py-2 text-sm"
+                :class="readerTheme === 'light' ? 'bg-stone-900 text-white' : 'bg-stone-200 text-stone-700'"
+                @click="setTheme('light')"
               >
-                <p class="text-xs uppercase tracking-[0.35em]" :class="readerTheme === 'dark' ? 'text-stone-400' : 'text-stone-400'">Section</p>
-                <h3 class="mt-3 text-3xl font-semibold">{{ section.title }}</h3>
-                <p class="mt-3 max-w-2xl text-sm leading-7" :class="readerTheme === 'dark' ? 'text-stone-300' : 'text-stone-500'">
-                  {{ section.summary }}
-                </p>
+                浅色
+              </button>
+              <button
+                class="rounded-full px-4 py-2 text-sm"
+                :class="readerTheme === 'dark' ? 'bg-stone-900 text-white' : 'bg-stone-200 text-stone-700'"
+                @click="setTheme('dark')"
+              >
+                深色
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
 
-                <div class="mt-6 space-y-6">
-                  <p
-                    v-for="paragraph in section.paragraphs"
-                    :key="paragraph.id"
-                    :data-paragraph-id="paragraph.id"
-                    class="rounded-3xl px-3 py-3 transition"
-                    :class="readerTheme === 'dark' ? 'text-stone-100 hover:bg-white/5' : 'text-stone-700 hover:bg-stone-50'"
-                    :style="{ fontSize: `${readerFontSize}px`, lineHeight: '2.1' }"
-                  >
-                    <template v-for="(segment, index) in buildSegments(paragraph.text, paragraph.id)" :key="`${paragraph.id}-${index}`">
-                      <span v-if="segment.kind === 'text'">{{ segment.text }}</span>
-                      <button
-                        v-else
-                        type="button"
-                        :class="[
-                          'cursor-pointer rounded-md px-1 align-baseline underline decoration-2 underline-offset-4 transition',
-                          colorMap[segment.highlight.color] || colorMap.amber,
-                        ]"
-                        @click="openHighlight(segment.highlight.id)"
-                      >
-                        {{ segment.text }}
-                      </button>
-                    </template>
-                  </p>
-                </div>
-              </section>
-            </article>
+      <template v-else-if="activePanel === 'highlight'">
+        <h3 class="mb-3 text-lg font-semibold">划线批注</h3>
+        <div v-if="!showComments" class="text-sm text-stone-400">评论已隐藏，请先点击右侧“显评”。</div>
+        <div v-else-if="activeHighlight">
+          <p
+            :class="[
+              'rounded-2xl px-3 py-3 text-base leading-7 underline decoration-2 underline-offset-4',
+              colorMap[activeHighlight.color] || colorMap.amber,
+            ]"
+          >
+            {{ activeHighlight.selected_text }}
+          </p>
+          <p class="mt-3 text-sm leading-7">{{ activeHighlight.note || '这条划线暂时没有批注。' }}</p>
 
-            <aside class="space-y-6">
-              <section :class="cardClass" class="p-6">
-                <p class="text-xs uppercase tracking-[0.3em]" :class="readerTheme === 'dark' ? 'text-stone-400' : 'text-stone-400'">Reading Settings</p>
-                <h3 class="mt-2 text-xl font-semibold">阅读设置</h3>
+          <div class="mt-4 max-h-[28vh] space-y-2 overflow-y-auto pr-1">
+            <div
+              v-for="comment in activeHighlight.comments"
+              :key="comment.id"
+              class="rounded-2xl bg-black/10 px-3 py-3 text-sm"
+            >
+              <div class="flex items-center justify-between text-xs opacity-70">
+                <span>{{ comment.author }}</span>
+                <span>{{ comment.created_at }}</span>
+              </div>
+              <p class="mt-1 leading-6">{{ comment.content }}</p>
+            </div>
+          </div>
 
-                <div class="mt-4">
-                  <p class="mb-2 text-sm">字体大小</p>
-                  <div class="flex items-center gap-3">
-                    <button class="rounded-full border px-3 py-1 text-sm" @click="decreaseFont">A-</button>
-                    <span class="text-sm">{{ readerFontSize }} px</span>
-                    <button class="rounded-full border px-3 py-1 text-sm" @click="increaseFont">A+</button>
-                  </div>
-                </div>
+          <textarea
+            v-model="highlightCommentDraft"
+            class="mt-4 min-h-20 w-full rounded-2xl border border-stone-300 bg-transparent px-3 py-2 text-sm outline-none"
+            placeholder="发表评论..."
+          />
+          <button class="mt-3 rounded-full bg-stone-900 px-4 py-2 text-sm text-white" @click="submitHighlightComment">
+            发布评论
+          </button>
+        </div>
+        <div v-else class="text-sm text-stone-400">点击正文中的划线，可在这里查看和评论。</div>
+      </template>
 
-                <div class="mt-4">
-                  <p class="mb-2 text-sm">阅读模式</p>
-                  <div class="flex gap-2">
-                    <button
-                      class="rounded-full px-4 py-2 text-sm"
-                      :class="readerTheme === 'light' ? 'bg-stone-900 text-white' : 'bg-stone-200 text-stone-700'"
-                      @click="setTheme('light')"
-                    >
-                      浅色
-                    </button>
-                    <button
-                      class="rounded-full px-4 py-2 text-sm"
-                      :class="readerTheme === 'dark' ? 'bg-stone-900 text-white' : 'bg-stone-200 text-stone-700'"
-                      @click="setTheme('dark')"
-                    >
-                      深色
-                    </button>
-                  </div>
-                </div>
-              </section>
+      <template v-else-if="activePanel === 'book-comments'">
+        <h3 class="mb-3 text-lg font-semibold">书本评论</h3>
+        <div v-if="!showComments" class="text-sm text-stone-400">评论已隐藏，请先点击右侧“显评”。</div>
+        <template v-else>
+          <textarea
+            v-model="bookCommentDraft"
+            class="min-h-24 w-full rounded-2xl border border-stone-300 bg-transparent px-3 py-2 text-sm outline-none"
+            placeholder="写下你对这本书的看法..."
+          />
+          <button class="mt-3 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white" @click="submitBookComment">
+            发表评论
+          </button>
 
-              <section :class="cardClass" class="p-6">
-                <div class="flex items-center justify-between">
-                  <h3 class="text-xl font-semibold">划线评论</h3>
-                  <span class="rounded-full bg-stone-100 px-3 py-2 text-xs text-stone-500">{{ reader.highlights.length }} 条</span>
-                </div>
-
-                <div v-if="activeHighlight" class="mt-5">
-                  <p
-                    :class="[
-                      'rounded-3xl px-4 py-4 text-lg leading-8 underline decoration-2 underline-offset-4',
-                      colorMap[activeHighlight.color] || colorMap.amber,
-                    ]"
-                  >
-                    {{ activeHighlight.selected_text }}
-                  </p>
-                  <p class="mt-4 text-sm leading-7" :class="readerTheme === 'dark' ? 'text-stone-300' : 'text-stone-600'">
-                    {{ activeHighlight.note || '这条划线还没有批注。' }}
-                  </p>
-                  <div class="mt-4 flex items-center justify-between text-xs text-stone-400">
-                    <span>{{ activeHighlight.created_by }}</span>
-                    <span>{{ activeHighlight.created_at }}</span>
-                  </div>
-
-                  <div class="mt-6 space-y-3">
-                    <div
-                      v-for="comment in activeHighlight.comments"
-                      :key="comment.id"
-                      class="rounded-3xl px-4 py-4"
-                      :class="readerTheme === 'dark' ? 'bg-white/5' : 'bg-stone-50'"
-                    >
-                      <div class="flex items-center justify-between text-xs text-stone-400">
-                        <span>{{ comment.author }}</span>
-                        <span>{{ comment.created_at }}</span>
-                      </div>
-                      <p class="mt-2 text-sm leading-7">{{ comment.content }}</p>
-                    </div>
-                  </div>
-
-                  <textarea
-                    v-model="highlightCommentDraft"
-                    class="mt-5 min-h-28 w-full rounded-3xl border border-stone-200 px-4 py-3 outline-none focus:border-stone-400"
-                    placeholder="对这条划线发表评论..."
-                  />
-                  <button class="mt-4 rounded-full bg-stone-900 px-5 py-3 text-sm font-medium text-white" @click="submitHighlightComment">
-                    发表评论
-                  </button>
-                </div>
-              </section>
-
-              <section class="rounded-[2rem] bg-[#122620] p-6 text-stone-100 shadow-sm">
-                <h3 class="text-2xl font-semibold">书本评论区</h3>
-                <textarea
-                  v-model="bookCommentDraft"
-                  class="mt-5 min-h-28 w-full rounded-3xl border border-white/10 bg-white/10 px-4 py-3 text-stone-100 outline-none placeholder:text-stone-400"
-                  placeholder="写下你对这本书的看法..."
-                />
-                <button class="mt-4 rounded-full bg-emerald-200 px-5 py-3 text-sm font-medium text-emerald-950" @click="submitBookComment">
-                  发表评论
-                </button>
-
-                <div class="mt-6 space-y-3">
-                  <div
-                    v-for="comment in reader.book_comments"
-                    :key="comment.id"
-                    class="rounded-3xl bg-white/10 px-4 py-4"
-                  >
-                    <div class="flex items-center justify-between text-xs text-stone-300">
-                      <span>{{ comment.author }}</span>
-                      <span>{{ comment.created_at }}</span>
-                    </div>
-                    <p class="mt-2 text-sm leading-7 text-stone-100">{{ comment.content }}</p>
-                  </div>
-                </div>
-              </section>
-            </aside>
+          <div class="mt-4 max-h-[35vh] space-y-2 overflow-y-auto pr-1">
+            <div
+              v-for="comment in reader.book_comments"
+              :key="comment.id"
+              class="rounded-2xl bg-black/10 px-3 py-3 text-sm"
+            >
+              <div class="flex items-center justify-between text-xs opacity-70">
+                <span>{{ comment.author }}</span>
+                <span>{{ comment.created_at }}</span>
+              </div>
+              <p class="mt-1 leading-6">{{ comment.content }}</p>
+            </div>
           </div>
         </template>
-      </main>
+      </template>
     </div>
   </div>
 </template>

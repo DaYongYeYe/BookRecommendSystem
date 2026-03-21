@@ -179,6 +179,27 @@ class UserShelf(db.Model):
         }
 
 
+class ReaderUserPreference(db.Model):
+    __tablename__ = 'reader_user_preferences'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True, index=True)
+    theme = db.Column(db.String(16), nullable=False, default='light')
+    font_size = db.Column(db.Integer, nullable=False, default=20)
+    show_highlights = db.Column(db.Boolean, nullable=False, default=True)
+    show_comments = db.Column(db.Boolean, nullable=False, default=True)
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def to_dict(self):
+        return {
+            'theme': self.theme or 'light',
+            'font_size': int(self.font_size or 20),
+            'show_highlights': bool(self.show_highlights),
+            'show_comments': bool(self.show_comments),
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class ReaderSection(db.Model):
     __tablename__ = 'reader_sections'
 

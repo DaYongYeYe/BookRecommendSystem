@@ -45,12 +45,56 @@ def _get_current_user():
     return user, None
 
 
+def _get_current_user_optional():
+    """
+    解析 JWT；无 token、过期或无效时返回 None（不返回 HTTP 错误）。
+    用于公开页面上可选登录的接口（如阅读进度查询）。
+    """
+    token = _get_token_from_header()
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(
+            token,
+            current_app.config['JWT_SECRET_KEY'],
+            algorithms=[current_app.config.get('JWT_ALGORITHM', 'HS256')],
+        )
+    except (ExpiredSignatureError, InvalidTokenError):
+        return None
+    user_id = payload.get('user_id')
+    if not user_id:
+        return None
+    return User.query.get(user_id)
+
+
+def _reject_options_preflight():
+    """CORS 预检 OPTIONS 不得走 JWT，否则返回 401 会导致浏览器报 CORS 失败。"""
+    return request.method == 'OPTIONS'
+
+
+def login_optional(f):
+    """
+    可选登录：有有效 JWT 则注入 current_user，否则为 None。
+    """
+
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if _reject_options_preflight():
+            return '', 200
+        user = _get_current_user_optional()
+        return f(current_user=user, *args, **kwargs)
+
+    return decorated_function
+
+
 def login_required(f):
     """
     登录验证装饰器（基于 JWT）
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        if _reject_options_preflight():
+            return '', 200
         user, error_response = _get_current_user()
         if error_response:
             return error_response
@@ -66,6 +110,8 @@ def admin_required(f):
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        if _reject_options_preflight():
+            return '', 200
         user, error_response = _get_current_user()
         if error_response:
             return error_response
@@ -86,6 +132,8 @@ def permission_required(permission_name):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
+            if _reject_options_preflight():
+                return '', 200
             user, error_response = _get_current_user()
             if error_response:
                 return error_response
@@ -133,6 +181,8 @@ def role_required(role_name):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
+            if _reject_options_preflight():
+                return '', 200
             user, error_response = _get_current_user()
             if error_response:
                 return error_response
