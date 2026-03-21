@@ -13,7 +13,9 @@ USE book_recommend_db;
 CREATE TABLE users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(80) NOT NULL UNIQUE,
+    name VARCHAR(80),
     email VARCHAR(120) NOT NULL UNIQUE,
+    avatar_url VARCHAR(500),
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'user',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

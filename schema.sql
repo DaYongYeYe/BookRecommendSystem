@@ -8,7 +8,9 @@
 CREATE TABLE `users` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `username`      VARCHAR(80) NOT NULL UNIQUE,
+  `name`          VARCHAR(80) DEFAULT NULL,
   `email`         VARCHAR(120) NOT NULL UNIQUE,
+  `avatar_url`    VARCHAR(500) DEFAULT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
   `role`          VARCHAR(20)  NOT NULL DEFAULT 'user',
   `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

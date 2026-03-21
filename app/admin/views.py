@@ -31,7 +31,7 @@ def admin_register():
     if User.query.filter_by(email=email).first():
         return jsonify({'error': '邮箱已被注册'}), 400
 
-    user = User(username=username, email=email, role='admin')
+    user = User(username=username, name=username, email=email, role='admin')
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
@@ -129,7 +129,7 @@ def create_user(current_user):
     if User.query.filter_by(email=email).first():
         return jsonify({'error': '邮箱已被注册'}), 400
 
-    user = User(username=username, email=email, role=role)
+    user = User(username=username, name=username, email=email, role=role)
     user.set_password(password)
     db.session.add(user)
     db.session.commit()

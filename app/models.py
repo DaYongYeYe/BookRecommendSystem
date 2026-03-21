@@ -7,7 +7,9 @@ class User(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
+    name = db.Column(db.String(80))
     email = db.Column(db.String(120), unique=True, nullable=False)
+    avatar_url = db.Column(db.String(500))
     # Werkzeug scrypt hashes are longer than legacy pbkdf2 hashes.
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='user')  # user or admin
@@ -30,7 +32,9 @@ class User(db.Model):
         return {
             'id': self.id,
             'username': self.username,
+            'name': self.name,
             'email': self.email,
+            'avatar_url': self.avatar_url,
             'role': self.role
         }
 
@@ -153,6 +157,25 @@ class UserReadingProgress(db.Model):
             'paragraph_id': self.paragraph_id,
             'scroll_percent': float(self.scroll_percent or 0),
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class UserShelf(db.Model):
+    __tablename__ = 'user_shelf'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'book_id', name='uniq_user_book'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'book_id': self.book_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 

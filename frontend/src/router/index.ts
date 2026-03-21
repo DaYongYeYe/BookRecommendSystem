@@ -5,6 +5,8 @@ import Home from '@/views/Home.vue'
 import Reader from '@/views/Reader.vue'
 import BookDetail from '@/views/BookDetail.vue'
 import BookEntry from '@/views/BookEntry.vue'
+import UserProfile from '@/views/UserProfile.vue'
+import UserLibrary from '@/views/UserLibrary.vue'
 import AdminLogin from '@/views/admin/AdminLogin.vue'
 import AdminRegister from '@/views/admin/AdminRegister.vue'
 import AdminLayout from '@/views/admin/AdminLayout.vue'
@@ -45,6 +47,18 @@ const routes: RouteRecordRaw[] = [
     path: '/books/:bookId/entry',
     name: 'BookEntry',
     component: BookEntry,
+  },
+  {
+    path: '/user/profile',
+    name: 'UserProfile',
+    component: UserProfile,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/user/library',
+    name: 'UserLibrary',
+    component: UserLibrary,
+    meta: { requiresAuth: true },
   },
   {
     path: '/reader',
@@ -115,6 +129,17 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
+  if (to.meta.requiresAuth) {
+    const token = getToken()
+    if (!token) {
+      next({
+        path: '/login',
+        query: { redirect: to.fullPath },
+      })
+      return
+    }
+  }
+
   if (to.meta.requiresAdmin) {
     const token = getToken()
     if (!token) {

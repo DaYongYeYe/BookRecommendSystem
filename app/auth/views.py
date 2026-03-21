@@ -21,7 +21,7 @@ def register():
         return jsonify({'error': '邮箱已被注册'}), 400
     
     # 创建新用户
-    user = User(username=data['username'], email=data['email'])
+    user = User(username=data['username'], name=data['username'], email=data['email'])
     user.set_password(data['password'])
     
     db.session.add(user)
