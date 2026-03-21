@@ -2,6 +2,11 @@
 
 前端使用 **Vue 3 + TypeScript + Vite + Element Plus**，后端使用 **Python Flask + SQLAlchemy + MySQL + Redis + JWT**。
 
+
+页面效果:
+![img.png](img.png)
+![img_1.png](img_1.png)
+![img_2.png](img_2.png)
 ---
 
 ## 项目结构
