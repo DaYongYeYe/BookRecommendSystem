@@ -33,6 +33,12 @@ export function updateUserProfile(payload: { name?: string; avatar_url?: string;
   return request.put<any, { user: UserProfile }>('/user/profile', payload)
 }
 
+export function uploadUserAvatar(file: File) {
+  const formData = new FormData()
+  formData.append('avatar', file)
+  return request.post<any, { avatar_url: string; user: UserProfile }>('/user/avatar/upload', formData)
+}
+
 export function getUserFavorites() {
   return request.get<any, { items: BookItem[] }>('/user/favorites')
 }

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getToken } from '@/api/request'
@@ -20,7 +20,7 @@ const books = [
       'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
   },
   {
-    id: 1,
+    id: 2,
     title: '夜晚的潜水艇',
     author: '陈春成',
     rating: 9.1,
@@ -28,7 +28,7 @@ const books = [
       'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?auto=format&fit=crop&w=900&q=80',
   },
   {
-    id: 1,
+    id: 3,
     title: '克拉拉与太阳',
     author: '石黑一雄',
     rating: 9.0,
@@ -36,7 +36,7 @@ const books = [
       'https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=900&q=80',
   },
   {
-    id: 1,
+    id: 4,
     title: '置身事内',
     author: '兰小欢',
     rating: 8.8,

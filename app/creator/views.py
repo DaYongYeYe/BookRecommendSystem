@@ -1,14 +1,13 @@
-import os
 from datetime import datetime
-from uuid import uuid4
 
 from flask import current_app, jsonify, request
-from werkzeug.utils import secure_filename
 
 from app import db
 from app.creator import bp
+from app.logging_utils import business_log_aspect
 from app.models import Book, BookManuscript
 from app.rbac.decorators import login_required
+from app.services.tencent_cos import upload_image
 
 ALLOWED_COVER_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 
@@ -17,38 +16,18 @@ def _is_creator(user):
     return user and user.role in ('creator', 'admin')
 
 
-def _extract_extension(filename: str):
-    return (filename.rsplit('.', 1)[-1].lower() if '.' in (filename or '') else '')
-
-
 def _save_cover_file(file_obj):
     if not file_obj:
         return None, None
 
-    filename = file_obj.filename or ''
-    ext = _extract_extension(filename)
-    if ext not in ALLOWED_COVER_EXTENSIONS:
-        return None, 'cover file type not allowed'
-
-    file_obj.stream.seek(0, os.SEEK_END)
-    size = file_obj.stream.tell()
-    file_obj.stream.seek(0)
     max_size = int(current_app.config.get('MAX_COVER_UPLOAD_SIZE', 5 * 1024 * 1024))
-    if size > max_size:
-        return None, 'cover file too large'
-
-    safe_name = secure_filename(filename)
-    _, safe_ext = os.path.splitext(safe_name)
-    final_name = f'{uuid4().hex}{safe_ext.lower()}'
-
-    upload_root = current_app.config.get('UPLOAD_DIR', os.path.join('instance', 'uploads'))
-    subdir = current_app.config.get('COVER_UPLOAD_SUBDIR', 'book_covers')
-    abs_dir = os.path.join(upload_root, subdir)
-    os.makedirs(abs_dir, exist_ok=True)
-    abs_path = os.path.join(abs_dir, final_name)
-    file_obj.save(abs_path)
-
-    return f'/uploads/{subdir}/{final_name}', None
+    folder = current_app.config.get('COVER_UPLOAD_SUBDIR', 'book_covers')
+    return upload_image(
+        file_obj,
+        folder=folder,
+        allowed_extensions=ALLOWED_COVER_EXTENSIONS,
+        max_size=max_size,
+    )
 
 
 def _extract_payload():
@@ -98,6 +77,7 @@ def list_creator_manuscripts(current_user):
 
 @bp.route('/manuscripts', methods=['POST'])
 @login_required
+@business_log_aspect('creator.manuscript.create', tags=['creator', 'manuscript', 'business', 'aop'])
 def create_creator_manuscript(current_user):
     if not _is_creator(current_user):
         return jsonify({'error': 'creator role required'}), 403
@@ -150,6 +130,7 @@ def create_creator_manuscript(current_user):
 
 @bp.route('/manuscripts/<int:manuscript_id>', methods=['PUT'])
 @login_required
+@business_log_aspect('creator.manuscript.update', tags=['creator', 'manuscript', 'business', 'aop'])
 def update_creator_manuscript(current_user, manuscript_id: int):
     if not _is_creator(current_user):
         return jsonify({'error': 'creator role required'}), 403
@@ -184,6 +165,7 @@ def update_creator_manuscript(current_user, manuscript_id: int):
 
 @bp.route('/manuscripts/<int:manuscript_id>/submit', methods=['POST'])
 @login_required
+@business_log_aspect('creator.manuscript.submit', tags=['creator', 'manuscript', 'workflow', 'business', 'aop'])
 def submit_creator_manuscript(current_user, manuscript_id: int):
     if not _is_creator(current_user):
         return jsonify({'error': 'creator role required'}), 403

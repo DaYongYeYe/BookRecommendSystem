@@ -40,7 +40,7 @@ request.interceptors.response.use(
   (error: AxiosError<any>) => {
     const status = error.response?.status
 
-    if (status === 401 || status === 403) {
+    if (status === 401) {
       clearToken()
       if (!isRedirecting) {
         isRedirecting = true

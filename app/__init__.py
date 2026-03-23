@@ -6,6 +6,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_redis import FlaskRedis
 from sqlalchemy import inspect, text
 from config import Config
+from app.logging_utils import attach_request_hooks, register_error_handlers, setup_logging
 
 db = SQLAlchemy()
 redis_client = FlaskRedis()
@@ -146,6 +147,7 @@ def _apply_schema_compatibility_patches(app: Flask):
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+    setup_logging(app)
 
     # Allow local frontend dev server to call backend APIs.
     CORS(
@@ -183,7 +185,10 @@ def create_app(config_class=Config):
     def uploaded_files(filename):
         upload_root = app.config.get('UPLOAD_DIR') or os.path.join(app.instance_path, 'uploads')
         return send_from_directory(upload_root, filename)
-    
+
+    attach_request_hooks(app)
+    register_error_handlers(app)
+
     @app.cli.command('init-db')
     def init_db_command():
         """Initialize database tables."""

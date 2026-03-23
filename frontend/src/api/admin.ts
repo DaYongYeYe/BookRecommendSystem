@@ -3,6 +3,8 @@ import request from './request'
 export interface AdminLoginPayload {
   username: string
   password: string
+  captcha_id: string
+  captcha_code: string
 }
 
 export interface AdminLoginResponse {
@@ -14,6 +16,14 @@ export interface AdminRegisterPayload {
   email: string
   password: string
   register_code: string
+  captcha_id: string
+  captcha_code: string
+}
+
+export interface AdminCaptchaResponse {
+  captcha_id: string
+  captcha_image: string
+  expires_in: number
 }
 
 export interface AdminCreateUserPayload {
@@ -109,6 +119,10 @@ export function adminLogin(data: AdminLoginPayload) {
 
 export function adminRegister(data: AdminRegisterPayload) {
   return request.post('/admin/auth/register', data)
+}
+
+export function getAdminCaptcha() {
+  return request.get<AdminCaptchaResponse, AdminCaptchaResponse>('/admin/auth/captcha')
 }
 
 export function getAdminUsers(params: { page: number; page_size: number; keyword?: string }) {
