@@ -15,10 +15,21 @@ from app.services.reader_service import (
 
 
 @bp.route('/books/<int:book_id>/reader', methods=['GET'])
-def api_get_book_reader(book_id: int):
+@login_optional
+def api_get_book_reader(current_user, book_id: int):
     payload = build_reader_payload(book_id)
     if not payload:
         return jsonify({'error': 'book not found'}), 404
+
+    if current_user:
+        progress = UserReadingProgress.query.filter_by(user_id=current_user.id, book_id=book_id).first()
+        if not progress:
+            db.session.add(UserReadingProgress(user_id=current_user.id, book_id=book_id, scroll_percent=0))
+        else:
+            # Touch the record when opening reader so history gets refreshed.
+            progress.updated_at = db.func.now()
+        db.session.commit()
+
     return jsonify(payload), 200
 
 

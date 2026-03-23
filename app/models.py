@@ -141,6 +141,68 @@ class Book(db.Model):
         }
 
 
+class Category(db.Model):
+    __tablename__ = 'categories'
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(64), unique=True, nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    en_name = db.Column(db.String(100))
+    description = db.Column(db.String(255))
+    cover = db.Column(db.String(500))
+    is_highlighted = db.Column(db.Boolean, nullable=False, default=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'code': self.code,
+            'name': self.name,
+            'en_name': self.en_name,
+            'description': self.description,
+            'cover': self.cover,
+            'is_highlighted': bool(self.is_highlighted),
+        }
+
+
+class Tag(db.Model):
+    __tablename__ = 'tags'
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(64), unique=True, nullable=False)
+    label = db.Column(db.String(100), nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'code': self.code,
+            'label': self.label,
+        }
+
+
+class BookTag(db.Model):
+    __tablename__ = 'book_tags'
+
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    tag_id = db.Column(db.Integer, db.ForeignKey('tags.id'), nullable=False, index=True)
+
+    __table_args__ = (db.UniqueConstraint('book_id', 'tag_id', name='uniq_book_tag'),)
+
+
+class BookRanking(db.Model):
+    __tablename__ = 'book_rankings'
+
+    id = db.Column(db.Integer, primary_key=True)
+    type = db.Column(db.String(64), nullable=False, index=True)
+    rank_no = db.Column(db.Integer, nullable=False)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    snapshot_date = db.Column(db.Date, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('type', 'snapshot_date', 'rank_no', name='uniq_type_date_rank'),
+    )
+
+
 class UserReadingProgress(db.Model):
     __tablename__ = 'user_reading_progress'
 

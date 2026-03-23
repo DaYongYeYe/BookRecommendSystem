@@ -3,6 +3,7 @@
     <div class="toolbar">
       <h2>创作者稿件</h2>
       <div class="actions">
+        <el-button @click="goHome">返回首页</el-button>
         <el-select v-model="statusFilter" style="width: 160px" @change="loadManuscripts">
           <el-option label="全部状态" value="" />
           <el-option label="草稿" value="draft" />
@@ -51,13 +52,27 @@
           <el-input v-model="form.description" type="textarea" :rows="3" maxlength="2000" show-word-limit />
         </el-form-item>
         <el-form-item label="封面图">
-          <input type="file" accept=".jpg,.jpeg,.png,.webp" @change="onCoverFileChange" />
+          <input
+            ref="coverInputRef"
+            class="file-input"
+            type="file"
+            accept=".jpg,.jpeg,.png,.webp"
+            @change="onCoverFileChange"
+          />
+          <el-button @click="triggerCoverUpload">选择文件</el-button>
           <div v-if="form.cover || coverFileName" class="hint">
             已选: {{ coverFileName || form.cover }}
           </div>
         </el-form-item>
         <el-form-item label="正文 txt">
-          <input type="file" accept=".txt" @change="onContentFileChange" />
+          <input
+            ref="contentInputRef"
+            class="file-input"
+            type="file"
+            accept=".txt"
+            @change="onContentFileChange"
+          />
+          <el-button @click="triggerContentUpload">选择文件</el-button>
           <div v-if="contentFileName" class="hint">已选: {{ contentFileName }}</div>
         </el-form-item>
         <el-form-item label="正文内容" prop="content_text">
@@ -79,6 +94,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, FormInstance, FormRules } from 'element-plus'
 import {
   CreatorManuscriptItem,
@@ -92,10 +108,13 @@ const loading = ref(false)
 const submitLoading = ref(false)
 const manuscripts = ref<CreatorManuscriptItem[]>([])
 const statusFilter = ref('')
+const router = useRouter()
 
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
+const coverInputRef = ref<HTMLInputElement | null>(null)
+const contentInputRef = ref<HTMLInputElement | null>(null)
 const form = reactive({
   title: '',
   description: '',
@@ -161,6 +180,18 @@ const onContentFileChange = (event: Event) => {
   const file = target.files?.[0] || null
   contentFile.value = file
   contentFileName.value = file?.name || ''
+}
+
+const triggerCoverUpload = () => {
+  coverInputRef.value?.click()
+}
+
+const triggerContentUpload = () => {
+  contentInputRef.value?.click()
+}
+
+const goHome = () => {
+  router.push('/')
 }
 
 const buildFormData = () => {
@@ -249,5 +280,9 @@ onMounted(() => {
   font-size: 12px;
   color: #606266;
   margin-top: 6px;
+}
+
+.file-input {
+  display: none;
 }
 </style>

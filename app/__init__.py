@@ -6,6 +6,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_redis import FlaskRedis
 from sqlalchemy import inspect, text
 from config import Config
+from app.logging_utils import attach_request_hooks, register_error_handlers, setup_logging
 
 db = SQLAlchemy()
 redis_client = FlaskRedis()
@@ -127,6 +128,60 @@ def _apply_schema_compatibility_patches(app: Flask):
                 """
             )
 
+        if 'categories' not in table_names:
+            patches.append(
+                """
+                CREATE TABLE categories (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    code VARCHAR(64) NOT NULL UNIQUE,
+                    name VARCHAR(100) NOT NULL,
+                    en_name VARCHAR(100) NULL,
+                    description VARCHAR(255) NULL,
+                    cover VARCHAR(500) NULL,
+                    is_highlighted TINYINT(1) NOT NULL DEFAULT 0
+                )
+                """
+            )
+
+        if 'tags' not in table_names:
+            patches.append(
+                """
+                CREATE TABLE tags (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    code VARCHAR(64) NOT NULL UNIQUE,
+                    label VARCHAR(100) NOT NULL
+                )
+                """
+            )
+
+        if 'book_tags' not in table_names and 'books' in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE book_tags (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    book_id {books_id_type} NOT NULL,
+                    tag_id BIGINT UNSIGNED NOT NULL,
+                    UNIQUE KEY uniq_book_tag (book_id, tag_id),
+                    KEY idx_bt_tag (tag_id)
+                )
+                """
+            )
+
+        if 'book_rankings' not in table_names and 'books' in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE book_rankings (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    type VARCHAR(64) NOT NULL,
+                    rank_no INT NOT NULL,
+                    book_id {books_id_type} NOT NULL,
+                    snapshot_date DATE NOT NULL,
+                    UNIQUE KEY uniq_type_date_rank (type, snapshot_date, rank_no),
+                    KEY idx_br_book (book_id)
+                )
+                """
+            )
+
         if not patches:
             return
 
@@ -146,6 +201,7 @@ def _apply_schema_compatibility_patches(app: Flask):
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+    setup_logging(app)
 
     # Allow local frontend dev server to call backend APIs.
     CORS(
@@ -183,7 +239,10 @@ def create_app(config_class=Config):
     def uploaded_files(filename):
         upload_root = app.config.get('UPLOAD_DIR') or os.path.join(app.instance_path, 'uploads')
         return send_from_directory(upload_root, filename)
-    
+
+    attach_request_hooks(app)
+    register_error_handlers(app)
+
     @app.cli.command('init-db')
     def init_db_command():
         """Initialize database tables."""

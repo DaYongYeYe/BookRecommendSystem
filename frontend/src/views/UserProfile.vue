@@ -1,13 +1,14 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
-import { getUserProfile, updateUserProfile, type UserProfile } from '@/api/user'
+import { getUserProfile, updateUserProfile, uploadUserAvatar, type UserProfile } from '@/api/user'
 import { isCreatorToken } from '@/utils/auth'
 
 const router = useRouter()
 const loading = ref(false)
 const saving = ref(false)
+const uploadingAvatar = ref(false)
 const profile = ref<UserProfile | null>(null)
 
 const form = reactive({
@@ -48,6 +49,25 @@ async function saveProfile() {
     ElMessage.error(_error?.response?.data?.error || '资料保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function handleAvatarChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  uploadingAvatar.value = true
+  try {
+    const res = await uploadUserAvatar(file)
+    form.avatar_url = res.avatar_url || ''
+    profile.value = res.user
+    ElMessage.success('头像上传成功')
+  } catch (_error: any) {
+    ElMessage.error(_error?.response?.data?.error || '头像上传失败')
+  } finally {
+    uploadingAvatar.value = false
+    input.value = ''
   }
 }
 
@@ -101,12 +121,15 @@ onMounted(loadProfile)
               </label>
 
               <label class="block">
-                <span class="mb-2 block text-sm text-stone-600">头像链接</span>
+                <span class="mb-2 block text-sm text-stone-600">上传头像</span>
                 <input
-                  v-model="form.avatar_url"
-                  class="w-full rounded-2xl border border-stone-200 px-4 py-3 outline-none focus:border-stone-500"
-                  placeholder="请输入头像 URL"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  class="block w-full text-sm text-stone-600 file:mr-4 file:rounded-full file:border-0 file:bg-stone-900 file:px-4 file:py-2 file:text-sm file:text-white"
+                  :disabled="uploadingAvatar"
+                  @change="handleAvatarChange"
                 />
+                <p class="mt-2 text-xs text-stone-500">支持 JPG/PNG/WEBP，最大 2MB</p>
               </label>
 
               <p class="text-sm text-stone-500">邮箱：{{ profile.email }}</p>

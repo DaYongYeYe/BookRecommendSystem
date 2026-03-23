@@ -1,49 +1,32 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { getToken } from '@/api/request'
 import { getUserProfile, type UserProfile } from '@/api/user'
+import {
+  getBookRankings,
+  getBooksByCategoryOrTag,
+  getHighlightedCategories,
+  getHomeRecommendations,
+  getHotTags,
+  type HomeBookItem,
+  type HomeCategoryItem,
+  type HomeTagItem,
+} from '@/api/home'
 
 const router = useRouter()
 
 const currentUser = ref<UserProfile | null>(null)
 const defaultAvatar =
   'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=200&q=80'
-
-const books = [
-  {
-    id: 1,
-    title: '漫长的余生',
-    author: '罗新',
-    rating: 9.4,
-    cover:
-      'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: 1,
-    title: '夜晚的潜水艇',
-    author: '陈春成',
-    rating: 9.1,
-    cover:
-      'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: 1,
-    title: '克拉拉与太阳',
-    author: '石黑一雄',
-    rating: 9.0,
-    cover:
-      'https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: 1,
-    title: '置身事内',
-    author: '兰小欢',
-    rating: 8.8,
-    cover:
-      'https://images.unsplash.com/photo-1474932430478-367dbb6832c1?auto=format&fit=crop&w=900&q=80',
-  },
-]
+const books = ref<HomeBookItem[]>([])
+const categories = ref<HomeCategoryItem[]>([])
+const tags = ref<HomeTagItem[]>([])
+const rankingBooks = ref<HomeBookItem[]>([])
+const activeCategoryId = ref<number | null>(null)
+const activeTagId = ref<number | null>(null)
+const loadingBooks = ref(false)
 
 function goBook(bookId: number) {
   router.push(`/books/${bookId}`)
@@ -57,6 +40,54 @@ function goProfile() {
   router.push('/user/profile')
 }
 
+function goMoreRecommendations() {
+  router.push('/recommendations')
+}
+
+async function loadHomeBooks() {
+  loadingBooks.value = true
+  try {
+    if (activeCategoryId.value || activeTagId.value) {
+      const res = await getBooksByCategoryOrTag({
+        category_id: activeCategoryId.value || undefined,
+        tag_id: activeTagId.value || undefined,
+      })
+      books.value = res.items || []
+      return
+    }
+    const res = await getHomeRecommendations(8)
+    books.value = res.items || []
+  } finally {
+    loadingBooks.value = false
+  }
+}
+
+async function loadHomeData() {
+  try {
+    const [tagsRes, categoriesRes, rankingRes] = await Promise.all([
+      getHotTags(),
+      getHighlightedCategories(),
+      getBookRankings({ type: 'high_score', limit: 4 }),
+    ])
+    tags.value = tagsRes.items || []
+    categories.value = categoriesRes.items || []
+    rankingBooks.value = rankingRes.items || []
+  } catch (_error) {
+    ElMessage.warning('首页推荐数据加载不完整，已使用可用数据继续展示')
+  }
+  await loadHomeBooks()
+}
+
+async function selectCategory(categoryId: number | null) {
+  activeCategoryId.value = categoryId
+  await loadHomeBooks()
+}
+
+async function selectTag(tagId: number | null) {
+  activeTagId.value = tagId
+  await loadHomeBooks()
+}
+
 async function loadProfile() {
   if (!getToken()) return
   try {
@@ -67,7 +98,9 @@ async function loadProfile() {
   }
 }
 
-onMounted(loadProfile)
+onMounted(async () => {
+  await Promise.all([loadProfile(), loadHomeData()])
+})
 </script>
 
 <template>
@@ -107,23 +140,92 @@ onMounted(loadProfile)
       </section>
 
       <section class="mt-10">
-        <div class="mb-4 flex items-center justify-between">
-          <h2 class="text-2xl font-semibold">为你推荐</h2>
+        <div class="mb-5 flex flex-wrap items-center gap-3">
+          <button
+            class="rounded-full border px-4 py-2 text-sm transition"
+            :class="activeTagId === null ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-300 bg-white text-stone-700'"
+            @click="selectTag(null)"
+          >
+            全部标签
+          </button>
+          <button
+            v-for="tag in tags"
+            :key="tag.id"
+            class="rounded-full border px-4 py-2 text-sm transition"
+            :class="activeTagId === tag.id ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-300 bg-white text-stone-700'"
+            @click="selectTag(tag.id)"
+          >
+            {{ tag.label }}
+          </button>
         </div>
 
-        <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-2xl font-semibold">为你推荐</h2>
+          <button class="text-sm font-medium text-stone-700 hover:text-stone-900" @click="goMoreRecommendations">更多 ></button>
+        </div>
+
+        <div v-if="loadingBooks" class="rounded-xl bg-white p-6 text-center text-sm text-stone-500">推荐书籍加载中...</div>
+
+        <div v-else class="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           <article
             v-for="book in books"
-            :key="`${book.title}-${book.author}`"
+            :key="book.id"
             class="cursor-pointer rounded-2xl bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
             @click="goBook(book.id)"
           >
-            <img :src="book.cover" :alt="book.title" class="aspect-[3/4] w-full rounded-xl object-cover" />
+            <img :src="book.cover || ''" :alt="book.title" class="aspect-[3/4] w-full rounded-xl object-cover" />
             <h3 class="mt-3 line-clamp-1 text-sm font-semibold">{{ book.title }}</h3>
             <p class="mt-1 text-xs text-stone-500">{{ book.author }}</p>
-            <p class="mt-2 text-xs text-amber-600">评分 {{ book.rating }}</p>
+            <p class="mt-2 text-xs text-amber-600">评分 {{ book.rating || book.score || '-' }}</p>
           </article>
         </div>
+      </section>
+
+      <section class="mt-10 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div class="rounded-2xl bg-white p-5 shadow-sm">
+          <div class="mb-4 flex flex-wrap gap-3">
+            <button
+              class="rounded-full border px-4 py-2 text-sm transition"
+              :class="
+                activeCategoryId === null ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-300 bg-white text-stone-700'
+              "
+              @click="selectCategory(null)"
+            >
+              全部分类
+            </button>
+            <button
+              v-for="item in categories"
+              :key="item.id"
+              class="rounded-full border px-4 py-2 text-sm transition"
+              :class="
+                activeCategoryId === item.id ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-300 bg-white text-stone-700'
+              "
+              @click="selectCategory(item.id)"
+            >
+              {{ item.name }}
+            </button>
+          </div>
+          <p class="text-sm text-stone-500">点击分类可筛选左侧推荐书籍列表。</p>
+        </div>
+
+        <aside class="rounded-2xl bg-white p-5 shadow-sm">
+          <h3 class="text-lg font-semibold">高分口碑榜</h3>
+          <div class="mt-4 space-y-3">
+            <article
+              v-for="item in rankingBooks"
+              :key="`rank-${item.id}`"
+              class="flex cursor-pointer items-center gap-3 rounded-xl p-2 transition hover:bg-stone-50"
+              @click="goBook(item.id)"
+            >
+              <div class="w-7 text-sm font-semibold text-amber-600">{{ item.rank }}</div>
+              <img :src="item.cover || ''" :alt="item.title" class="h-14 w-10 rounded object-cover" />
+              <div class="min-w-0">
+                <p class="truncate text-sm font-medium">{{ item.title }}</p>
+                <p class="truncate text-xs text-stone-500">{{ item.author }}</p>
+              </div>
+            </article>
+          </div>
+        </aside>
       </section>
     </main>
   </div>

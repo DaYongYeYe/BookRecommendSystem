@@ -1,9 +1,13 @@
-from flask import request, jsonify
+from flask import current_app, request, jsonify
 
 from app import db
 from app.models import User, Book, UserShelf, UserReadingProgress
 from app.rbac.decorators import login_required
+from app.services.tencent_cos import upload_image
+from app.logging_utils import business_log_aspect
 from app.user import bp
+
+ALLOWED_AVATAR_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 
 
 @bp.route('/profile', methods=['GET'])
@@ -14,6 +18,7 @@ def get_profile(current_user):
 
 @bp.route('/profile', methods=['PUT'])
 @login_required
+@business_log_aspect('user.profile_update', tags=['user', 'business', 'aop'])
 def update_profile(current_user):
     data = request.get_json() or {}
     if not data:
@@ -40,8 +45,30 @@ def update_profile(current_user):
     return jsonify({'message': '用户信息更新成功', 'user': current_user.to_dict()}), 200
 
 
+@bp.route('/avatar/upload', methods=['POST'])
+@login_required
+@business_log_aspect('user.avatar_upload', tags=['user', 'business', 'avatar', 'aop'])
+def upload_avatar(current_user):
+    file_obj = request.files.get('avatar')
+    max_size = int(current_app.config.get('MAX_AVATAR_UPLOAD_SIZE', 2 * 1024 * 1024))
+    avatar_url, error = upload_image(
+        file_obj,
+        folder=f'avatars/{current_user.id}',
+        allowed_extensions=ALLOWED_AVATAR_EXTENSIONS,
+        max_size=max_size,
+    )
+    if error:
+        status = 500 if error in ('cos not configured', 'invalid cos secret id', 'cos upload failed') else 400
+        return jsonify({'error': error}), status
+
+    current_user.avatar_url = avatar_url
+    db.session.commit()
+    return jsonify({'message': '头像上传成功', 'avatar_url': avatar_url, 'user': current_user.to_dict()}), 200
+
+
 @bp.route('/change_password', methods=['POST'])
 @login_required
+@business_log_aspect('user.change_password', tags=['user', 'business', 'security', 'aop'])
 def change_password(current_user):
     data = request.get_json() or {}
     old_password = data.get('old_password')

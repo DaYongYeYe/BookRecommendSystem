@@ -9,6 +9,12 @@
         <el-form-item label="密码" prop="password">
           <el-input v-model="form.password" type="password" show-password autocomplete="current-password" />
         </el-form-item>
+        <el-form-item label="验证码" prop="captcha_code">
+          <div class="captcha-row">
+            <el-input v-model="form.captcha_code" maxlength="4" placeholder="请输入验证码" />
+            <img class="captcha-image" :src="captchaImage" alt="captcha" @click="refreshCaptcha" />
+          </div>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="loading" style="width: 100%" @click="onSubmit">登录管理端</el-button>
         </el-form-item>
@@ -24,10 +30,10 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, FormInstance, FormRules } from 'element-plus'
-import { adminLogin } from '../../api/admin'
+import { adminLogin, getAdminCaptcha } from '../../api/admin'
 import { setToken } from '../../api/request'
 
 const router = useRouter()
@@ -38,12 +44,31 @@ const loading = ref(false)
 const form = reactive({
   username: '',
   password: '',
+  captcha_id: '',
+  captcha_code: '',
 })
+const captchaImage = ref('')
 
 const rules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  captcha_code: [{ required: true, message: '请输入验证码', trigger: 'blur' }],
 }
+
+const refreshCaptcha = async () => {
+  const data = await getAdminCaptcha()
+  form.captcha_id = data.captcha_id
+  form.captcha_code = ''
+  captchaImage.value = data.captcha_image
+}
+
+onMounted(async () => {
+  try {
+    await refreshCaptcha()
+  } catch {
+    ElMessage.error('获取验证码失败')
+  }
+})
 
 const onSubmit = () => {
   if (!formRef.value) return
@@ -60,6 +85,7 @@ const onSubmit = () => {
       router.push(redirect)
     } catch (error: any) {
       ElMessage.error(error?.response?.data?.error || '登录失败')
+      await refreshCaptcha()
     } finally {
       loading.value = false
     }
@@ -92,5 +118,19 @@ const goRegister = () => {
 .footer-text {
   width: 100%;
   text-align: right;
+}
+
+.captcha-row {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+}
+
+.captcha-image {
+  width: 120px;
+  height: 40px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  cursor: pointer;
 }
 </style>

@@ -2,46 +2,73 @@ from flask import request, jsonify, current_app
 from app.auth import bp
 from app import db
 from app.models import User
+from app.services.captcha import generate_captcha, verify_captcha
+from app.logging_utils import bind_identity, business_log_aspect
 import jwt
 from datetime import datetime, timedelta
 
+@bp.route('/captcha', methods=['GET'])
+@business_log_aspect('auth.captcha', tags=['auth', 'business', 'aop'])
+def captcha():
+    return jsonify(generate_captcha()), 200
+
 @bp.route('/register', methods=['POST'])
+@business_log_aspect('auth.register', tags=['auth', 'business', 'aop'])
 def register():
-    data = request.get_json()
-    
+    data = request.get_json() or {}
+
+    username = (data.get('username') or '').strip()
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password')
+    captcha_id = data.get('captcha_id') or ''
+    captcha_code = data.get('captcha_code') or ''
+
     # 检查必需字段
-    if not data or not data.get('username') or not data.get('email') or not data.get('password'):
-        return jsonify({'error': '用户名、邮箱和密码是必需的'}), 400
-    
+    if not username or not email or not password or not captcha_id or not captcha_code:
+        return jsonify({'error': '用户名、邮箱、密码和验证码是必需的'}), 400
+
+    if not verify_captcha(captcha_id, captcha_code):
+        return jsonify({'error': '验证码错误或已过期'}), 400
+
     # 检查用户是否已存在
-    if User.query.filter_by(username=data['username']).first():
+    if User.query.filter_by(username=username).first():
         return jsonify({'error': '用户名已存在'}), 400
-    
-    if User.query.filter_by(email=data['email']).first():
+
+    if User.query.filter_by(email=email).first():
         return jsonify({'error': '邮箱已被注册'}), 400
-    
+
     # 创建新用户
-    user = User(username=data['username'], name=data['username'], email=data['email'])
-    user.set_password(data['password'])
-    
+    user = User(username=username, name=username, email=email)
+    user.set_password(password)
+
     db.session.add(user)
     db.session.commit()
-    
+    bind_identity(user, auth_state='authenticated')
+
     return jsonify({'message': '用户注册成功', 'user': user.to_dict()}), 201
 
 @bp.route('/login', methods=['POST'])
+@business_log_aspect('auth.login', tags=['auth', 'business', 'aop'])
 def login():
-    data = request.get_json()
-    
+    data = request.get_json() or {}
+
+    username = (data.get('username') or '').strip()
+    password = data.get('password')
+    captcha_id = data.get('captcha_id') or ''
+    captcha_code = data.get('captcha_code') or ''
+
     # 检查必需字段
-    if not data or not data.get('username') or not data.get('password'):
-        return jsonify({'error': '用户名和密码是必需的'}), 400
-    
+    if not username or not password or not captcha_id or not captcha_code:
+        return jsonify({'error': '用户名、密码和验证码是必需的'}), 400
+
+    if not verify_captcha(captcha_id, captcha_code):
+        return jsonify({'error': '验证码错误或已过期'}), 400
+
     # 查找用户
-    user = User.query.filter_by(username=data['username']).first()
+    user = User.query.filter_by(username=username).first()
 
     # 验证用户和密码
-    if not user or not user.check_password(data['password']):
+    if not user or not user.check_password(password):
         return jsonify({'error': '用户名或密码错误'}), 401
 
     # 生成 JWT
@@ -58,6 +85,7 @@ def login():
         current_app.config['JWT_SECRET_KEY'],
         algorithm=current_app.config.get('JWT_ALGORITHM', 'HS256')
     )
+    bind_identity(user, auth_state='authenticated')
 
     return jsonify({
         'message': '登录成功',
@@ -66,6 +94,7 @@ def login():
     }), 200
 
 @bp.route('/logout', methods=['POST'])
+@business_log_aspect('auth.logout', tags=['auth', 'business', 'aop'])
 def logout():
     # 使用 JWT 为无状态认证，后端无法真正“注销”一个 token，
     # 前端只需丢弃本地保存的 token 即可视为登出。

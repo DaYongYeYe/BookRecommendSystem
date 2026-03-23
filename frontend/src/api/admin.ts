@@ -3,6 +3,8 @@ import request from './request'
 export interface AdminLoginPayload {
   username: string
   password: string
+  captcha_id: string
+  captcha_code: string
 }
 
 export interface AdminLoginResponse {
@@ -14,6 +16,14 @@ export interface AdminRegisterPayload {
   email: string
   password: string
   register_code: string
+  captcha_id: string
+  captcha_code: string
+}
+
+export interface AdminCaptchaResponse {
+  captcha_id: string
+  captcha_image: string
+  expires_in: number
 }
 
 export interface AdminCreateUserPayload {
@@ -103,12 +113,39 @@ export interface AdminManuscriptItem {
   updated_at?: string | null
 }
 
+export type AdminCommentType = 'book' | 'highlight'
+
+export interface AdminCommentItem {
+  id: number
+  type: AdminCommentType
+  book_id?: number | null
+  book_title?: string | null
+  highlight_id?: number | null
+  author: string
+  content: string
+  created_at?: string | null
+}
+
+export interface AdminCommentsResponse {
+  items: AdminCommentItem[]
+  pagination?: {
+    total: number
+    page: number
+    page_size: number
+    pages: number
+  }
+}
+
 export function adminLogin(data: AdminLoginPayload) {
   return request.post<AdminLoginResponse, AdminLoginResponse>('/admin/auth/login', data)
 }
 
 export function adminRegister(data: AdminRegisterPayload) {
   return request.post('/admin/auth/register', data)
+}
+
+export function getAdminCaptcha() {
+  return request.get<AdminCaptchaResponse, AdminCaptchaResponse>('/admin/auth/captcha')
 }
 
 export function getAdminUsers(params: { page: number; page_size: number; keyword?: string }) {
@@ -162,4 +199,12 @@ export function reviewAdminManuscript(
 
 export function publishAdminManuscript(manuscriptId: number) {
   return request.post(`/admin/manuscripts/${manuscriptId}/publish`)
+}
+
+export function getAdminComments(params: { page: number; page_size: number; keyword?: string; type?: string }) {
+  return request.get<AdminCommentsResponse, AdminCommentsResponse>('/admin/comments', { params })
+}
+
+export function deleteAdminComment(commentType: AdminCommentType, commentId: number) {
+  return request.delete(`/admin/comments/${commentType}/${commentId}`)
 }

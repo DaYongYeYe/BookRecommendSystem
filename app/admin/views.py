@@ -4,12 +4,15 @@ import jwt
 from flask import request, jsonify, current_app
 from app.admin import bp
 from app import db
-from app.models import User, Book, BookManuscript
+from app.models import User, Book, BookManuscript, ReaderBookComment, ReaderHighlightComment, ReaderHighlight
+from app.logging_utils import business_log_aspect
 from app.rbac.decorators import admin_required
 from app.services.publishing_service import publish_manuscript
+from app.services.captcha import generate_captcha, verify_captcha
 
 
 @bp.route('/auth/register', methods=['POST'])
+@business_log_aspect('admin.auth.register', tags=['admin', 'auth', 'business', 'aop'])
 def admin_register():
     data = request.get_json() or {}
 
@@ -17,9 +20,14 @@ def admin_register():
     email = (data.get('email') or '').strip()
     password = data.get('password') or ''
     register_code = data.get('register_code') or ''
+    captcha_id = data.get('captcha_id') or ''
+    captcha_code = data.get('captcha_code') or ''
 
-    if not username or not email or not password:
-        return jsonify({'error': '用户名、邮箱和密码是必需的'}), 400
+    if not username or not email or not password or not captcha_id or not captcha_code:
+        return jsonify({'error': '用户名、邮箱、密码和验证码是必需的'}), 400
+
+    if not verify_captcha(captcha_id, captcha_code):
+        return jsonify({'error': '验证码错误或已过期'}), 400
 
     expected_code = current_app.config.get('ADMIN_REGISTER_CODE', '')
     if not expected_code:
@@ -40,14 +48,25 @@ def admin_register():
     return jsonify({'message': '管理员注册成功', 'user': user.to_dict()}), 201
 
 
+@bp.route('/auth/captcha', methods=['GET'])
+def admin_captcha():
+    return jsonify(generate_captcha()), 200
+
+
 @bp.route('/auth/login', methods=['POST'])
+@business_log_aspect('admin.auth.login', tags=['admin', 'auth', 'business', 'aop'])
 def admin_login():
     data = request.get_json() or {}
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
+    captcha_id = data.get('captcha_id') or ''
+    captcha_code = data.get('captcha_code') or ''
 
-    if not username or not password:
-        return jsonify({'error': '用户名和密码是必需的'}), 400
+    if not username or not password or not captcha_id or not captcha_code:
+        return jsonify({'error': '用户名、密码和验证码是必需的'}), 400
+
+    if not verify_captcha(captcha_id, captcha_code):
+        return jsonify({'error': '验证码错误或已过期'}), 400
 
     user = User.query.filter_by(username=username).first()
     if not user or not user.check_password(password):
@@ -112,6 +131,7 @@ def get_users(current_user):
 
 @bp.route('/users', methods=['POST'])
 @admin_required
+@business_log_aspect('admin.user.create', tags=['admin', 'user', 'business', 'aop'])
 def create_user(current_user):
     data = request.get_json() or {}
 
@@ -148,6 +168,7 @@ def get_user(current_user, user_id):
 
 @bp.route('/users/<int:user_id>', methods=['PUT'])
 @admin_required
+@business_log_aspect('admin.user.update', tags=['admin', 'user', 'business', 'aop'])
 def update_user(current_user, user_id):
     user = User.query.get(user_id)
     if not user:
@@ -184,6 +205,7 @@ def update_user(current_user, user_id):
 
 @bp.route('/users/<int:user_id>', methods=['DELETE'])
 @admin_required
+@business_log_aspect('admin.user.delete', tags=['admin', 'user', 'business', 'aop'])
 def delete_user(current_user, user_id):
     user = User.query.get(user_id)
     if not user:
@@ -201,6 +223,7 @@ def delete_user(current_user, user_id):
 
 @bp.route('/users/<int:user_id>/reset_password', methods=['POST'])
 @admin_required
+@business_log_aspect('admin.user.reset_password', tags=['admin', 'user', 'security', 'business', 'aop'])
 def reset_user_password(current_user, user_id):
     user = User.query.get(user_id)
     if not user:
@@ -252,6 +275,7 @@ def get_books(current_user):
 
 @bp.route('/books', methods=['POST'])
 @admin_required
+@business_log_aspect('admin.book.create', tags=['admin', 'book', 'business', 'aop'])
 def create_book(current_user):
     data = request.get_json() or {}
     title = (data.get('title') or '').strip()
@@ -294,6 +318,7 @@ def create_book(current_user):
 
 @bp.route('/books/<int:book_id>', methods=['PUT'])
 @admin_required
+@business_log_aspect('admin.book.update', tags=['admin', 'book', 'business', 'aop'])
 def update_book(current_user, book_id):
     book = Book.query.get(book_id)
     if not book:
@@ -351,6 +376,7 @@ def update_book(current_user, book_id):
 
 @bp.route('/books/<int:book_id>', methods=['DELETE'])
 @admin_required
+@business_log_aspect('admin.book.delete', tags=['admin', 'book', 'business', 'aop'])
 def delete_book(current_user, book_id):
     book = Book.query.get(book_id)
     if not book:
@@ -380,6 +406,7 @@ def get_manuscripts(current_user):
 
 @bp.route('/manuscripts/<int:manuscript_id>/review', methods=['POST'])
 @admin_required
+@business_log_aspect('admin.manuscript.review', tags=['admin', 'manuscript', 'review', 'business', 'aop'])
 def review_manuscript(current_user, manuscript_id):
     manuscript = BookManuscript.query.get(manuscript_id)
     if not manuscript:
@@ -403,6 +430,7 @@ def review_manuscript(current_user, manuscript_id):
 
 @bp.route('/manuscripts/<int:manuscript_id>/publish', methods=['POST'])
 @admin_required
+@business_log_aspect('admin.manuscript.publish', tags=['admin', 'manuscript', 'publish', 'business', 'aop'])
 def publish_reviewed_manuscript(current_user, manuscript_id):
     manuscript = BookManuscript.query.get(manuscript_id)
     if not manuscript:
@@ -418,3 +446,144 @@ def publish_reviewed_manuscript(current_user, manuscript_id):
         'manuscript': manuscript.to_dict(),
         'version': version.to_dict(),
     }), 200
+
+
+@bp.route('/comments', methods=['GET'])
+@admin_required
+def get_comments(current_user):
+    comment_type = (request.args.get('type') or '').strip().lower()
+    keyword = (request.args.get('keyword') or '').strip()
+    try:
+        page = max(int(request.args.get('page', 1)), 1)
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.args.get('page_size', 10))
+    except ValueError:
+        page_size = 10
+    page_size = min(max(page_size, 1), 100)
+
+    def _build_book_comment_query():
+        query = db.session.query(ReaderBookComment, Book.title.label('book_title')).outerjoin(
+            Book, ReaderBookComment.book_id == Book.id
+        )
+        if keyword:
+            query = query.filter(
+                (ReaderBookComment.content.like(f'%{keyword}%')) |
+                (ReaderBookComment.author.like(f'%{keyword}%')) |
+                (Book.title.like(f'%{keyword}%'))
+            )
+        return query
+
+    def _build_highlight_comment_query():
+        query = db.session.query(
+            ReaderHighlightComment,
+            ReaderHighlight.book_id.label('book_id'),
+            Book.title.label('book_title')
+        ).outerjoin(
+            ReaderHighlight, ReaderHighlightComment.highlight_id == ReaderHighlight.id
+        ).outerjoin(
+            Book, ReaderHighlight.book_id == Book.id
+        )
+        if keyword:
+            query = query.filter(
+                (ReaderHighlightComment.content.like(f'%{keyword}%')) |
+                (ReaderHighlightComment.author.like(f'%{keyword}%')) |
+                (Book.title.like(f'%{keyword}%'))
+            )
+        return query
+
+    if comment_type == 'book':
+        query = _build_book_comment_query()
+        total = query.count()
+        rows = query.order_by(ReaderBookComment.created_at.desc(), ReaderBookComment.id.desc()).offset(
+            (page - 1) * page_size
+        ).limit(page_size).all()
+        items = [{
+            'id': row[0].id,
+            'type': 'book',
+            'book_id': row[0].book_id,
+            'book_title': row[1],
+            'highlight_id': None,
+            'author': row[0].author,
+            'content': row[0].content,
+            'created_at': row[0].created_at.isoformat() if row[0].created_at else None,
+        } for row in rows]
+    elif comment_type == 'highlight':
+        query = _build_highlight_comment_query()
+        total = query.count()
+        rows = query.order_by(ReaderHighlightComment.created_at.desc(), ReaderHighlightComment.id.desc()).offset(
+            (page - 1) * page_size
+        ).limit(page_size).all()
+        items = [{
+            'id': row[0].id,
+            'type': 'highlight',
+            'book_id': row[1],
+            'book_title': row[2],
+            'highlight_id': row[0].highlight_id,
+            'author': row[0].author,
+            'content': row[0].content,
+            'created_at': row[0].created_at.isoformat() if row[0].created_at else None,
+        } for row in rows]
+    else:
+        query_book = _build_book_comment_query()
+        rows_book = query_book.all()
+        items_book = [{
+            'id': row[0].id,
+            'type': 'book',
+            'book_id': row[0].book_id,
+            'book_title': row[1],
+            'highlight_id': None,
+            'author': row[0].author,
+            'content': row[0].content,
+            'created_at': row[0].created_at.isoformat() if row[0].created_at else None,
+        } for row in rows_book]
+
+        query_highlight = _build_highlight_comment_query()
+        rows_highlight = query_highlight.all()
+        items_highlight = [{
+            'id': row[0].id,
+            'type': 'highlight',
+            'book_id': row[1],
+            'book_title': row[2],
+            'highlight_id': row[0].highlight_id,
+            'author': row[0].author,
+            'content': row[0].content,
+            'created_at': row[0].created_at.isoformat() if row[0].created_at else None,
+        } for row in rows_highlight]
+
+        merged = items_book + items_highlight
+        merged.sort(key=lambda item: (item.get('created_at') or '', item.get('id') or 0), reverse=True)
+        total = len(merged)
+        start = (page - 1) * page_size
+        end = start + page_size
+        items = merged[start:end]
+
+    return jsonify({
+        'items': items,
+        'pagination': {
+            'page': page,
+            'page_size': page_size,
+            'total': total,
+        }
+    }), 200
+
+
+@bp.route('/comments/<string:comment_type>/<int:comment_id>', methods=['DELETE'])
+@admin_required
+@business_log_aspect('admin.comment.delete', tags=['admin', 'comment', 'business', 'aop'])
+def delete_comment(current_user, comment_type, comment_id):
+    kind = (comment_type or '').strip().lower()
+    if kind == 'book':
+        comment = ReaderBookComment.query.get(comment_id)
+    elif kind == 'highlight':
+        comment = ReaderHighlightComment.query.get(comment_id)
+    else:
+        return jsonify({'error': 'invalid comment type'}), 400
+
+    if not comment:
+        return jsonify({'error': '评论不存在'}), 404
+
+    db.session.delete(comment)
+    db.session.commit()
+    return jsonify({'message': '评论删除成功'}), 200

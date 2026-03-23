@@ -1,8 +1,18 @@
+from datetime import date
+
 from flask import jsonify, request
+from sqlalchemy import func
 
 from app import db
 from app.api import bp
-from app.models import UserShelf
+from app.models import (
+    UserShelf,
+    Book,
+    Category,
+    Tag,
+    BookTag,
+    BookRanking,
+)
 from app.rbac.decorators import login_required
 
 
@@ -123,20 +133,18 @@ def api_get_recommendations_by_mood():
 @bp.route('/recommendations/personalized', methods=['GET'])
 @login_required
 def api_get_personalized_recommendations(current_user):
-    return jsonify(
-        {
-            'items': [
-                {
-                    'id': 1,
-                    'title': '阅读样章：漫长的余生',
-                    'author': '罗新',
-                    'cover': 'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
-                    'rating': 9.1,
-                    'rating_count': 12000,
-                }
-            ]
-        }
-    ), 200
+    try:
+        limit = max(1, min(int(request.args.get('limit', 8)), 30))
+    except ValueError:
+        limit = 8
+
+    books = (
+        Book.query.filter_by(status='published')
+        .order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return jsonify({'items': [book.to_dict() for book in books]}), 200
 
 
 @bp.route('/shelf/toggle', methods=['POST'])
@@ -179,18 +187,45 @@ def api_get_book_rankings():
     except ValueError:
         limit = 10
 
-    items = [
-        {
-            'rank': 1,
-            'id': 1,
-            'title': '阅读样章：漫长的余生',
-            'author': '罗新',
-            'cover': 'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
-            'rating': 9.5,
-            'rating_count': 124000,
-        }
-    ][:limit]
-    return jsonify({'type': rank_type, 'items': items}), 200
+    latest_snapshot = (
+        db.session.query(func.max(BookRanking.snapshot_date))
+        .filter(BookRanking.type == rank_type)
+        .scalar()
+    )
+
+    if latest_snapshot:
+        rows = (
+            db.session.query(BookRanking, Book)
+            .join(Book, Book.id == BookRanking.book_id)
+            .filter(
+                BookRanking.type == rank_type,
+                BookRanking.snapshot_date == latest_snapshot,
+                Book.status == 'published',
+            )
+            .order_by(BookRanking.rank_no.asc())
+            .limit(limit)
+            .all()
+        )
+        items = []
+        for ranking, book in rows:
+            payload = book.to_dict()
+            payload['rank'] = int(ranking.rank_no)
+            items.append(payload)
+        return jsonify({'type': rank_type, 'snapshot_date': latest_snapshot.isoformat(), 'items': items}), 200
+
+    # Fallback when no ranking snapshots are configured.
+    books = (
+        Book.query.filter_by(status='published')
+        .order_by(Book.rating.desc(), Book.rating_count.desc(), Book.recent_reads.desc(), Book.id.desc())
+        .limit(limit)
+        .all()
+    )
+    items = []
+    for idx, book in enumerate(books, start=1):
+        payload = book.to_dict()
+        payload['rank'] = idx
+        items.append(payload)
+    return jsonify({'type': rank_type, 'snapshot_date': date.today().isoformat(), 'items': items}), 200
 
 
 @bp.route('/user/weekly-reading-task', methods=['GET'])
@@ -228,24 +263,30 @@ def api_update_weekly_reading_progress(current_user):
 
 @bp.route('/categories/highlighted', methods=['GET'])
 def api_get_highlighted_categories():
-    return jsonify(
-        {
-            'items': [
-                {
-                    'id': 'literature',
-                    'name': '文学叙事',
-                    'en_name': 'Literature',
-                    'description': '在细腻叙述里重新理解人与时间。',
-                    'cover': 'https://images.unsplash.com/photo-1507842217343-583bb7270b66?auto=format&fit=crop&w=900&q=80',
-                }
-            ]
-        }
-    ), 200
+    categories = (
+        Category.query.order_by(Category.is_highlighted.desc(), Category.id.asc())
+        .limit(12)
+        .all()
+    )
+    return jsonify({'items': [item.to_dict() for item in categories]}), 200
 
 
 @bp.route('/tags/hot', methods=['GET'])
 def api_get_hot_tags():
-    return jsonify({'items': [{'id': 'memory', 'label': '记忆与和解'}, {'id': 'sea', 'label': '海港叙事'}]}), 200
+    rows = (
+        db.session.query(Tag, func.count(BookTag.id).label('book_count'))
+        .outerjoin(BookTag, BookTag.tag_id == Tag.id)
+        .group_by(Tag.id)
+        .order_by(func.count(BookTag.id).desc(), Tag.id.asc())
+        .limit(20)
+        .all()
+    )
+    items = []
+    for tag, book_count in rows:
+        payload = tag.to_dict()
+        payload['book_count'] = int(book_count or 0)
+        items.append(payload)
+    return jsonify({'items': items}), 200
 
 
 @bp.route('/books/by-category', methods=['GET'])
@@ -255,19 +296,77 @@ def api_get_books_by_category_or_tag():
     if not category_id and not tag_id:
         return jsonify({'error': 'missing category_id or tag_id'}), 400
 
+    query = Book.query.filter_by(status='published')
+
+    if category_id:
+        try:
+            category_id = int(category_id)
+        except ValueError:
+            return jsonify({'error': 'invalid category_id'}), 400
+        query = query.filter(Book.category_id == category_id)
+
+    if tag_id:
+        try:
+            tag_id = int(tag_id)
+        except ValueError:
+            return jsonify({'error': 'invalid tag_id'}), 400
+        query = query.join(BookTag, BookTag.book_id == Book.id).filter(BookTag.tag_id == tag_id)
+
+    books = (
+        query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
+        .limit(30)
+        .all()
+    )
     return jsonify(
         {
             'category_id': category_id,
             'tag_id': tag_id,
-            'items': [
-                {
-                    'id': 1,
-                    'title': '阅读样章：漫长的余生',
-                    'author': '罗新',
-                    'cover': 'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
-                    'rating': 8.7,
-                }
-            ],
+            'items': [book.to_dict() for book in books],
+        }
+    ), 200
+
+
+@bp.route('/recommendations/more', methods=['GET'])
+def api_get_more_recommendations():
+    try:
+        page = max(int(request.args.get('page', 1)), 1)
+    except ValueError:
+        page = 1
+    try:
+        page_size = min(max(int(request.args.get('page_size', 12)), 1), 30)
+    except ValueError:
+        page_size = 12
+
+    category_id = request.args.get('category_id')
+    tag_id = request.args.get('tag_id')
+
+    query = Book.query.filter_by(status='published')
+    if category_id not in (None, ''):
+        try:
+            query = query.filter(Book.category_id == int(category_id))
+        except ValueError:
+            return jsonify({'error': 'invalid category_id'}), 400
+    if tag_id not in (None, ''):
+        try:
+            query = query.join(BookTag, BookTag.book_id == Book.id).filter(BookTag.tag_id == int(tag_id))
+        except ValueError:
+            return jsonify({'error': 'invalid tag_id'}), 400
+
+    total = query.count()
+    books = (
+        query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return jsonify(
+        {
+            'items': [book.to_dict() for book in books],
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total': total,
+            },
         }
     ), 200
 
