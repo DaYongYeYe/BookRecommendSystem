@@ -1,11 +1,12 @@
 from datetime import datetime
 
 from flask import current_app, jsonify, request
+from sqlalchemy import func
 
 from app import db
 from app.creator import bp
 from app.logging_utils import business_log_aspect
-from app.models import Book, BookManuscript
+from app.models import Book, BookAnalyticsEvent, BookManuscript, UserReadingProgress
 from app.rbac.decorators import login_required
 from app.services.tencent_cos import upload_image
 
@@ -187,3 +188,161 @@ def submit_creator_manuscript(current_user, manuscript_id: int):
     manuscript.review_comment = None
     db.session.commit()
     return jsonify({'message': 'manuscript submitted', 'manuscript': manuscript.to_dict()}), 200
+
+
+def _seconds_to_label(seconds: float):
+    total = int(max(0, round(seconds or 0)))
+    minutes = total // 60
+    remain = total % 60
+    if minutes <= 0:
+        return f'{remain}s'
+    return f'{minutes}m {remain}s'
+
+
+@bp.route('/books/analytics', methods=['GET'])
+@login_required
+def get_creator_books_analytics(current_user):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    try:
+        limit = min(max(int(request.args.get('limit', 50)), 1), 100)
+    except (TypeError, ValueError):
+        limit = 50
+
+    books = (
+        Book.query.filter_by(creator_id=current_user.id)
+        .order_by(Book.created_at.desc(), Book.id.desc())
+        .limit(limit)
+        .all()
+    )
+    if not books:
+        return jsonify({'items': []}), 200
+
+    book_ids = [book.id for book in books]
+
+    event_counts_rows = (
+        db.session.query(
+            BookAnalyticsEvent.book_id,
+            BookAnalyticsEvent.event_type,
+            func.count(BookAnalyticsEvent.id).label('total'),
+        )
+        .filter(
+            BookAnalyticsEvent.book_id.in_(book_ids),
+            BookAnalyticsEvent.event_type.in_(('impression', 'reader_open')),
+        )
+        .group_by(BookAnalyticsEvent.book_id, BookAnalyticsEvent.event_type)
+        .all()
+    )
+    event_counts = {}
+    for row in event_counts_rows:
+        event_counts.setdefault(row.book_id, {})[row.event_type] = int(row.total or 0)
+
+    read_user_rows = (
+        db.session.query(
+            UserReadingProgress.book_id,
+            func.count(func.distinct(UserReadingProgress.user_id)).label('read_users'),
+        )
+        .filter(UserReadingProgress.book_id.in_(book_ids))
+        .group_by(UserReadingProgress.book_id)
+        .all()
+    )
+    read_users_map = {row.book_id: int(row.read_users or 0) for row in read_user_rows}
+
+    session_duration_rows = (
+        db.session.query(
+            BookAnalyticsEvent.book_id,
+            BookAnalyticsEvent.session_id,
+            func.sum(BookAnalyticsEvent.read_duration_seconds).label('duration_total'),
+        )
+        .filter(
+            BookAnalyticsEvent.book_id.in_(book_ids),
+            BookAnalyticsEvent.event_type == 'read_heartbeat',
+            BookAnalyticsEvent.read_duration_seconds > 0,
+        )
+        .group_by(BookAnalyticsEvent.book_id, BookAnalyticsEvent.session_id)
+        .all()
+    )
+    duration_by_book = {}
+    for row in session_duration_rows:
+        duration_by_book.setdefault(row.book_id, []).append(int(row.duration_total or 0))
+
+    geo_rows = (
+        db.session.query(
+            BookAnalyticsEvent.book_id,
+            BookAnalyticsEvent.geo_label,
+            func.count(BookAnalyticsEvent.id).label('total'),
+        )
+        .filter(
+            BookAnalyticsEvent.book_id.in_(book_ids),
+            BookAnalyticsEvent.geo_label.isnot(None),
+            BookAnalyticsEvent.geo_label != '',
+        )
+        .group_by(BookAnalyticsEvent.book_id, BookAnalyticsEvent.geo_label)
+        .all()
+    )
+    geo_map = {}
+    for row in geo_rows:
+        geo_map.setdefault(row.book_id, []).append((row.geo_label, int(row.total or 0)))
+
+    age_rows = (
+        db.session.query(
+            BookAnalyticsEvent.book_id,
+            BookAnalyticsEvent.age_group,
+            func.count(BookAnalyticsEvent.id).label('total'),
+        )
+        .filter(BookAnalyticsEvent.book_id.in_(book_ids))
+        .group_by(BookAnalyticsEvent.book_id, BookAnalyticsEvent.age_group)
+        .all()
+    )
+    age_map = {}
+    for row in age_rows:
+        label = (row.age_group or 'unknown').strip() or 'unknown'
+        age_map.setdefault(row.book_id, []).append((label, int(row.total or 0)))
+
+    items = []
+    for book in books:
+        counts = event_counts.get(book.id, {})
+        sessions = duration_by_book.get(book.id, [])
+        avg_duration = (sum(sessions) / len(sessions)) if sessions else 0
+
+        geo_bucket = sorted(geo_map.get(book.id, []), key=lambda x: x[1], reverse=True)
+        geo_total = sum(count for _, count in geo_bucket) or 1
+        geo_distribution = [
+            {
+                'label': label,
+                'count': count,
+                'percent': round(count * 100 / geo_total, 2),
+            }
+            for label, count in geo_bucket[:8]
+        ]
+
+        age_bucket = sorted(age_map.get(book.id, []), key=lambda x: x[1], reverse=True)
+        age_total = sum(count for _, count in age_bucket) or 1
+        age_distribution = [
+            {
+                'label': label,
+                'count': count,
+                'percent': round(count * 100 / age_total, 2),
+            }
+            for label, count in age_bucket
+        ]
+
+        items.append(
+            {
+                'book_id': book.id,
+                'title': book.title,
+                'status': book.status,
+                'metrics': {
+                    'impressions': int(counts.get('impression', 0)),
+                    'reads': int(counts.get('reader_open', 0)),
+                    'read_users': int(read_users_map.get(book.id, 0)),
+                    'avg_read_duration_seconds': round(avg_duration, 2),
+                    'avg_read_duration_label': _seconds_to_label(avg_duration),
+                },
+                'geo_distribution': geo_distribution,
+                'age_distribution': age_distribution,
+            }
+        )
+
+    return jsonify({'items': items}), 200

@@ -30,6 +30,12 @@ def update_profile(current_user):
     if 'avatar_url' in data:
         current_user.avatar_url = (data.get('avatar_url') or '').strip() or None
 
+    if 'province' in data:
+        current_user.province = (data.get('province') or '').strip() or None
+
+    if 'city' in data:
+        current_user.city = (data.get('city') or '').strip() or None
+
     if 'email' in data:
         email = (data.get('email') or '').strip()
         if not email:

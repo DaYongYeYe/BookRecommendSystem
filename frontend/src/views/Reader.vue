@@ -14,6 +14,7 @@ import {
   type ReaderPayload,
 } from '@/api/reader'
 import { getToken } from '@/api/request'
+import { getUserFavorites } from '@/api/user'
 import { useReaderPreferences } from '@/composables/useReaderPreferences'
 import { useReadingProgress } from '@/composables/useReadingProgress'
 
@@ -24,10 +25,6 @@ type SelectionDraft = {
   selectedText: string
 }
 
-type HighlightSegment =
-  | { kind: 'text'; text: string }
-  | { kind: 'highlight'; text: string; highlight: ReaderHighlight }
-
 type PanelType = 'none' | 'outline' | 'settings' | 'highlight' | 'book-comments'
 
 const route = useRoute()
@@ -37,6 +34,7 @@ const bookId = computed(() => String(route.params.bookId || '1'))
 const reader = ref<ReaderPayload | null>(null)
 const loading = ref(false)
 const addingToShelf = ref(false)
+const isInShelf = ref(false)
 
 const selectionDraft = ref<SelectionDraft | null>(null)
 const draftNote = ref('')
@@ -48,12 +46,11 @@ const activeSectionId = ref<string>('')
 
 const activePanel = ref<PanelType>('none')
 const highlightModeEnabled = ref(false)
-const showHighlights = ref(true)
 const showComments = ref(true)
 const preferenceLoaded = ref(false)
 
 const { readerTheme, readerFontSize, setTheme, setFontSize } = useReaderPreferences()
-const { resumeIfNeeded, syncReadingProgress } = useReadingProgress(bookId, activeSectionId)
+const { resumeIfNeeded, syncReadingProgress, getAnalyticsContext } = useReadingProgress(bookId, activeSectionId)
 
 const colorMap: Record<string, string> = {
   amber: 'bg-amber-200/80 decoration-amber-500',
@@ -87,7 +84,7 @@ const activeHighlight = computed(() => {
 async function loadReader() {
   loading.value = true
   try {
-    const payload = await getReader(bookId.value)
+    const payload = await getReader(bookId.value, getAnalyticsContext())
     reader.value = payload
     activeSectionId.value = payload.sections[0]?.id || ''
     activeHighlightId.value = payload.highlights[0]?.id ?? null
@@ -99,12 +96,26 @@ async function loadReader() {
   }
 }
 
+async function loadShelfState() {
+  if (!getToken()) {
+    isInShelf.value = false
+    return
+  }
+  try {
+    const favorites = await getUserFavorites()
+    const currentBookId = Number(bookId.value)
+    isInShelf.value = favorites.items.some((item) => item.id === currentBookId)
+  } catch (_error) {
+    // Ignore shelf status failures; keep default state.
+    isInShelf.value = false
+  }
+}
+
 async function loadReaderPreferences() {
   try {
     const data = await getReaderPreferences()
     setTheme(data.theme === 'dark' ? 'dark' : 'light')
     setFontSize(Number(data.font_size) || 20)
-    showHighlights.value = data.show_highlights !== false
     showComments.value = data.show_comments !== false
   } catch (_error) {
     // Keep defaults when preference loading fails.
@@ -121,7 +132,7 @@ async function persistReaderPreferences() {
     await saveReaderPreferences({
       theme: readerTheme.value,
       font_size: readerFontSize.value,
-      show_highlights: showHighlights.value,
+      show_highlights: true,
       show_comments: showComments.value,
     })
   } catch (_error) {
@@ -150,65 +161,11 @@ function toggleHighlightMode() {
   }
 }
 
-function toggleHighlightVisibility() {
-  showHighlights.value = !showHighlights.value
-  if (!showHighlights.value) {
-    clearSelectionDraft()
-    activeHighlightId.value = null
-  }
-}
-
 function toggleCommentVisibility() {
   showComments.value = !showComments.value
   if (!showComments.value && (activePanel.value === 'highlight' || activePanel.value === 'book-comments')) {
     activePanel.value = 'none'
   }
-}
-
-function getParagraphHighlights(paragraphId: string) {
-  return (reader.value?.highlights || [])
-    .filter((item) => item.paragraph_id === paragraphId)
-    .sort((a, b) => a.start_offset - b.start_offset)
-}
-
-function buildSegments(text: string, paragraphId: string): HighlightSegment[] {
-  if (!showHighlights.value) {
-    return [{ kind: 'text', text }]
-  }
-
-  const highlights = getParagraphHighlights(paragraphId)
-  if (!highlights.length) {
-    return [{ kind: 'text', text }]
-  }
-
-  let cursor = 0
-  const segments: HighlightSegment[] = []
-  highlights.forEach((highlight) => {
-    const start = Math.max(cursor, highlight.start_offset)
-    const end = Math.min(text.length, highlight.end_offset)
-
-    if (start > cursor) {
-      segments.push({ kind: 'text', text: text.slice(cursor, start) })
-    }
-    if (end > start) {
-      segments.push({ kind: 'highlight', text: text.slice(start, end), highlight })
-      cursor = end
-    }
-  })
-
-  if (cursor < text.length) {
-    segments.push({ kind: 'text', text: text.slice(cursor) })
-  }
-  return segments
-}
-
-function openHighlight(highlightId: number) {
-  if (!showHighlights.value || !showComments.value) {
-    return
-  }
-  activeHighlightId.value = highlightId
-  activePanel.value = 'highlight'
-  clearSelectionDraft()
 }
 
 function scrollToSection(sectionId: string) {
@@ -217,7 +174,7 @@ function scrollToSection(sectionId: string) {
 }
 
 function handleSelection() {
-  if (!highlightModeEnabled.value || !showHighlights.value) {
+  if (!highlightModeEnabled.value) {
     return
   }
 
@@ -320,9 +277,13 @@ async function submitBookComment() {
 }
 
 async function handleAddToShelf() {
+  if (isInShelf.value) {
+    return
+  }
   addingToShelf.value = true
   try {
     await addBookToShelf(bookId.value)
+    isInShelf.value = true
     ElMessage.success('已加入书架')
   } catch (_error) {
     ElMessage.error('加入书架失败，请先登录')
@@ -352,6 +313,7 @@ function handleScroll() {
 
 onMounted(async () => {
   await loadReaderPreferences()
+  await loadShelfState()
   await loadReader()
   window.addEventListener('scroll', handleScroll, { passive: true })
   document.addEventListener('mouseup', handleSelection)
@@ -369,11 +331,12 @@ watch(
     clearSelectionDraft()
     activePanel.value = 'none'
     await nextTick()
+    await loadShelfState()
     await loadReader()
   }
 )
 
-watch([readerTheme, readerFontSize, showHighlights, showComments], () => {
+watch([readerTheme, readerFontSize, showComments], () => {
   persistReaderPreferences()
 })
 </script>
@@ -394,12 +357,13 @@ watch([readerTheme, readerFontSize, showHighlights, showComments], () => {
           </div>
           <div class="flex items-center gap-2">
             <button class="rounded-full border px-4 py-2 text-sm" @click="router.push('/')">返回首页</button>
+            <button class="rounded-full border px-4 py-2 text-sm" @click="router.push('/user/library')">我的书架</button>
             <button
               class="rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-              :disabled="addingToShelf"
+              :disabled="addingToShelf || isInShelf"
               @click="handleAddToShelf"
             >
-              {{ addingToShelf ? '加入中...' : '加入书架' }}
+              {{ addingToShelf ? '加入中...' : isInShelf ? '已在书架' : '加入书架' }}
             </button>
           </div>
         </section>
@@ -463,20 +427,7 @@ watch([readerTheme, readerFontSize, showHighlights, showComments], () => {
                 :class="readerTheme === 'dark' ? 'text-stone-100 hover:bg-white/5' : 'text-stone-700 hover:bg-stone-50'"
                 :style="{ fontSize: `${readerFontSize}px`, lineHeight: '2.1' }"
               >
-                <template v-for="(segment, index) in buildSegments(paragraph.text, paragraph.id)" :key="`${paragraph.id}-${index}`">
-                  <span v-if="segment.kind === 'text'">{{ segment.text }}</span>
-                  <button
-                    v-else
-                    type="button"
-                    :class="[
-                      'cursor-pointer rounded-md px-1 align-baseline underline decoration-2 underline-offset-4 transition',
-                      colorMap[segment.highlight.color] || colorMap.amber,
-                    ]"
-                    @click="openHighlight(segment.highlight.id)"
-                  >
-                    {{ segment.text }}
-                  </button>
-                </template>
+                {{ paragraph.text }}
               </p>
             </div>
           </section>
@@ -507,13 +458,6 @@ watch([readerTheme, readerFontSize, showHighlights, showComments], () => {
             @click="toggleHighlightMode"
           >
             划线
-          </button>
-          <button
-            class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="showHighlights ? 'bg-[#101319] text-stone-200' : 'bg-rose-500 text-white'"
-            @click="toggleHighlightVisibility"
-          >
-            {{ showHighlights ? '显线' : '隐线' }}
           </button>
           <button
             class="h-11 w-11 rounded-full text-xs font-medium"
@@ -643,7 +587,7 @@ watch([readerTheme, readerFontSize, showHighlights, showComments], () => {
             发布评论
           </button>
         </div>
-        <div v-else class="text-sm text-stone-400">点击正文中的划线，可在这里查看和评论。</div>
+        <div v-else class="text-sm text-stone-400">当前没有选中的划线；保存新划线后会自动显示在这里。</div>
       </template>
 
       <template v-else-if="activePanel === 'book-comments'">

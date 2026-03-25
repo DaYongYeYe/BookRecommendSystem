@@ -10,6 +10,7 @@ import {
   getHighlightedCategories,
   getHomeRecommendations,
   getHotTags,
+  getMoreRecommendations,
   type HomeBookItem,
   type HomeCategoryItem,
   type HomeTagItem,
@@ -55,8 +56,16 @@ async function loadHomeBooks() {
       books.value = res.items || []
       return
     }
-    const res = await getHomeRecommendations(8)
+    if (getToken()) {
+      const res = await getHomeRecommendations(8)
+      books.value = res.items || []
+      return
+    }
+    const res = await getMoreRecommendations({ page: 1, page_size: 8 })
     books.value = res.items || []
+  } catch (_error) {
+    books.value = []
+    ElMessage.warning('推荐书籍加载失败，请稍后重试')
   } finally {
     loadingBooks.value = false
   }
@@ -99,7 +108,7 @@ async function loadProfile() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadProfile(), loadHomeData()])
+  await Promise.allSettled([loadProfile(), loadHomeData()])
 })
 </script>
 

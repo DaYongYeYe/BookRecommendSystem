@@ -16,6 +16,7 @@ import AdminComments from '@/views/admin/AdminComments.vue'
 import AdminBooks from '@/views/admin/AdminBooks.vue'
 import AdminUsers from '@/views/admin/AdminUsers.vue'
 import AdminManuscriptsReview from '@/views/admin/AdminManuscriptsReview.vue'
+import CreatorDashboard from '@/views/creator/CreatorDashboard.vue'
 import CreatorManuscripts from '@/views/creator/CreatorManuscripts.vue'
 import { getToken } from '@/api/request'
 import { isAdminToken, isCreatorToken } from '@/utils/auth'
@@ -133,6 +134,12 @@ const routes: RouteRecordRaw[] = [
         component: AdminManuscriptsReview,
       },
     ],
+  },
+  {
+    path: '/creator/dashboard',
+    name: 'CreatorDashboard',
+    component: CreatorDashboard,
+    meta: { requiresAuth: true, requiresCreator: true },
   },
   {
     path: '/creator/manuscripts',

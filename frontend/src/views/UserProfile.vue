@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
@@ -14,6 +14,8 @@ const profile = ref<UserProfile | null>(null)
 const form = reactive({
   name: '',
   avatar_url: '',
+  province: '',
+  city: '',
 })
 
 const defaultAvatar =
@@ -28,6 +30,8 @@ async function loadProfile() {
     profile.value = res.user
     form.name = res.user.name || ''
     form.avatar_url = res.user.avatar_url || ''
+    form.province = res.user.province || ''
+    form.city = res.user.city || ''
   } catch (_error) {
     ElMessage.error('用户信息加载失败')
   } finally {
@@ -42,6 +46,8 @@ async function saveProfile() {
     const res = await updateUserProfile({
       name: form.name,
       avatar_url: form.avatar_url,
+      province: form.province,
+      city: form.city,
     })
     profile.value = res.user
     ElMessage.success('资料保存成功')
@@ -83,7 +89,7 @@ onMounted(loadProfile)
           <button
             v-if="canOpenCreator"
             class="rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700"
-            @click="router.push('/creator/manuscripts')"
+            @click="router.push('/creator/dashboard')"
           >
             创作者工作台
           </button>
@@ -95,7 +101,7 @@ onMounted(loadProfile)
 
       <div class="rounded-3xl bg-white p-6 shadow-sm md:p-8">
         <h1 class="text-2xl font-semibold">用户详情</h1>
-        <p class="mt-2 text-sm text-stone-500">可在这里设置头像和名称</p>
+        <p class="mt-2 text-sm text-stone-500">你可以在这里设置头像、昵称与地区</p>
 
         <div v-if="loading" class="mt-8 text-sm text-stone-500">正在加载...</div>
 
@@ -108,6 +114,7 @@ onMounted(loadProfile)
                 class="h-32 w-32 rounded-full object-cover"
               />
               <p class="mt-3 text-sm text-stone-500">用户名：{{ profile.username }}</p>
+              <p class="mt-1 text-sm text-stone-500">年龄：{{ profile.age ?? '未填写' }}</p>
             </div>
 
             <div class="space-y-5">
@@ -119,6 +126,25 @@ onMounted(loadProfile)
                   placeholder="请输入名称"
                 />
               </label>
+
+              <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label class="block">
+                  <span class="mb-2 block text-sm text-stone-600">省份</span>
+                  <input
+                    v-model="form.province"
+                    class="w-full rounded-2xl border border-stone-200 px-4 py-3 outline-none focus:border-stone-500"
+                    placeholder="自动识别后可手动修改"
+                  />
+                </label>
+                <label class="block">
+                  <span class="mb-2 block text-sm text-stone-600">城市</span>
+                  <input
+                    v-model="form.city"
+                    class="w-full rounded-2xl border border-stone-200 px-4 py-3 outline-none focus:border-stone-500"
+                    placeholder="自动识别后可手动修改"
+                  />
+                </label>
+              </div>
 
               <label class="block">
                 <span class="mb-2 block text-sm text-stone-600">上传头像</span>

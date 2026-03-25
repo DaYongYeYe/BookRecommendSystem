@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="auth-page">
     <el-card class="auth-card">
       <h2 class="title">图书推荐系统 - 注册</h2>
@@ -9,40 +9,23 @@
         <el-form-item label="邮箱" prop="email">
           <el-input v-model="form.email" autocomplete="email" />
         </el-form-item>
+        <el-form-item label="年龄" prop="age">
+          <el-input-number v-model="form.age" :min="1" :max="120" :step="1" style="width: 100%" />
+        </el-form-item>
         <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="form.password"
-            type="password"
-            show-password
-            autocomplete="new-password"
-          />
+          <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
         </el-form-item>
         <el-form-item label="确认密码" prop="confirmPassword">
-          <el-input
-            v-model="form.confirmPassword"
-            type="password"
-            show-password
-            autocomplete="new-password"
-          />
+          <el-input v-model="form.confirmPassword" type="password" show-password autocomplete="new-password" />
         </el-form-item>
         <el-form-item label="验证码" prop="captcha_code">
           <div class="captcha-row">
             <el-input v-model="form.captcha_code" maxlength="4" placeholder="请输入验证码" />
-            <img
-              class="captcha-image"
-              :src="captchaImage"
-              alt="captcha"
-              @click="refreshCaptcha"
-            />
+            <img class="captcha-image" :src="captchaImage" alt="captcha" @click="refreshCaptcha" />
           </div>
         </el-form-item>
         <el-form-item>
-          <el-button
-            type="primary"
-            :loading="loading"
-            style="width: 100%"
-            @click="onSubmit"
-          >
+          <el-button type="primary" :loading="loading" style="width: 100%" @click="onSubmit">
             注册
           </el-button>
         </el-form-item>
@@ -71,6 +54,7 @@ const loading = ref(false)
 const form = reactive({
   username: '',
   email: '',
+  age: 18,
   password: '',
   confirmPassword: '',
   captcha_id: '',
@@ -84,6 +68,20 @@ const rules: FormRules = {
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '邮箱格式不正确', trigger: ['blur', 'change'] },
+  ],
+  age: [
+    { required: true, message: '请输入年龄', trigger: 'change' },
+    {
+      validator: (_rule, value, callback) => {
+        const age = Number(value)
+        if (!Number.isInteger(age) || age < 1 || age > 120) {
+          callback(new Error('年龄范围需在 1-120'))
+        } else {
+          callback()
+        }
+      },
+      trigger: ['change', 'blur'],
+    },
   ],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
   confirmPassword: [
@@ -126,6 +124,7 @@ const onSubmit = () => {
       await register({
         username: form.username,
         email: form.email,
+        age: Number(form.age),
         password: form.password,
         captcha_id: form.captcha_id,
         captcha_code: form.captcha_code,
@@ -157,7 +156,7 @@ const goLogin = () => {
 }
 
 .auth-card {
-  width: 400px;
+  width: 420px;
 }
 
 .title {
@@ -184,4 +183,3 @@ const goLogin = () => {
   cursor: pointer;
 }
 </style>
-

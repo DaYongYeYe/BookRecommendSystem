@@ -10,6 +10,9 @@ class User(db.Model):
     name = db.Column(db.String(80))
     email = db.Column(db.String(120), unique=True, nullable=False)
     avatar_url = db.Column(db.String(500))
+    age = db.Column(db.Integer)
+    province = db.Column(db.String(64))
+    city = db.Column(db.String(64))
     # Werkzeug scrypt hashes are longer than legacy pbkdf2 hashes.
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='user')  # user or admin
@@ -35,6 +38,9 @@ class User(db.Model):
             'name': self.name,
             'email': self.email,
             'avatar_url': self.avatar_url,
+            'age': self.age,
+            'province': self.province,
+            'city': self.city,
             'role': self.role
         }
 
@@ -399,3 +405,17 @@ class BookVersion(db.Model):
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class BookAnalyticsEvent(db.Model):
+    __tablename__ = 'book_analytics_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), index=True)
+    event_type = db.Column(db.String(32), nullable=False, index=True)
+    session_id = db.Column(db.String(64), index=True)
+    read_duration_seconds = db.Column(db.Integer, nullable=False, default=0)
+    geo_label = db.Column(db.String(100))
+    age_group = db.Column(db.String(32))
+    created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)

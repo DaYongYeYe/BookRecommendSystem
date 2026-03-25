@@ -6,6 +6,9 @@ export interface UserProfile {
   name: string | null
   email: string
   avatar_url: string | null
+  age: number | null
+  province: string | null
+  city: string | null
   role: string
 }
 
@@ -29,7 +32,13 @@ export function getUserProfile() {
   return request.get<any, { user: UserProfile }>('/user/profile')
 }
 
-export function updateUserProfile(payload: { name?: string; avatar_url?: string; email?: string }) {
+export function updateUserProfile(payload: {
+  name?: string
+  avatar_url?: string
+  email?: string
+  province?: string
+  city?: string
+}) {
   return request.put<any, { user: UserProfile }>('/user/profile', payload)
 }
 

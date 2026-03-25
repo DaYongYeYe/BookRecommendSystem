@@ -1,8 +1,10 @@
+from uuid import uuid4
+
 from flask import jsonify, request
 
 from app import db
 from app.api import bp
-from app.models import UserReadingProgress
+from app.models import BookAnalyticsEvent, UserReadingProgress
 from app.rbac.decorators import login_optional, login_required
 from app.services.reader_service import (
     build_reader_payload,
@@ -14,12 +16,51 @@ from app.services.reader_service import (
 )
 
 
+def _clean_text(value, max_len: int):
+    text = (value or '').strip()
+    if not text:
+        return None
+    return text[:max_len]
+
+
+def _track_book_event(
+    *,
+    book_id: int,
+    current_user,
+    event_type: str,
+    session_id: str | None = None,
+    read_duration_seconds: int = 0,
+    geo_label: str | None = None,
+    age_group: str | None = None,
+):
+    db.session.add(
+        BookAnalyticsEvent(
+            book_id=book_id,
+            user_id=getattr(current_user, 'id', None),
+            event_type=event_type,
+            session_id=_clean_text(session_id, 64) or uuid4().hex,
+            read_duration_seconds=max(0, int(read_duration_seconds or 0)),
+            geo_label=_clean_text(geo_label, 100),
+            age_group=_clean_text(age_group, 32),
+        )
+    )
+
+
 @bp.route('/books/<int:book_id>/reader', methods=['GET'])
 @login_optional
 def api_get_book_reader(current_user, book_id: int):
     payload = build_reader_payload(book_id)
     if not payload:
         return jsonify({'error': 'book not found'}), 404
+
+    _track_book_event(
+        book_id=book_id,
+        current_user=current_user,
+        event_type='reader_open',
+        session_id=request.args.get('session_id'),
+        geo_label=request.args.get('geo_label'),
+        age_group=request.args.get('age_group'),
+    )
 
     if current_user:
         progress = UserReadingProgress.query.filter_by(user_id=current_user.id, book_id=book_id).first()
@@ -28,8 +69,7 @@ def api_get_book_reader(current_user, book_id: int):
         else:
             # Touch the record when opening reader so history gets refreshed.
             progress.updated_at = db.func.now()
-        db.session.commit()
-
+    db.session.commit()
     return jsonify(payload), 200
 
 
@@ -38,6 +78,15 @@ def api_get_book_landing(book_id: int):
     payload = build_reader_payload(book_id)
     if not payload:
         return jsonify({'error': 'book not found'}), 404
+    _track_book_event(
+        book_id=book_id,
+        current_user=None,
+        event_type='impression',
+        session_id=request.args.get('session_id'),
+        geo_label=request.args.get('geo_label'),
+        age_group=request.args.get('age_group'),
+    )
+    db.session.commit()
     return jsonify({'book': payload['book'], 'book_comments': payload['book_comments'], 'outline': payload['outline']}), 200
 
 
@@ -88,6 +137,9 @@ def api_save_book_progress(current_user, book_id: int):
     section_id = (data.get('section_id') or '').strip() or None
     paragraph_id = (data.get('paragraph_id') or '').strip() or None
     scroll_percent = data.get('scroll_percent', 0)
+    analytics_payload = data.get('analytics') or {}
+    if not isinstance(analytics_payload, dict):
+        analytics_payload = {}
 
     try:
         scroll_percent = float(scroll_percent)
@@ -95,6 +147,11 @@ def api_save_book_progress(current_user, book_id: int):
         return jsonify({'error': 'invalid scroll_percent'}), 400
 
     scroll_percent = max(0.0, min(100.0, scroll_percent))
+    try:
+        read_seconds_delta = int(float(analytics_payload.get('read_seconds_delta', 0) or 0))
+    except (TypeError, ValueError):
+        read_seconds_delta = 0
+    read_seconds_delta = max(0, min(read_seconds_delta, 600))
 
     progress = UserReadingProgress.query.filter_by(user_id=current_user.id, book_id=book_id).first()
     if not progress:
@@ -110,6 +167,25 @@ def api_save_book_progress(current_user, book_id: int):
         progress.section_id = section_id
         progress.paragraph_id = paragraph_id
         progress.scroll_percent = scroll_percent
+
+    has_analytics = any(
+        [
+            analytics_payload.get('session_id'),
+            analytics_payload.get('geo_label'),
+            analytics_payload.get('age_group'),
+            read_seconds_delta > 0,
+        ]
+    )
+    if has_analytics:
+        _track_book_event(
+            book_id=book_id,
+            current_user=current_user,
+            event_type='read_heartbeat',
+            session_id=analytics_payload.get('session_id'),
+            geo_label=analytics_payload.get('geo_label'),
+            age_group=analytics_payload.get('age_group'),
+            read_duration_seconds=read_seconds_delta,
+        )
 
     db.session.commit()
     return jsonify({'message': 'progress saved', 'progress': progress.to_dict()}), 200

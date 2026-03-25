@@ -15,10 +15,20 @@ const progress = ref<ReadingProgress | null>(null)
 
 const startButtonText = computed(() => (progress.value?.section_id ? '继续阅读' : '开始阅读'))
 
+function getLandingAnalytics() {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+  const locale = navigator.language || ''
+  return {
+    session_id: `l_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+    geo_label: timeZone || locale || 'unknown',
+    age_group: localStorage.getItem('reader_age_group') || undefined,
+  }
+}
+
 async function loadData() {
   loading.value = true
   try {
-    landing.value = await getBookLanding(bookId.value)
+    landing.value = await getBookLanding(bookId.value, getLandingAnalytics())
   } catch (_error) {
     ElMessage.error('图书介绍加载失败')
   } finally {

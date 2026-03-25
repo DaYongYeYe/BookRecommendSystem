@@ -35,3 +35,31 @@ export function updateCreatorManuscript(manuscriptId: number, data: FormData | R
 export function submitCreatorManuscript(manuscriptId: number) {
   return request.post(`/creator/manuscripts/${manuscriptId}/submit`)
 }
+
+export interface CreatorBookDistributionItem {
+  label: string
+  count: number
+  percent: number
+}
+
+export interface CreatorBookAnalyticsItem {
+  book_id: number
+  title: string
+  status: string
+  metrics: {
+    impressions: number
+    reads: number
+    read_users: number
+    avg_read_duration_seconds: number
+    avg_read_duration_label: string
+  }
+  geo_distribution: CreatorBookDistributionItem[]
+  age_distribution: CreatorBookDistributionItem[]
+}
+
+export function getCreatorBookAnalytics(params?: { limit?: number }) {
+  return request.get<{ items: CreatorBookAnalyticsItem[] }, { items: CreatorBookAnalyticsItem[] }>(
+    '/creator/books/analytics',
+    { params }
+  )
+}

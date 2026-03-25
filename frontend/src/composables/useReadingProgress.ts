@@ -4,6 +4,20 @@ import { getReadingProgress, saveReadingProgress } from '@/api/reader'
 
 export function useReadingProgress(bookId: Ref<string>, activeSectionId: Ref<string>) {
   const lastProgressSyncAt = ref(0)
+  const sessionId = ref(`s_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`)
+  const lastDurationTrackAt = ref(Date.now())
+
+  function getAnalyticsContext() {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+    const locale = navigator.language || ''
+    const geoLabel = timeZone || locale || 'unknown'
+    const ageGroup = localStorage.getItem('reader_age_group') || undefined
+    return {
+      session_id: sessionId.value,
+      geo_label: geoLabel,
+      age_group: ageGroup,
+    }
+  }
 
   async function resumeIfNeeded(shouldResume: boolean) {
     if (!getToken() || !shouldResume) {
@@ -43,11 +57,17 @@ export function useReadingProgress(bookId: Ref<string>, activeSectionId: Ref<str
       return
     }
     lastProgressSyncAt.value = now
+    const elapsedSeconds = Math.max(0, Math.min(Math.round((now - lastDurationTrackAt.value) / 1000), 300))
+    lastDurationTrackAt.value = now
 
     try {
       await saveReadingProgress(bookId.value, {
         section_id: activeSectionId.value,
         scroll_percent: getScrollPercent(),
+        analytics: {
+          ...getAnalyticsContext(),
+          read_seconds_delta: elapsedSeconds,
+        },
       })
     } catch (_error) {
       // Keep reading even if sync fails.
@@ -57,5 +77,6 @@ export function useReadingProgress(bookId: Ref<string>, activeSectionId: Ref<str
   return {
     resumeIfNeeded,
     syncReadingProgress,
+    getAnalyticsContext,
   }
 }

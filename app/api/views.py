@@ -2,6 +2,7 @@ from datetime import date
 
 from flask import jsonify, request
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from app import db
 from app.api import bp
@@ -78,10 +79,23 @@ def api_add_to_shelf(current_user):
     book_id = data.get('book_id')
     if not book_id:
         return jsonify({'error': 'missing book_id'}), 400
+    try:
+        book_id = int(book_id)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid book_id'}), 400
+
+    book = Book.query.get(book_id)
+    if not book or (book.status or 'published') != 'published':
+        return jsonify({'error': 'book not found'}), 404
+
     existing = UserShelf.query.filter_by(user_id=current_user.id, book_id=book_id).first()
     if not existing:
-        db.session.add(UserShelf(user_id=current_user.id, book_id=book_id))
-        db.session.commit()
+        try:
+            db.session.add(UserShelf(user_id=current_user.id, book_id=book_id))
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return jsonify({'error': 'failed to add shelf item'}), 400
     return jsonify(_message('added to shelf', book_id=book_id)), 200
 
 
@@ -155,14 +169,31 @@ def api_toggle_shelf(current_user):
     in_shelf = data.get('in_shelf')
     if book_id is None or in_shelf is None:
         return jsonify({'error': 'missing book_id or in_shelf'}), 400
+    if not isinstance(in_shelf, bool):
+        return jsonify({'error': 'in_shelf must be boolean'}), 400
+    try:
+        book_id = int(book_id)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid book_id'}), 400
+    book = Book.query.get(book_id)
+    if not book or (book.status or 'published') != 'published':
+        return jsonify({'error': 'book not found'}), 404
 
     existing = UserShelf.query.filter_by(user_id=current_user.id, book_id=book_id).first()
     if in_shelf and not existing:
-        db.session.add(UserShelf(user_id=current_user.id, book_id=book_id))
-        db.session.commit()
+        try:
+            db.session.add(UserShelf(user_id=current_user.id, book_id=book_id))
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return jsonify({'error': 'failed to add shelf item'}), 400
     if (not in_shelf) and existing:
-        db.session.delete(existing)
-        db.session.commit()
+        try:
+            db.session.delete(existing)
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return jsonify({'error': 'failed to remove shelf item'}), 400
 
     action = 'added' if in_shelf else 'removed'
     return jsonify(_message(f'shelf {action}', book_id=book_id, in_shelf=in_shelf)), 200

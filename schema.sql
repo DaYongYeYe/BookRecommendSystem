@@ -7,6 +7,7 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS `book_chapters`;
+DROP TABLE IF EXISTS `book_analytics_events`;
 DROP TABLE IF EXISTS `book_versions`;
 DROP TABLE IF EXISTS `book_manuscripts`;
 DROP TABLE IF EXISTS `book_rankings`;
@@ -47,6 +48,9 @@ CREATE TABLE `users` (
   `name`          VARCHAR(80) DEFAULT NULL,
   `email`         VARCHAR(120) NOT NULL UNIQUE,
   `avatar_url`    VARCHAR(500) DEFAULT NULL,
+  `age`           INT DEFAULT NULL,
+  `province`      VARCHAR(64) DEFAULT NULL,
+  `city`          VARCHAR(64) DEFAULT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
   `role`          VARCHAR(20)  NOT NULL DEFAULT 'user',
   `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -235,6 +239,26 @@ CREATE TABLE `user_reading_progress` (
   KEY `idx_urp_book` (`book_id`),
   CONSTRAINT `fk_urp_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_urp_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `book_analytics_events` (
+  `id`                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `book_id`               BIGINT UNSIGNED NOT NULL,
+  `user_id`               BIGINT UNSIGNED DEFAULT NULL,
+  `event_type`            VARCHAR(32) NOT NULL,
+  `session_id`            VARCHAR(64) DEFAULT NULL,
+  `read_duration_seconds` INT NOT NULL DEFAULT 0,
+  `geo_label`             VARCHAR(100) DEFAULT NULL,
+  `age_group`             VARCHAR(32) DEFAULT NULL,
+  `created_at`            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_bae_book` (`book_id`),
+  KEY `idx_bae_user` (`user_id`),
+  KEY `idx_bae_event_type` (`event_type`),
+  KEY `idx_bae_session` (`session_id`),
+  KEY `idx_bae_created_at` (`created_at`),
+  CONSTRAINT `fk_bae_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bae_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `reader_user_preferences` (

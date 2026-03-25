@@ -80,6 +80,12 @@ export interface ReaderPreferences {
   updated_at?: string | null
 }
 
+export interface ReaderAnalyticsContext {
+  session_id?: string
+  geo_label?: string
+  age_group?: string
+}
+
 export interface CreateHighlightPayload {
   paragraph_id: string
   start_offset: number
@@ -90,8 +96,8 @@ export interface CreateHighlightPayload {
   author?: string
 }
 
-export function getReader(bookId: string | number) {
-  return request.get<any, ReaderPayload>(`/api/books/${bookId}/reader`)
+export function getReader(bookId: string | number, analytics?: ReaderAnalyticsContext) {
+  return request.get<any, ReaderPayload>(`/api/books/${bookId}/reader`, { params: analytics })
 }
 
 export function createHighlight(bookId: string | number, payload: CreateHighlightPayload) {
@@ -113,8 +119,8 @@ export function createBookComment(bookId: string | number, payload: { content: s
   return request.post<any, { comment: ReaderComment }>(`/api/books/${bookId}/comments`, payload)
 }
 
-export function getBookLanding(bookId: string | number) {
-  return request.get<any, BookLandingPayload>(`/api/books/${bookId}/landing`)
+export function getBookLanding(bookId: string | number, analytics?: ReaderAnalyticsContext) {
+  return request.get<any, BookLandingPayload>(`/api/books/${bookId}/landing`, { params: analytics })
 }
 
 export function getReadingProgress(bookId: string | number) {
@@ -125,7 +131,12 @@ export function getReadingProgress(bookId: string | number) {
 
 export function saveReadingProgress(
   bookId: string | number,
-  payload: { section_id: string; paragraph_id?: string; scroll_percent: number }
+  payload: {
+    section_id: string
+    paragraph_id?: string
+    scroll_percent: number
+    analytics?: ReaderAnalyticsContext & { read_seconds_delta?: number }
+  }
 ) {
   return request.post<any, { progress: ReadingProgress }>(`/api/books/${bookId}/progress`, payload)
 }

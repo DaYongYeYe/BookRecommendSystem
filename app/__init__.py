@@ -30,6 +30,12 @@ def _apply_schema_compatibility_patches(app: Flask):
             patches.append("ALTER TABLE users ADD COLUMN name VARCHAR(80) NULL")
         if 'avatar_url' not in user_columns:
             patches.append("ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500) NULL")
+        if 'age' not in user_columns:
+            patches.append("ALTER TABLE users ADD COLUMN age INT NULL")
+        if 'province' not in user_columns:
+            patches.append("ALTER TABLE users ADD COLUMN province VARCHAR(64) NULL")
+        if 'city' not in user_columns:
+            patches.append("ALTER TABLE users ADD COLUMN city VARCHAR(64) NULL")
 
         if 'reader_user_preferences' not in table_names:
             user_id_type = 'INT'
@@ -178,6 +184,28 @@ def _apply_schema_compatibility_patches(app: Flask):
                     snapshot_date DATE NOT NULL,
                     UNIQUE KEY uniq_type_date_rank (type, snapshot_date, rank_no),
                     KEY idx_br_book (book_id)
+                )
+                """
+            )
+
+        if 'book_analytics_events' not in table_names and 'books' in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE book_analytics_events (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    book_id {books_id_type} NOT NULL,
+                    user_id {users_id_type} NULL,
+                    event_type VARCHAR(32) NOT NULL,
+                    session_id VARCHAR(64) NULL,
+                    read_duration_seconds INT NOT NULL DEFAULT 0,
+                    geo_label VARCHAR(100) NULL,
+                    age_group VARCHAR(32) NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    KEY idx_bae_book (book_id),
+                    KEY idx_bae_user (user_id),
+                    KEY idx_bae_event (event_type),
+                    KEY idx_bae_session (session_id),
+                    KEY idx_bae_created_at (created_at)
                 )
                 """
             )

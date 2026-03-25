@@ -11,6 +11,7 @@ interface RegisterPayload {
   username: string
   email: string
   password: string
+  age: number
   captcha_id: string
   captcha_code: string
 }
