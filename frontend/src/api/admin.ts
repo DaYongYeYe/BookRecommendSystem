@@ -66,7 +66,11 @@ export interface AdminBookItem {
   rating_count: number
   recent_reads: number
   is_featured: boolean
+  status: 'published' | 'draft' | 'archived'
   category_id?: number | null
+  category_name?: string | null
+  tags?: Array<{ id: number; label: string }>
+  tag_ids?: number[]
 }
 
 export interface AdminBooksResponse {
@@ -90,10 +94,28 @@ export interface AdminCreateBookPayload {
   rating_count?: number
   recent_reads?: number
   is_featured?: boolean
+  status?: 'published' | 'draft' | 'archived'
   category_id?: number | null
+  tag_ids?: number[]
 }
 
 export interface AdminUpdateBookPayload extends Partial<AdminCreateBookPayload> {}
+
+export interface AdminBookOptionsResponse {
+  categories: Array<{ id: number; name: string }>
+  tags: Array<{ id: number; label: string }>
+  statuses: Array<{ value: 'published' | 'draft' | 'archived'; label: string }>
+}
+
+export interface AdminBatchUpdateBooksPayload {
+  book_ids: number[]
+  changes: {
+    status?: 'published' | 'draft' | 'archived'
+    category_id?: number | null
+    is_featured?: boolean
+    tag_ids?: number[]
+  }
+}
 
 export interface AdminManuscriptItem {
   id: number
@@ -182,6 +204,14 @@ export function updateAdminBook(bookId: number, data: AdminUpdateBookPayload) {
 
 export function deleteAdminBook(bookId: number) {
   return request.delete(`/admin/books/${bookId}`)
+}
+
+export function getAdminBookOptions() {
+  return request.get<AdminBookOptionsResponse, AdminBookOptionsResponse>('/admin/books/options')
+}
+
+export function batchUpdateAdminBooks(data: AdminBatchUpdateBooksPayload) {
+  return request.post('/admin/books/batch', data)
 }
 
 export function getAdminManuscripts(params?: { status?: string; creator_id?: number }) {

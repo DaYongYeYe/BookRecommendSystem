@@ -4,11 +4,23 @@ import jwt
 from flask import request, jsonify, current_app
 from app.admin import bp
 from app import db
-from app.models import User, Book, BookManuscript, ReaderBookComment, ReaderHighlightComment, ReaderHighlight
+from app.models import (
+    User,
+    Book,
+    BookManuscript,
+    ReaderBookComment,
+    ReaderHighlightComment,
+    ReaderHighlight,
+    Category,
+    Tag,
+    BookTag,
+)
 from app.logging_utils import business_log_aspect
 from app.rbac.decorators import admin_required
 from app.services.publishing_service import publish_manuscript
 from app.services.captcha import generate_captcha, verify_captcha
+
+BOOK_STATUSES = ['published', 'draft', 'archived']
 
 
 @bp.route('/auth/register', methods=['POST'])
@@ -263,8 +275,36 @@ def get_books(current_user):
 
     total = query.count()
     books = query.order_by(Book.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    book_ids = [item.id for item in books]
+    category_map = {}
+    tag_map = {}
+
+    if books:
+        category_ids = list({item.category_id for item in books if item.category_id})
+        if category_ids:
+            categories = Category.query.filter(Category.id.in_(category_ids)).all()
+            category_map = {item.id: item.name for item in categories}
+
+        rows = (
+            db.session.query(BookTag.book_id, Tag.id, Tag.label)
+            .join(Tag, Tag.id == BookTag.tag_id)
+            .filter(BookTag.book_id.in_(book_ids))
+            .order_by(Tag.id.asc())
+            .all()
+        )
+        for book_id, tag_id, tag_label in rows:
+            tag_map.setdefault(book_id, []).append({'id': int(tag_id), 'label': tag_label})
+
+    payload = []
+    for book in books:
+        item = book.to_dict()
+        item['category_name'] = category_map.get(book.category_id)
+        item['tags'] = tag_map.get(book.id, [])
+        item['tag_ids'] = [entry['id'] for entry in item['tags']]
+        payload.append(item)
+
     return jsonify({
-        'books': [book.to_dict() for book in books],
+        'books': payload,
         'pagination': {
             'page': page,
             'page_size': page_size,
@@ -298,6 +338,10 @@ def create_book(current_user):
         except (TypeError, ValueError):
             return default
 
+    status = (data.get('status') or 'published').strip().lower()
+    if status not in BOOK_STATUSES:
+        return jsonify({'error': 'invalid status'}), 400
+
     book = Book(
         title=title,
         subtitle=(data.get('subtitle') or '').strip() or None,
@@ -310,9 +354,32 @@ def create_book(current_user):
         recent_reads=parse_int(data.get('recent_reads'), 0),
         is_featured=bool(data.get('is_featured', False)),
         category_id=parse_int(data.get('category_id'), None),
+        status=status,
+        published_at=datetime.utcnow() if status == 'published' else None,
     )
+
+    raw_tag_ids = data.get('tag_ids') or []
+    if not isinstance(raw_tag_ids, list):
+        return jsonify({'error': 'tag_ids must be an array'}), 400
+    tag_ids = []
+    for raw_tag_id in raw_tag_ids:
+        try:
+            tag_ids.append(int(raw_tag_id))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid tag_ids'}), 400
+    tag_ids = list(set(tag_ids))
+    if tag_ids:
+        valid_tag_ids = {item.id for item in Tag.query.filter(Tag.id.in_(tag_ids)).all()}
+        invalid_ids = [item for item in tag_ids if item not in valid_tag_ids]
+        if invalid_ids:
+            return jsonify({'error': f'invalid tag ids: {invalid_ids}'}), 400
+
     db.session.add(book)
     db.session.commit()
+    if tag_ids:
+        for tag_id in tag_ids:
+            db.session.add(BookTag(book_id=book.id, tag_id=tag_id))
+        db.session.commit()
     return jsonify({'message': '图书创建成功', 'book': book.to_dict()}), 201
 
 
@@ -369,6 +436,34 @@ def update_book(current_user, book_id):
         book.is_featured = bool(data.get('is_featured'))
     if 'category_id' in data:
         book.category_id = parse_int(data.get('category_id'), keep_none=True)
+    if 'status' in data:
+        status = (data.get('status') or '').strip().lower()
+        if status not in BOOK_STATUSES:
+            return jsonify({'error': 'invalid status'}), 400
+        book.status = status
+        if status == 'published' and not book.published_at:
+            book.published_at = datetime.utcnow()
+        if status != 'published':
+            book.published_at = None
+    if 'tag_ids' in data:
+        raw_tag_ids = data.get('tag_ids')
+        if not isinstance(raw_tag_ids, list):
+            return jsonify({'error': 'tag_ids must be an array'}), 400
+        tag_ids = []
+        for raw_tag_id in raw_tag_ids:
+            try:
+                tag_ids.append(int(raw_tag_id))
+            except (TypeError, ValueError):
+                return jsonify({'error': 'invalid tag_ids'}), 400
+        tag_ids = list(set(tag_ids))
+        if tag_ids:
+            valid_tag_ids = {item.id for item in Tag.query.filter(Tag.id.in_(tag_ids)).all()}
+            invalid_ids = [item for item in tag_ids if item not in valid_tag_ids]
+            if invalid_ids:
+                return jsonify({'error': f'invalid tag ids: {invalid_ids}'}), 400
+        BookTag.query.filter_by(book_id=book.id).delete()
+        for tag_id in tag_ids:
+            db.session.add(BookTag(book_id=book.id, tag_id=tag_id))
 
     db.session.commit()
     return jsonify({'message': '图书更新成功', 'book': book.to_dict()}), 200
@@ -384,6 +479,112 @@ def delete_book(current_user, book_id):
     db.session.delete(book)
     db.session.commit()
     return jsonify({'message': '图书删除成功'}), 200
+
+
+@bp.route('/books/options', methods=['GET'])
+@admin_required
+def get_book_options(current_user):
+    categories = Category.query.order_by(Category.name.asc()).all()
+    tags = Tag.query.order_by(Tag.label.asc()).all()
+    return jsonify({
+        'categories': [item.to_dict() for item in categories],
+        'tags': [item.to_dict() for item in tags],
+        'statuses': [{'value': item, 'label': item} for item in BOOK_STATUSES],
+    }), 200
+
+
+@bp.route('/books/batch', methods=['POST'])
+@admin_required
+@business_log_aspect('admin.book.batch_update', tags=['admin', 'book', 'business', 'aop'])
+def batch_update_books(current_user):
+    payload = request.get_json() or {}
+    raw_book_ids = payload.get('book_ids')
+    changes = payload.get('changes') or {}
+
+    if not isinstance(raw_book_ids, list) or not raw_book_ids:
+        return jsonify({'error': 'book_ids must be a non-empty array'}), 400
+    if not isinstance(changes, dict) or not changes:
+        return jsonify({'error': 'changes must be a non-empty object'}), 400
+
+    book_ids = []
+    for raw_book_id in raw_book_ids:
+        try:
+            book_ids.append(int(raw_book_id))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid book_ids'}), 400
+    book_ids = list(set(book_ids))
+
+    books = Book.query.filter(Book.id.in_(book_ids)).all()
+    found_ids = {item.id for item in books}
+    missing_ids = [item for item in book_ids if item not in found_ids]
+    if missing_ids:
+        return jsonify({'error': f'books not found: {missing_ids}'}), 404
+
+    parsed_status = None
+    parsed_category_id = None
+    parsed_is_featured = None
+    parsed_tag_ids = None
+
+    if 'status' in changes:
+        parsed_status = (changes.get('status') or '').strip().lower()
+        if parsed_status not in BOOK_STATUSES:
+            return jsonify({'error': 'invalid status'}), 400
+
+    if 'category_id' in changes:
+        raw_category_id = changes.get('category_id')
+        if raw_category_id in (None, ''):
+            parsed_category_id = None
+        else:
+            try:
+                parsed_category_id = int(raw_category_id)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'invalid category_id'}), 400
+
+    if 'is_featured' in changes:
+        parsed_is_featured = bool(changes.get('is_featured'))
+
+    if 'tag_ids' in changes:
+        raw_tag_ids = changes.get('tag_ids')
+        if not isinstance(raw_tag_ids, list):
+            return jsonify({'error': 'tag_ids must be an array'}), 400
+        parsed_tag_ids = []
+        for raw_tag_id in raw_tag_ids:
+            try:
+                parsed_tag_ids.append(int(raw_tag_id))
+            except (TypeError, ValueError):
+                return jsonify({'error': 'invalid tag_ids'}), 400
+        parsed_tag_ids = list(set(parsed_tag_ids))
+        if parsed_tag_ids:
+            valid_tag_ids = {item.id for item in Tag.query.filter(Tag.id.in_(parsed_tag_ids)).all()}
+            invalid_ids = [item for item in parsed_tag_ids if item not in valid_tag_ids]
+            if invalid_ids:
+                return jsonify({'error': f'invalid tag ids: {invalid_ids}'}), 400
+
+    now = datetime.utcnow()
+    updated_count = 0
+    for book in books:
+        touched = False
+        if parsed_status is not None:
+            book.status = parsed_status
+            book.published_at = now if parsed_status == 'published' else None
+            touched = True
+        if 'category_id' in changes:
+            book.category_id = parsed_category_id
+            touched = True
+        if parsed_is_featured is not None:
+            book.is_featured = parsed_is_featured
+            touched = True
+        if touched:
+            updated_count += 1
+
+    if parsed_tag_ids is not None:
+        BookTag.query.filter(BookTag.book_id.in_(book_ids)).delete(synchronize_session=False)
+        for book_id in book_ids:
+            for tag_id in parsed_tag_ids:
+                db.session.add(BookTag(book_id=book_id, tag_id=tag_id))
+
+    db.session.commit()
+    return jsonify({'message': 'batch updated', 'updated_count': updated_count}), 200
 
 @bp.route('/manuscripts', methods=['GET'])
 @admin_required
