@@ -61,7 +61,7 @@
           />
           <el-button @click="triggerCoverUpload">选择文件</el-button>
           <div v-if="form.cover || coverFileName" class="hint">
-            已选: {{ coverFileName || form.cover }}
+            已选择：{{ coverFileName || form.cover }}
           </div>
         </el-form-item>
         <el-form-item label="正文 txt">
@@ -73,14 +73,14 @@
             @change="onContentFileChange"
           />
           <el-button @click="triggerContentUpload">选择文件</el-button>
-          <div v-if="contentFileName" class="hint">已选: {{ contentFileName }}</div>
+          <div v-if="contentFileName" class="hint">已选择：{{ contentFileName }}</div>
         </el-form-item>
         <el-form-item label="正文内容" prop="content_text">
           <el-input
             v-model="form.content_text"
             type="textarea"
             :rows="12"
-            placeholder="可直接粘贴正文；或上传 txt 文件。"
+            placeholder="可直接粘贴正文，也可以上传 txt 文件。"
           />
         </el-form-item>
       </el-form>

@@ -52,16 +52,16 @@ onMounted(loadData)
 <template>
   <div class="dashboard-page">
     <div class="topbar">
-      <h2>创造者数据看板</h2>
+      <h2>创作者数据看板</h2>
       <div class="actions">
-        <el-button @click="router.push('/creator/manuscripts')">投稿管理</el-button>
+        <el-button @click="router.push('/creator/manuscripts')">稿件管理</el-button>
         <el-button @click="router.push('/')">返回首页</el-button>
       </div>
     </div>
 
     <el-row :gutter="12" class="summary-row">
       <el-col :xs="24" :sm="8">
-        <el-card shadow="hover"><div class="kpi-title">总展示量</div><div class="kpi-value">{{ total.impressions }}</div></el-card>
+        <el-card shadow="hover"><div class="kpi-title">总曝光量</div><div class="kpi-value">{{ total.impressions }}</div></el-card>
       </el-col>
       <el-col :xs="24" :sm="8">
         <el-card shadow="hover"><div class="kpi-title">总阅读量</div><div class="kpi-value">{{ total.reads }}</div></el-card>
@@ -77,7 +77,7 @@ onMounted(loadData)
       </template>
       <el-table :data="items" v-loading="loading" border>
         <el-table-column prop="title" label="书名" min-width="220" />
-        <el-table-column prop="metrics.impressions" label="展示量" width="110" />
+        <el-table-column prop="metrics.impressions" label="曝光量" width="110" />
         <el-table-column prop="metrics.reads" label="阅读量" width="110" />
         <el-table-column prop="metrics.read_users" label="阅读用户数" width="130" />
         <el-table-column prop="metrics.avg_read_duration_label" label="平均阅读时长" width="140" />
@@ -92,20 +92,20 @@ onMounted(loadData)
 
     <el-card class="panel" shadow="never">
       <template #header>
-        <div class="panel-header">创造者端建议优化</div>
+        <div class="panel-header">创作者端建议优化</div>
       </template>
       <div class="tips-grid">
         <div class="tip-card">
           <div class="tip-title">1. 漏斗指标</div>
-          <div class="tip-desc">增加 展示→进阅读→完成阅读 的转化率，帮助定位封面/简介问题。</div>
+          <div class="tip-desc">增加“曝光到阅读到完成阅读”的转化率，帮助定位封面与简介是否有效。</div>
         </div>
         <div class="tip-card">
           <div class="tip-title">2. 章节热力</div>
-          <div class="tip-desc">按章节展示退出率与平均停留，快速发现“跳出点”。</div>
+          <div class="tip-desc">按章节展示退出率与平均停留，快速发现读者流失点。</div>
         </div>
         <div class="tip-card">
           <div class="tip-title">3. 分人群表现</div>
-          <div class="tip-desc">加入时间范围筛选，分年龄段/地域对比阅读时长与留存。</div>
+          <div class="tip-desc">加入时间范围筛选，对比不同年龄段和地区的阅读时长与留存。</div>
         </div>
       </div>
       <div v-if="topBooks.length" class="top-books">
