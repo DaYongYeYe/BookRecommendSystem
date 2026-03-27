@@ -65,8 +65,8 @@ def parse_content_sections(content_text: str):
 
 
 def publish_manuscript(manuscript, reviewer):
-    if manuscript.status not in ('approved', 'submitted'):
-        return None, 'manuscript status must be approved or submitted before publish'
+    if manuscript.status != 'approved':
+        return None, 'manuscript status must be approved before publish'
 
     sections = parse_content_sections(manuscript.content_text or '')
     if not sections:

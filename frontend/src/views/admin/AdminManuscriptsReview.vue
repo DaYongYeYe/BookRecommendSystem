@@ -35,7 +35,7 @@
             <el-button
               link
               type="warning"
-              :disabled="!['approved', 'submitted'].includes(row.status)"
+              :disabled="row.status !== 'approved'"
               @click="onPublish(row)"
             >
               发布

@@ -16,6 +16,8 @@ class User(db.Model):
     # Werkzeug scrypt hashes are longer than legacy pbkdf2 hashes.
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='user')  # user or admin
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
     
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -324,6 +326,10 @@ class ReaderHighlightComment(db.Model):
     highlight_id = db.Column(db.Integer, db.ForeignKey('reader_highlights.id'), nullable=False, index=True)
     author = db.Column(db.String(64), nullable=False, default='当前读者')
     content = db.Column(db.Text, nullable=False)
+    is_violation = db.Column(db.Boolean, nullable=False, default=False)
+    violation_reason = db.Column(db.String(255))
+    moderated_at = db.Column(db.DateTime)
+    moderated_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
 
@@ -334,6 +340,10 @@ class ReaderBookComment(db.Model):
     book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
     author = db.Column(db.String(64), nullable=False, default='当前读者')
     content = db.Column(db.Text, nullable=False)
+    is_violation = db.Column(db.Boolean, nullable=False, default=False)
+    violation_reason = db.Column(db.String(255))
+    moderated_at = db.Column(db.DateTime)
+    moderated_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
 

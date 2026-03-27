@@ -10,7 +10,6 @@ import {
   getReader,
   getReaderPreferences,
   saveReaderPreferences,
-  type ReaderHighlight,
   type ReaderPayload,
 } from '@/api/reader'
 import { getToken } from '@/api/request'
@@ -81,6 +80,16 @@ const activeHighlight = computed(() => {
   return reader.value.highlights.find((item) => item.id === activeHighlightId.value) || null
 })
 
+const progressPercent = computed(() => {
+  if (!reader.value) return 0
+  const totalSections = reader.value.sections.length || 1
+  const currentIndex = Math.max(
+    reader.value.sections.findIndex((section) => section.id === activeSectionId.value),
+    0
+  )
+  return Math.min(100, Math.round(((currentIndex + 1) / totalSections) * 100))
+})
+
 async function loadReader() {
   loading.value = true
   try {
@@ -90,7 +99,7 @@ async function loadReader() {
     activeHighlightId.value = payload.highlights[0]?.id ?? null
     await resumeIfNeeded(route.query.resume === '1')
   } catch (_error) {
-    ElMessage.error('阅读内容加载失败')
+    ElMessage.error('阅读内容加载失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -106,7 +115,6 @@ async function loadShelfState() {
     const currentBookId = Number(bookId.value)
     isInShelf.value = favorites.items.some((item) => item.id === currentBookId)
   } catch (_error) {
-    // Ignore shelf status failures; keep default state.
     isInShelf.value = false
   }
 }
@@ -157,7 +165,7 @@ function toggleHighlightMode() {
   if (!highlightModeEnabled.value) {
     clearSelectionDraft()
   } else {
-    ElMessage.info('已开启划线模式，请在正文中选中单段文本')
+    ElMessage.info('划线模式已开启，请在正文里选中同一段内的文字')
   }
 }
 
@@ -194,7 +202,7 @@ function handleSelection() {
   )?.closest?.('[data-paragraph-id]') as HTMLElement | null
 
   if (!startParagraph || !endParagraph || startParagraph !== endParagraph) {
-    ElMessage.info('当前仅支持单段落内划线')
+    ElMessage.info('当前只支持在同一段落内划线')
     clearSelectionDraft()
     return
   }
@@ -241,7 +249,7 @@ async function submitHighlight() {
     clearSelectionDraft()
     ElMessage.success('划线已保存')
   } catch (_error) {
-    ElMessage.error('划线保存失败')
+    ElMessage.error('划线保存失败，请先登录后重试')
   }
 }
 
@@ -258,7 +266,7 @@ async function submitHighlightComment() {
     highlightCommentDraft.value = ''
     ElMessage.success('评论已发布')
   } catch (_error) {
-    ElMessage.error('评论发布失败')
+    ElMessage.error('评论发布失败，请先登录后重试')
   }
 }
 
@@ -272,7 +280,7 @@ async function submitBookComment() {
     bookCommentDraft.value = ''
     ElMessage.success('书评发布成功')
   } catch (_error) {
-    ElMessage.error('书评发布失败')
+    ElMessage.error('书评发布失败，请先登录后重试')
   }
 }
 
@@ -354,9 +362,12 @@ watch([readerTheme, readerFontSize, showComments], () => {
           <div class="min-w-0">
             <h1 class="truncate text-xl font-semibold">{{ reader.book.title }}</h1>
             <p class="text-sm" :class="readerTheme === 'dark' ? 'text-stone-300' : 'text-stone-500'">{{ reader.book.author }}</p>
+            <p class="mt-1 text-xs" :class="readerTheme === 'dark' ? 'text-stone-400' : 'text-stone-400'">
+              阅读进度约 {{ progressPercent }}%，共 {{ reader.sections.length }} 个章节节点
+            </p>
           </div>
           <div class="flex items-center gap-2">
-            <button class="rounded-full border px-4 py-2 text-sm" @click="router.push('/')">返回首页</button>
+            <button class="rounded-full border px-4 py-2 text-sm" @click="router.push(`/books/${bookId}`)">返回详情</button>
             <button class="rounded-full border px-4 py-2 text-sm" @click="router.push('/user/library')">我的书架</button>
             <button
               class="rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
@@ -391,7 +402,7 @@ watch([readerTheme, readerFontSize, showComments], () => {
             <textarea
               v-model="draftNote"
               class="mt-4 min-h-24 w-full rounded-2xl border border-amber-100 bg-white px-4 py-3 outline-none focus:border-stone-400"
-              placeholder="写下这段文字的批注..."
+              placeholder="写下你对这段文字的感受..."
             />
             <div class="mt-4 flex flex-wrap gap-3">
               <button class="rounded-full bg-stone-900 px-5 py-2.5 text-sm font-medium text-white" @click="submitHighlight">
@@ -435,9 +446,9 @@ watch([readerTheme, readerFontSize, showComments], () => {
       </template>
     </main>
 
-    <div class="fixed right-3 top-1/2 z-40 -translate-y-1/2 md:right-5">
+    <div class="fixed bottom-4 right-3 z-40 md:right-5 md:top-1/2 md:-translate-y-1/2">
       <div class="rounded-[1.2rem] bg-[#1b1f28] p-2 shadow-2xl">
-        <div class="flex flex-col gap-2">
+        <div class="flex gap-2 md:flex-col">
           <button
             class="h-11 w-11 rounded-full text-xs font-medium"
             :class="activePanel === 'outline' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
@@ -493,7 +504,7 @@ watch([readerTheme, readerFontSize, showComments], () => {
 
     <div
       v-if="activePanel !== 'none' && reader"
-      class="fixed right-20 top-1/2 z-40 w-[310px] -translate-y-1/2 rounded-[1.2rem] p-4 shadow-2xl md:w-[360px]"
+      class="fixed left-4 right-4 bottom-20 z-40 rounded-[1.2rem] p-4 shadow-2xl md:left-auto md:right-20 md:top-1/2 md:w-[360px] md:-translate-y-1/2"
       :class="panelCardClass"
     >
       <template v-if="activePanel === 'outline'">
@@ -515,7 +526,7 @@ watch([readerTheme, readerFontSize, showComments], () => {
       </template>
 
       <template v-else-if="activePanel === 'settings'">
-        <h3 class="mb-3 text-lg font-semibold">字体设置</h3>
+        <h3 class="mb-3 text-lg font-semibold">阅读设置</h3>
         <div class="space-y-4">
           <div>
             <p class="mb-2 text-sm">字号大小：{{ readerFontSize }}px</p>
@@ -552,7 +563,7 @@ watch([readerTheme, readerFontSize, showComments], () => {
 
       <template v-else-if="activePanel === 'highlight'">
         <h3 class="mb-3 text-lg font-semibold">划线批注</h3>
-        <div v-if="!showComments" class="text-sm text-stone-400">评论已隐藏，请先点击右侧“显评”。</div>
+        <div v-if="!showComments" class="text-sm text-stone-400">评论已隐藏，请先打开“显评”。</div>
         <div v-else-if="activeHighlight">
           <p
             :class="[
@@ -562,7 +573,7 @@ watch([readerTheme, readerFontSize, showComments], () => {
           >
             {{ activeHighlight.selected_text }}
           </p>
-          <p class="mt-3 text-sm leading-7">{{ activeHighlight.note || '这条划线暂时没有批注。' }}</p>
+          <p class="mt-3 text-sm leading-7">{{ activeHighlight.note || '这条划线还没有补充批注。' }}</p>
 
           <div class="mt-4 max-h-[28vh] space-y-2 overflow-y-auto pr-1">
             <div
@@ -581,18 +592,18 @@ watch([readerTheme, readerFontSize, showComments], () => {
           <textarea
             v-model="highlightCommentDraft"
             class="mt-4 min-h-20 w-full rounded-2xl border border-stone-300 bg-transparent px-3 py-2 text-sm outline-none"
-            placeholder="发表评论..."
+            placeholder="补充一点你的理解..."
           />
           <button class="mt-3 rounded-full bg-stone-900 px-4 py-2 text-sm text-white" @click="submitHighlightComment">
             发布评论
           </button>
         </div>
-        <div v-else class="text-sm text-stone-400">当前没有选中的划线；保存新划线后会自动显示在这里。</div>
+        <div v-else class="text-sm text-stone-400">先在正文中划线，保存后就会显示在这里。</div>
       </template>
 
       <template v-else-if="activePanel === 'book-comments'">
-        <h3 class="mb-3 text-lg font-semibold">书本评论</h3>
-        <div v-if="!showComments" class="text-sm text-stone-400">评论已隐藏，请先点击右侧“显评”。</div>
+        <h3 class="mb-3 text-lg font-semibold">本书评论</h3>
+        <div v-if="!showComments" class="text-sm text-stone-400">评论已隐藏，请先打开“显评”。</div>
         <template v-else>
           <textarea
             v-model="bookCommentDraft"
@@ -600,7 +611,7 @@ watch([readerTheme, readerFontSize, showComments], () => {
             placeholder="写下你对这本书的看法..."
           />
           <button class="mt-3 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white" @click="submitBookComment">
-            发表评论
+            发表书评
           </button>
 
           <div class="mt-4 max-h-[35vh] space-y-2 overflow-y-auto pr-1">

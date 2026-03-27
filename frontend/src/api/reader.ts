@@ -47,6 +47,9 @@ export interface ReaderBook {
   description: string
   progress_percent: number
   total_words: number
+  rating?: number
+  rating_count?: number
+  recent_reads?: number
 }
 
 export interface ReaderPayload {

@@ -145,6 +145,9 @@ export interface AdminCommentItem {
   highlight_id?: number | null
   author: string
   content: string
+  is_violation?: boolean
+  violation_reason?: string | null
+  moderated_at?: string | null
   created_at?: string | null
 }
 
@@ -155,6 +158,25 @@ export interface AdminCommentsResponse {
     page: number
     page_size: number
     pages: number
+  }
+}
+
+export interface AdminDashboardOverviewResponse {
+  cards: {
+    pending_manuscripts: number
+    today_new_users: number
+    violation_comments_total: number
+    today_violation_comments: number
+    today_published_books: number
+    total_users: number
+  }
+  trend: {
+    dates: string[]
+    series: Array<{
+      date: string
+      published_books: number
+      new_users: number
+    }>
   }
 }
 
@@ -237,4 +259,16 @@ export function getAdminComments(params: { page: number; page_size: number; keyw
 
 export function deleteAdminComment(commentType: AdminCommentType, commentId: number) {
   return request.delete(`/admin/comments/${commentType}/${commentId}`)
+}
+
+export function setAdminCommentViolation(
+  commentType: AdminCommentType,
+  commentId: number,
+  data: { is_violation: boolean; violation_reason?: string }
+) {
+  return request.post(`/admin/comments/${commentType}/${commentId}/violation`, data)
+}
+
+export function getAdminDashboardOverview() {
+  return request.get<AdminDashboardOverviewResponse, AdminDashboardOverviewResponse>('/admin/dashboard/overview')
 }

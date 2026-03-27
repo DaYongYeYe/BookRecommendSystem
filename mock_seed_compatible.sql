@@ -84,6 +84,63 @@ INSERT INTO book_chapters (id, book_id, title, order_no, preview_url) VALUES
   (4,3,'Chapter 1: Artificial Heartbeat',1,'/reader/3')
 ON DUPLICATE KEY UPDATE book_id=VALUES(book_id),title=VALUES(title),order_no=VALUES(order_no),preview_url=VALUES(preview_url);
 
+-- Reader content
+INSERT INTO reader_sections (id, book_id, section_key, title, summary, level, order_no, created_at) VALUES
+  (101,1,'chapter-1','第一章 抵达旧港','她在潮湿的海港小城重新落脚，也重新面对那些还没来得及解释的过去。',1,1,NOW()),
+  (102,1,'chapter-1-1','1.1 海雾中的来信','一封没有署名的信，把她带回了那段始终没能讲完的关系。',2,2,NOW()),
+  (103,1,'chapter-1-2','1.2 灯塔下的谈话','守塔人的一句话，让她第一次意识到，等待未必只是徒劳。',2,3,NOW()),
+  (104,1,'chapter-2','第二章 雨夜摘录','在深夜整理旧笔记时，她终于理解，有些答案并不是为了原谅别人，而是为了安放自己。',1,4,NOW())
+ON DUPLICATE KEY UPDATE
+  title=VALUES(title),summary=VALUES(summary),level=VALUES(level),order_no=VALUES(order_no);
+
+INSERT INTO reader_paragraphs (id, section_id, paragraph_key, text, order_no, created_at) VALUES
+  (1001,101,'p1','黄昏压低在港口上空，潮水拍打着木栈桥。她拖着行李走下最后一级台阶，空气里混着海盐、铁锈和雨前石板的气味。',1,NOW()),
+  (1002,101,'p2','旅馆老板递来钥匙，又朝远处灯塔抬了抬下巴，说今夜风会很大。她点头，却还是在门口站了几秒，像在等一个迟到了很多年的信号。',2,NOW()),
+  (1003,102,'p3','信纸边角被海风吹得卷起，字迹却比记忆里的任何一次都更安稳。上面只写着一句话：有些人要绕很远的路，才能回到最初想靠近的光。',1,NOW()),
+  (1004,102,'p4','窗外的海雾越积越厚，路灯一盏接一盏地模糊开来。她把那封信放在桌上，忽然觉得多年压住的话，也许并没有真正沉到底。',2,NOW()),
+  (1005,103,'p5','守塔人说，船不会因为灯塔沉默就停下，但只要那束光还在，迷路的人就会知道自己并不是被彻底遗忘。',1,NOW()),
+  (1006,103,'p6','风穿过栏杆，海面一片碎银般的冷意。她忽然很想把这些年没寄出的句子，都讲给潮声听，哪怕它不会回答。',2,NOW()),
+  (1007,104,'p7','夜色完全沉下去以后，雨终于落了。她重翻旧笔记，把那些曾经匆匆读过的句子一行一行抄下来，像在替过去的自己补一场迟到的停顿。',1,NOW()),
+  (1008,104,'p8','理解并不是原谅的附录，而是留给自己的那盏小灯。它未必能照亮所有回忆，却足够让人不再害怕回头。',2,NOW())
+ON DUPLICATE KEY UPDATE text=VALUES(text),order_no=VALUES(order_no);
+
+INSERT INTO reader_highlights (id, book_id, paragraph_key, start_offset, end_offset, selected_text, color, note, created_by, created_at) VALUES
+  (201,1,'p3',33,57,'有些人要绕很远的路，才能回到最初想靠近的光。','amber','这句像是整本书的情感核心，关于迟到、绕路和重新靠近。','Alice Lin',NOW()),
+  (202,1,'p5',24,53,'只要那束光还在，迷路的人就会知道自己并不是被彻底遗忘。','sky','灯塔的比喻很克制，但很有力量。','Bob Chen',NOW()),
+  (203,1,'p8',0,27,'理解并不是原谅的附录，而是留给自己的那盏小灯。','rose','这一句很温柔，像给整章收了个口。','Cindy Wu',NOW())
+ON DUPLICATE KEY UPDATE
+  paragraph_key=VALUES(paragraph_key),start_offset=VALUES(start_offset),end_offset=VALUES(end_offset),
+  selected_text=VALUES(selected_text),color=VALUES(color),note=VALUES(note),created_by=VALUES(created_by);
+
+INSERT INTO reader_highlight_comments (id, highlight_id, author, content, created_at) VALUES
+  (1,201,'Bob Chen','这句和开头的港口意象连得特别好。',NOW()),
+  (2,201,'Cindy Wu','读到这里时一下就记住了这本书。',NOW()),
+  (3,202,'Alice Lin','很适合放进阅读摘录。',NOW())
+ON DUPLICATE KEY UPDATE highlight_id=VALUES(highlight_id),author=VALUES(author),content=VALUES(content),created_at=VALUES(created_at);
+
+INSERT INTO reader_book_comments (id, book_id, author, content, created_at) VALUES
+  (1,1,'Alice Lin','节奏很稳，适合晚上安静读一会儿。',NOW()),
+  (2,1,'Bob Chen','灯塔那一节特别有画面感。',NOW()),
+  (3,1,'Cindy Wu','不是那种很吵闹的故事，但情绪会慢慢进来。',NOW())
+ON DUPLICATE KEY UPDATE book_id=VALUES(book_id),author=VALUES(author),content=VALUES(content),created_at=VALUES(created_at);
+
+INSERT INTO user_reading_progress (id, user_id, book_id, section_id, paragraph_id, scroll_percent, created_at, updated_at) VALUES
+  (1,2,1,'chapter-1-2','p5',68.50,NOW(),NOW()),
+  (2,2,3,'chapter-1','p1',22.00,NOW(),NOW()),
+  (3,3,1,'chapter-2','p7',84.00,NOW(),NOW()),
+  (4,4,6,'chapter-1','p1',31.50,NOW(),NOW())
+ON DUPLICATE KEY UPDATE
+  user_id=VALUES(user_id),book_id=VALUES(book_id),section_id=VALUES(section_id),paragraph_id=VALUES(paragraph_id),
+  scroll_percent=VALUES(scroll_percent),updated_at=NOW();
+
+INSERT INTO reader_user_preferences (id, user_id, theme, font_size, show_highlights, show_comments, updated_at) VALUES
+  (1,2,'light',20,1,1,NOW()),
+  (2,3,'dark',22,1,1,NOW()),
+  (3,4,'light',18,1,0,NOW())
+ON DUPLICATE KEY UPDATE
+  user_id=VALUES(user_id),theme=VALUES(theme),font_size=VALUES(font_size),
+  show_highlights=VALUES(show_highlights),show_comments=VALUES(show_comments),updated_at=VALUES(updated_at);
+
 -- Mood recommendations
 INSERT INTO moods (id, label, icon) VALUES
   ('healing','Seeking Healing','hugeicons:cloud-01'),

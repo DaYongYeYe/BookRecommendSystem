@@ -22,7 +22,7 @@ async function resolveEntry() {
       return
     }
   } catch (_error) {
-    // Fall back to intro page for any progress lookup failure.
+    // Fall back to the detail page when progress lookup fails.
   }
 
   router.replace(`/books/${bookId}`)
@@ -33,6 +33,6 @@ onMounted(resolveEntry)
 
 <template>
   <div class="flex min-h-screen items-center justify-center bg-stone-100">
-    <div class="rounded-3xl bg-white px-8 py-6 text-stone-600 shadow-sm">正在加载图书入口...</div>
+    <div class="rounded-3xl bg-white px-8 py-6 text-stone-600 shadow-sm">正在进入阅读入口...</div>
   </div>
 </template>

@@ -36,11 +36,23 @@
         </el-table-column>
         <el-table-column prop="author" label="作者" width="130" />
         <el-table-column prop="content" label="内容" min-width="320" show-overflow-tooltip />
+        <el-table-column label="违规" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.is_violation ? 'danger' : 'info'">{{ row.is_violation ? '已违规' : '正常' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
+            <el-button
+              link
+              :type="row.is_violation ? 'success' : 'warning'"
+              @click="onToggleViolation(row)"
+            >
+              {{ row.is_violation ? '取消违规' : '标记违规' }}
+            </el-button>
             <el-button link type="danger" @click="onDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -64,7 +76,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { AdminCommentItem, deleteAdminComment, getAdminComments } from '../../api/admin'
+import { AdminCommentItem, deleteAdminComment, getAdminComments, setAdminCommentViolation } from '../../api/admin'
 
 const comments = ref<AdminCommentItem[]>([])
 const loading = ref(false)
@@ -125,6 +137,33 @@ const onDelete = async (row: AdminCommentItem) => {
   } catch (error: any) {
     if (error !== 'cancel' && error !== 'close') {
       ElMessage.error(error?.response?.data?.error || '删除失败')
+    }
+  }
+}
+
+const onToggleViolation = async (row: AdminCommentItem) => {
+  try {
+    if (row.is_violation) {
+      await setAdminCommentViolation(row.type, row.id, { is_violation: false })
+      ElMessage.success('已取消违规标记')
+      await loadComments()
+      return
+    }
+
+    const result = await ElMessageBox.prompt('请输入违规原因（可选）', '标记违规', {
+      inputPlaceholder: '如：人身攻击、垃圾广告',
+      confirmButtonText: '确认标记',
+      cancelButtonText: '取消',
+    })
+    await setAdminCommentViolation(row.type, row.id, {
+      is_violation: true,
+      violation_reason: result.value || undefined,
+    })
+    ElMessage.success('已标记为违规')
+    await loadComments()
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.response?.data?.error || '操作失败')
     }
   }
 }

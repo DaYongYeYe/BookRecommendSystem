@@ -175,6 +175,10 @@ CREATE TABLE reader_highlight_comments (
     highlight_id INT NOT NULL,
     author VARCHAR(64) NOT NULL DEFAULT 'Current Reader',
     content TEXT NOT NULL,
+    is_violation BOOLEAN NOT NULL DEFAULT FALSE,
+    violation_reason VARCHAR(255),
+    moderated_at TIMESTAMP NULL,
+    moderated_by INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (highlight_id) REFERENCES reader_highlights(id) ON DELETE CASCADE
 );
@@ -184,6 +188,10 @@ CREATE TABLE reader_book_comments (
     book_id INT NOT NULL,
     author VARCHAR(64) NOT NULL DEFAULT 'Current Reader',
     content TEXT NOT NULL,
+    is_violation BOOLEAN NOT NULL DEFAULT FALSE,
+    violation_reason VARCHAR(255),
+    moderated_at TIMESTAMP NULL,
+    moderated_by INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
 );

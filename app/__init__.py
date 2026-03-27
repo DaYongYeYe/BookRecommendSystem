@@ -36,6 +36,12 @@ def _apply_schema_compatibility_patches(app: Flask):
             patches.append("ALTER TABLE users ADD COLUMN province VARCHAR(64) NULL")
         if 'city' not in user_columns:
             patches.append("ALTER TABLE users ADD COLUMN city VARCHAR(64) NULL")
+        if 'created_at' not in user_columns:
+            patches.append("ALTER TABLE users ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP")
+        if 'updated_at' not in user_columns:
+            patches.append(
+                "ALTER TABLE users ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+            )
 
         if 'reader_user_preferences' not in table_names:
             user_id_type = 'INT'
@@ -69,6 +75,28 @@ def _apply_schema_compatibility_patches(app: Flask):
                 patches.append("ALTER TABLE books ADD COLUMN creator_id BIGINT NULL")
             if 'published_at' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN published_at DATETIME NULL")
+
+        if 'reader_book_comments' in table_names:
+            rbc_columns = {col['name'] for col in inspector.get_columns('reader_book_comments')}
+            if 'is_violation' not in rbc_columns:
+                patches.append("ALTER TABLE reader_book_comments ADD COLUMN is_violation TINYINT(1) NOT NULL DEFAULT 0")
+            if 'violation_reason' not in rbc_columns:
+                patches.append("ALTER TABLE reader_book_comments ADD COLUMN violation_reason VARCHAR(255) NULL")
+            if 'moderated_at' not in rbc_columns:
+                patches.append("ALTER TABLE reader_book_comments ADD COLUMN moderated_at DATETIME NULL")
+            if 'moderated_by' not in rbc_columns:
+                patches.append("ALTER TABLE reader_book_comments ADD COLUMN moderated_by BIGINT NULL")
+
+        if 'reader_highlight_comments' in table_names:
+            rhc_columns = {col['name'] for col in inspector.get_columns('reader_highlight_comments')}
+            if 'is_violation' not in rhc_columns:
+                patches.append("ALTER TABLE reader_highlight_comments ADD COLUMN is_violation TINYINT(1) NOT NULL DEFAULT 0")
+            if 'violation_reason' not in rhc_columns:
+                patches.append("ALTER TABLE reader_highlight_comments ADD COLUMN violation_reason VARCHAR(255) NULL")
+            if 'moderated_at' not in rhc_columns:
+                patches.append("ALTER TABLE reader_highlight_comments ADD COLUMN moderated_at DATETIME NULL")
+            if 'moderated_by' not in rhc_columns:
+                patches.append("ALTER TABLE reader_highlight_comments ADD COLUMN moderated_by BIGINT NULL")
 
         users_id_type = 'BIGINT'
         users_id_column = next((col for col in inspector.get_columns('users') if col.get('name') == 'id'), None)

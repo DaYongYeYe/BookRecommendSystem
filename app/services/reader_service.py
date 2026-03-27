@@ -14,39 +14,154 @@ from app.models import (
 
 DEFAULT_BOOK_ID = 1
 
+DEFAULT_BOOK = {
+    'id': DEFAULT_BOOK_ID,
+    'title': '样章阅读：漫长的余生',
+    'subtitle': '在命运回声里重新找到彼此',
+    'author': '罗欣',
+    'description': (
+        '这是一部适合沉浸式阅读体验的现代文学样章，节奏克制，情绪缓慢推进。'
+        '你可以在这里体验目录跳转、进度续读、划线批注和评论互动。'
+    ),
+    'cover': 'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
+    'score': 9.4,
+    'rating': 9.1,
+    'rating_count': 12000,
+    'recent_reads': 128000,
+    'is_featured': True,
+}
+
 DEFAULT_READER_SECTIONS = [
     {
         'section_key': 'chapter-1',
         'title': '第一章 抵达旧港',
-        'summary': '旅人来到海港小城，在潮湿空气里重新辨认自己的来路。',
+        'summary': '她在潮湿的海港小城重新落脚，也重新面对那些还没来得及解释的过去。',
         'level': 1,
         'paragraphs': [
             {
                 'paragraph_key': 'p1',
-                'text': '黄昏压低在港口上空，潮水拍打着木栈桥。她拖着行李走下最后一级台阶，空气里是盐、铁锈和雨前石板的气味。'
+                'text': (
+                    '黄昏压低在港口上空，潮水拍打着木栈桥。她拖着行李走下最后一级台阶，'
+                    '空气里混着海盐、铁锈和雨前石板的气味。'
+                ),
             },
             {
                 'paragraph_key': 'p2',
-                'text': '旅馆老板递来钥匙，又指了指远处灯塔，说今晚风会很大。她点头，却仍在门口站了几秒，像在等待某个迟来的信号。'
+                'text': (
+                    '旅馆老板递来钥匙，又朝远处灯塔抬了抬下巴，说今夜风会很大。'
+                    '她点头，却还是在门口站了几秒，像在等一个迟到了很多年的信号。'
+                ),
+            },
+        ],
+    },
+    {
+        'section_key': 'chapter-1-1',
+        'title': '1.1 海雾中的来信',
+        'summary': '一封没有署名的信，把她带回了那段始终没能讲完的关系。',
+        'level': 2,
+        'paragraphs': [
+            {
+                'paragraph_key': 'p3',
+                'text': (
+                    '信纸边角被海风吹得卷起，字迹却比记忆里的任何一次都更安稳。'
+                    '上面只写着一句话：有些人要绕很远的路，才能回到最初想靠近的光。'
+                ),
+            },
+            {
+                'paragraph_key': 'p4',
+                'text': (
+                    '窗外的海雾越积越厚，路灯一盏接一盏地模糊开来。'
+                    '她把那封信放在桌上，忽然觉得多年压住的话，也许并没有真正沉到底。'
+                ),
+            },
+        ],
+    },
+    {
+        'section_key': 'chapter-1-2',
+        'title': '1.2 灯塔下的谈话',
+        'summary': '守塔人的一句话，让她第一次意识到，等待未必只是徒劳。',
+        'level': 2,
+        'paragraphs': [
+            {
+                'paragraph_key': 'p5',
+                'text': (
+                    '守塔人说，船不会因为灯塔沉默就停下，但只要那束光还在，'
+                    '迷路的人就会知道自己并不是被彻底遗忘。'
+                ),
+            },
+            {
+                'paragraph_key': 'p6',
+                'text': (
+                    '风穿过栏杆，海面一片碎银般的冷意。她忽然很想把这些年没寄出的句子，'
+                    '都讲给潮声听，哪怕它不会回答。'
+                ),
             },
         ],
     },
     {
         'section_key': 'chapter-2',
-        'title': '第二章 雨夜抄录',
-        'summary': '她在夜里整理信件和手稿，逐渐看见关系裂缝背后的善意。',
+        'title': '第二章 雨夜摘录',
+        'summary': '在深夜整理旧笔记时，她终于理解，有些答案并不是为了原谅别人，而是为了安放自己。',
         'level': 1,
         'paragraphs': [
             {
-                'paragraph_key': 'p3',
-                'text': '信纸被海风吹起细小纹路，字迹却比记忆里的任何一次都更稳。她反复读那句：有些人要绕远路，才能回到最初想靠近的光。'
+                'paragraph_key': 'p7',
+                'text': (
+                    '夜色完全沉下去以后，雨终于落了。她重翻旧笔记，把那些曾经匆匆读过的句子'
+                    '一行一行抄下来，像在替过去的自己补一场迟到的停顿。'
+                ),
             },
             {
-                'paragraph_key': 'p4',
-                'text': '夜色深下去之后，雨终于落了。她抄录那些曾被匆匆读过的句子，像把迟到的情绪一行行安放。'
+                'paragraph_key': 'p8',
+                'text': (
+                    '理解并不是原谅的附录，而是留给自己的那盏小灯。'
+                    '它未必能照亮所有回忆，却足够让人不再害怕回头。'
+                ),
             },
         ],
     },
+]
+
+DEFAULT_HIGHLIGHTS = [
+    {
+        'paragraph_key': 'p3',
+        'selected_text': '有些人要绕很远的路，才能回到最初想靠近的光。',
+        'start_offset': 33,
+        'end_offset': 57,
+        'color': 'amber',
+        'note': '这句像是整本书的情感核心，关于迟到、绕路和重新靠近。',
+        'created_by': 'Alice Lin',
+        'comments': [
+            {'author': 'Bob Chen', 'content': '这句和开头的港口意象连得特别好。'},
+            {'author': 'Cindy Wu', 'content': '读到这里时一下就记住了这本书。'},
+        ],
+    },
+    {
+        'paragraph_key': 'p5',
+        'selected_text': '只要那束光还在，迷路的人就会知道自己并不是被彻底遗忘。',
+        'start_offset': 24,
+        'end_offset': 53,
+        'color': 'sky',
+        'note': '灯塔的比喻很克制，但很有力量。',
+        'created_by': 'Bob Chen',
+        'comments': [{'author': 'Alice Lin', 'content': '很适合放进阅读摘录。'}],
+    },
+    {
+        'paragraph_key': 'p8',
+        'selected_text': '理解并不是原谅的附录，而是留给自己的那盏小灯。',
+        'start_offset': 0,
+        'end_offset': 27,
+        'color': 'rose',
+        'note': '这一句很温柔，像给整章收了个口。',
+        'created_by': 'Cindy Wu',
+        'comments': [],
+    },
+]
+
+DEFAULT_BOOK_COMMENTS = [
+    {'author': 'Alice Lin', 'content': '节奏很稳，适合晚上安静读一会儿。'},
+    {'author': 'Bob Chen', 'content': '灯塔那一节特别有画面感。'},
+    {'author': 'Cindy Wu', 'content': '不是那种很吵闹的故事，但情绪会慢慢进来。'},
 ]
 
 
@@ -58,7 +173,7 @@ def _fmt(dt):
 
 def _display_name(user):
     if not user:
-        return 'Current Reader'
+        return '当前读者'
     return (user.name or user.username or f'user-{user.id}').strip()
 
 
@@ -68,22 +183,12 @@ def ensure_seed(book_id: int):
 
     book = Book.query.get(book_id)
     if not book:
-        book = Book(
-            id=DEFAULT_BOOK_ID,
-            title='阅读样章：漫长的余生',
-            subtitle='在命运的褶皱里寻找彼此照亮的时刻',
-            author='罗新',
-            description='一部带有纪实质感的文学样章，适合展示阅读器的大纲、划线和评论交互。',
-            cover='https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
-            score=9.4,
-            rating=9.1,
-            rating_count=12000,
-            recent_reads=128000,
-            is_featured=True,
-            created_at=datetime.utcnow(),
-        )
+        book = Book(created_at=datetime.utcnow(), **DEFAULT_BOOK)
         db.session.add(book)
         db.session.flush()
+    else:
+        for key, value in DEFAULT_BOOK.items():
+            setattr(book, key, value)
 
     if ReaderSection.query.filter_by(book_id=book_id).first():
         return
@@ -110,37 +215,41 @@ def ensure_seed(book_id: int):
                 )
             )
 
-    db.session.add(
-        ReaderHighlight(
-            book_id=book_id,
-            paragraph_key='p3',
-            start_offset=18,
-            end_offset=36,
-            selected_text='有些人要绕远路，才能回到最初想靠近的光',
-            color='amber',
-            note='像是在写所有迟到但仍值得的靠近。',
-            created_by='读者 阿遥',
-        )
-    )
-    db.session.add(
-        ReaderBookComment(
-            book_id=book_id,
-            author='读者 星槎',
-            content='这个样章的节奏很舒服，适合夜里慢慢读。',
-        )
-    )
-    db.session.commit()
+    db.session.flush()
 
-    first_highlight = ReaderHighlight.query.filter_by(book_id=book_id).order_by(ReaderHighlight.id.asc()).first()
-    if first_highlight and not ReaderHighlightComment.query.filter_by(highlight_id=first_highlight.id).first():
+    for highlight_data in DEFAULT_HIGHLIGHTS:
+        highlight = ReaderHighlight(
+            book_id=book_id,
+            paragraph_key=highlight_data['paragraph_key'],
+            start_offset=highlight_data['start_offset'],
+            end_offset=highlight_data['end_offset'],
+            selected_text=highlight_data['selected_text'],
+            color=highlight_data['color'],
+            note=highlight_data['note'],
+            created_by=highlight_data['created_by'],
+        )
+        db.session.add(highlight)
+        db.session.flush()
+
+        for comment_data in highlight_data['comments']:
+            db.session.add(
+                ReaderHighlightComment(
+                    highlight_id=highlight.id,
+                    author=comment_data['author'],
+                    content=comment_data['content'],
+                )
+            )
+
+    for comment_data in DEFAULT_BOOK_COMMENTS:
         db.session.add(
-            ReaderHighlightComment(
-                highlight_id=first_highlight.id,
-                author='读者 阿遥',
-                content='这一句很适合做章节题眼，整本书的回返感都在这里。',
+            ReaderBookComment(
+                book_id=book_id,
+                author=comment_data['author'],
+                content=comment_data['content'],
             )
         )
-        db.session.commit()
+
+    db.session.commit()
 
 
 def build_reader_payload(book_id: int):
@@ -230,6 +339,9 @@ def build_reader_payload(book_id: int):
             'description': book.description or '',
             'progress_percent': 42,
             'total_words': 8620,
+            'rating': float(book.rating or 0),
+            'rating_count': int(book.rating_count or 0),
+            'recent_reads': int(book.recent_reads or 0),
         },
         'outline': payload_outline,
         'sections': payload_sections,

@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 
 import jwt
 from flask import request, jsonify, current_app
+from sqlalchemy import func, literal
+from sqlalchemy.exc import IntegrityError
 from app.admin import bp
 from app import db
 from app.models import (
@@ -21,6 +23,106 @@ from app.services.publishing_service import publish_manuscript
 from app.services.captcha import generate_captcha, verify_captcha
 
 BOOK_STATUSES = ['published', 'draft', 'archived']
+
+
+def _parse_category_id(raw_value):
+    if raw_value in (None, ''):
+        return None, None
+
+    try:
+        category_id = int(raw_value)
+    except (TypeError, ValueError):
+        return None, 'invalid category_id'
+
+    category = Category.query.get(category_id)
+    if not category:
+        return None, 'category not found'
+
+    return category_id, None
+
+
+def _utc_day_range(day):
+    start = datetime.combine(day, datetime.min.time())
+    end = start + timedelta(days=1)
+    return start, end
+
+
+@bp.route('/dashboard/overview', methods=['GET'])
+@admin_required
+def get_dashboard_overview(current_user):
+    today = datetime.utcnow().date()
+    today_start, tomorrow_start = _utc_day_range(today)
+
+    total_users = User.query.count()
+    today_new_users = User.query.filter(
+        User.created_at.isnot(None),
+        User.created_at >= today_start,
+        User.created_at < tomorrow_start,
+    ).count()
+
+    pending_manuscripts = BookManuscript.query.filter_by(status='submitted').count()
+
+    violated_book_comments = ReaderBookComment.query.filter_by(is_violation=True).count()
+    violated_highlight_comments = ReaderHighlightComment.query.filter_by(is_violation=True).count()
+    violation_comments_total = violated_book_comments + violated_highlight_comments
+
+    violated_today_book = ReaderBookComment.query.filter(
+        ReaderBookComment.is_violation.is_(True),
+        ReaderBookComment.moderated_at.isnot(None),
+        ReaderBookComment.moderated_at >= today_start,
+        ReaderBookComment.moderated_at < tomorrow_start,
+    ).count()
+    violated_today_highlight = ReaderHighlightComment.query.filter(
+        ReaderHighlightComment.is_violation.is_(True),
+        ReaderHighlightComment.moderated_at.isnot(None),
+        ReaderHighlightComment.moderated_at >= today_start,
+        ReaderHighlightComment.moderated_at < tomorrow_start,
+    ).count()
+
+    today_published_books = Book.query.filter(
+        Book.status == 'published',
+        Book.published_at.isnot(None),
+        Book.published_at >= today_start,
+        Book.published_at < tomorrow_start,
+    ).count()
+
+    trend_days = []
+    trend_series = []
+    for delta in range(13, -1, -1):
+        day = today - timedelta(days=delta)
+        start, end = _utc_day_range(day)
+        published_count = Book.query.filter(
+            Book.status == 'published',
+            Book.published_at.isnot(None),
+            Book.published_at >= start,
+            Book.published_at < end,
+        ).count()
+        new_users_count = User.query.filter(
+            User.created_at.isnot(None),
+            User.created_at >= start,
+            User.created_at < end,
+        ).count()
+        trend_days.append(day.isoformat())
+        trend_series.append({
+            'date': day.isoformat(),
+            'published_books': int(published_count),
+            'new_users': int(new_users_count),
+        })
+
+    return jsonify({
+        'cards': {
+            'pending_manuscripts': int(pending_manuscripts),
+            'today_new_users': int(today_new_users),
+            'violation_comments_total': int(violation_comments_total),
+            'today_violation_comments': int(violated_today_book + violated_today_highlight),
+            'today_published_books': int(today_published_books),
+            'total_users': int(total_users),
+        },
+        'trend': {
+            'dates': trend_days,
+            'series': trend_series,
+        },
+    }), 200
 
 
 @bp.route('/auth/register', methods=['POST'])
@@ -342,6 +444,10 @@ def create_book(current_user):
     if status not in BOOK_STATUSES:
         return jsonify({'error': 'invalid status'}), 400
 
+    category_id, category_error = _parse_category_id(data.get('category_id'))
+    if category_error:
+        return jsonify({'error': category_error}), 400
+
     book = Book(
         title=title,
         subtitle=(data.get('subtitle') or '').strip() or None,
@@ -353,7 +459,7 @@ def create_book(current_user):
         rating_count=parse_int(data.get('rating_count'), 0),
         recent_reads=parse_int(data.get('recent_reads'), 0),
         is_featured=bool(data.get('is_featured', False)),
-        category_id=parse_int(data.get('category_id'), None),
+        category_id=category_id,
         status=status,
         published_at=datetime.utcnow() if status == 'published' else None,
     )
@@ -374,12 +480,15 @@ def create_book(current_user):
         if invalid_ids:
             return jsonify({'error': f'invalid tag ids: {invalid_ids}'}), 400
 
-    db.session.add(book)
-    db.session.commit()
-    if tag_ids:
+    try:
+        db.session.add(book)
+        db.session.flush()
         for tag_id in tag_ids:
             db.session.add(BookTag(book_id=book.id, tag_id=tag_id))
         db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'error': 'failed to create book'}), 400
     return jsonify({'message': '图书创建成功', 'book': book.to_dict()}), 201
 
 
@@ -435,7 +544,10 @@ def update_book(current_user, book_id):
     if 'is_featured' in data:
         book.is_featured = bool(data.get('is_featured'))
     if 'category_id' in data:
-        book.category_id = parse_int(data.get('category_id'), keep_none=True)
+        category_id, category_error = _parse_category_id(data.get('category_id'))
+        if category_error:
+            return jsonify({'error': category_error}), 400
+        book.category_id = category_id
     if 'status' in data:
         status = (data.get('status') or '').strip().lower()
         if status not in BOOK_STATUSES:
@@ -465,7 +577,11 @@ def update_book(current_user, book_id):
         for tag_id in tag_ids:
             db.session.add(BookTag(book_id=book.id, tag_id=tag_id))
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'error': 'failed to update book'}), 400
     return jsonify({'message': '图书更新成功', 'book': book.to_dict()}), 200
 
 
@@ -531,14 +647,9 @@ def batch_update_books(current_user):
             return jsonify({'error': 'invalid status'}), 400
 
     if 'category_id' in changes:
-        raw_category_id = changes.get('category_id')
-        if raw_category_id in (None, ''):
-            parsed_category_id = None
-        else:
-            try:
-                parsed_category_id = int(raw_category_id)
-            except (TypeError, ValueError):
-                return jsonify({'error': 'invalid category_id'}), 400
+        parsed_category_id, category_error = _parse_category_id(changes.get('category_id'))
+        if category_error:
+            return jsonify({'error': category_error}), 400
 
     if 'is_featured' in changes:
         parsed_is_featured = bool(changes.get('is_featured'))
@@ -583,7 +694,11 @@ def batch_update_books(current_user):
             for tag_id in parsed_tag_ids:
                 db.session.add(BookTag(book_id=book_id, tag_id=tag_id))
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'error': 'failed to batch update books'}), 400
     return jsonify({'message': 'batch updated', 'updated_count': updated_count}), 200
 
 @bp.route('/manuscripts', methods=['GET'])
@@ -665,7 +780,19 @@ def get_comments(current_user):
     page_size = min(max(page_size, 1), 100)
 
     def _build_book_comment_query():
-        query = db.session.query(ReaderBookComment, Book.title.label('book_title')).outerjoin(
+        query = db.session.query(
+            ReaderBookComment.id.label('id'),
+            literal('book').label('type'),
+            ReaderBookComment.book_id.label('book_id'),
+            Book.title.label('book_title'),
+            literal(None).label('highlight_id'),
+            ReaderBookComment.author.label('author'),
+            ReaderBookComment.content.label('content'),
+            ReaderBookComment.is_violation.label('is_violation'),
+            ReaderBookComment.violation_reason.label('violation_reason'),
+            ReaderBookComment.moderated_at.label('moderated_at'),
+            ReaderBookComment.created_at.label('created_at'),
+        ).outerjoin(
             Book, ReaderBookComment.book_id == Book.id
         )
         if keyword:
@@ -678,9 +805,17 @@ def get_comments(current_user):
 
     def _build_highlight_comment_query():
         query = db.session.query(
-            ReaderHighlightComment,
+            ReaderHighlightComment.id.label('id'),
+            literal('highlight').label('type'),
             ReaderHighlight.book_id.label('book_id'),
-            Book.title.label('book_title')
+            Book.title.label('book_title'),
+            ReaderHighlightComment.highlight_id.label('highlight_id'),
+            ReaderHighlightComment.author.label('author'),
+            ReaderHighlightComment.content.label('content'),
+            ReaderHighlightComment.is_violation.label('is_violation'),
+            ReaderHighlightComment.violation_reason.label('violation_reason'),
+            ReaderHighlightComment.moderated_at.label('moderated_at'),
+            ReaderHighlightComment.created_at.label('created_at'),
         ).outerjoin(
             ReaderHighlight, ReaderHighlightComment.highlight_id == ReaderHighlight.id
         ).outerjoin(
@@ -694,71 +829,38 @@ def get_comments(current_user):
             )
         return query
 
+    def _serialize_comment_row(row):
+        return {
+            'id': row.id,
+            'type': row.type,
+            'book_id': row.book_id,
+            'book_title': row.book_title,
+            'highlight_id': row.highlight_id,
+            'author': row.author,
+            'content': row.content,
+            'is_violation': bool(row.is_violation),
+            'violation_reason': row.violation_reason,
+            'moderated_at': row.moderated_at.isoformat() if row.moderated_at else None,
+            'created_at': row.created_at.isoformat() if row.created_at else None,
+        }
+
     if comment_type == 'book':
-        query = _build_book_comment_query()
-        total = query.count()
-        rows = query.order_by(ReaderBookComment.created_at.desc(), ReaderBookComment.id.desc()).offset(
-            (page - 1) * page_size
-        ).limit(page_size).all()
-        items = [{
-            'id': row[0].id,
-            'type': 'book',
-            'book_id': row[0].book_id,
-            'book_title': row[1],
-            'highlight_id': None,
-            'author': row[0].author,
-            'content': row[0].content,
-            'created_at': row[0].created_at.isoformat() if row[0].created_at else None,
-        } for row in rows]
+        union_query = _build_book_comment_query()
     elif comment_type == 'highlight':
-        query = _build_highlight_comment_query()
-        total = query.count()
-        rows = query.order_by(ReaderHighlightComment.created_at.desc(), ReaderHighlightComment.id.desc()).offset(
-            (page - 1) * page_size
-        ).limit(page_size).all()
-        items = [{
-            'id': row[0].id,
-            'type': 'highlight',
-            'book_id': row[1],
-            'book_title': row[2],
-            'highlight_id': row[0].highlight_id,
-            'author': row[0].author,
-            'content': row[0].content,
-            'created_at': row[0].created_at.isoformat() if row[0].created_at else None,
-        } for row in rows]
+        union_query = _build_highlight_comment_query()
     else:
-        query_book = _build_book_comment_query()
-        rows_book = query_book.all()
-        items_book = [{
-            'id': row[0].id,
-            'type': 'book',
-            'book_id': row[0].book_id,
-            'book_title': row[1],
-            'highlight_id': None,
-            'author': row[0].author,
-            'content': row[0].content,
-            'created_at': row[0].created_at.isoformat() if row[0].created_at else None,
-        } for row in rows_book]
+        union_query = _build_book_comment_query().union_all(_build_highlight_comment_query())
 
-        query_highlight = _build_highlight_comment_query()
-        rows_highlight = query_highlight.all()
-        items_highlight = [{
-            'id': row[0].id,
-            'type': 'highlight',
-            'book_id': row[1],
-            'book_title': row[2],
-            'highlight_id': row[0].highlight_id,
-            'author': row[0].author,
-            'content': row[0].content,
-            'created_at': row[0].created_at.isoformat() if row[0].created_at else None,
-        } for row in rows_highlight]
-
-        merged = items_book + items_highlight
-        merged.sort(key=lambda item: (item.get('created_at') or '', item.get('id') or 0), reverse=True)
-        total = len(merged)
-        start = (page - 1) * page_size
-        end = start + page_size
-        items = merged[start:end]
+    query = union_query.subquery()
+    total = db.session.query(func.count()).select_from(query).scalar() or 0
+    rows = (
+        db.session.query(query)
+        .order_by(query.c.created_at.desc(), query.c.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    items = [_serialize_comment_row(row) for row in rows]
 
     return jsonify({
         'items': items,
@@ -788,3 +890,30 @@ def delete_comment(current_user, comment_type, comment_id):
     db.session.delete(comment)
     db.session.commit()
     return jsonify({'message': '评论删除成功'}), 200
+
+
+@bp.route('/comments/<string:comment_type>/<int:comment_id>/violation', methods=['POST'])
+@admin_required
+@business_log_aspect('admin.comment.violation', tags=['admin', 'comment', 'business', 'aop'])
+def mark_comment_violation(current_user, comment_type, comment_id):
+    kind = (comment_type or '').strip().lower()
+    if kind == 'book':
+        comment = ReaderBookComment.query.get(comment_id)
+    elif kind == 'highlight':
+        comment = ReaderHighlightComment.query.get(comment_id)
+    else:
+        return jsonify({'error': 'invalid comment type'}), 400
+
+    if not comment:
+        return jsonify({'error': '评论不存在'}), 404
+
+    payload = request.get_json() or {}
+    is_violation = bool(payload.get('is_violation'))
+    violation_reason = (payload.get('violation_reason') or '').strip() or None
+
+    comment.is_violation = is_violation
+    comment.violation_reason = violation_reason
+    comment.moderated_by = current_user.id
+    comment.moderated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'message': '评论违规状态已更新'}), 200
