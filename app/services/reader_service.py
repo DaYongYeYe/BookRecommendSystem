@@ -28,6 +28,8 @@ DEFAULT_BOOK = {
     'rating': 9.1,
     'rating_count': 12000,
     'recent_reads': 128000,
+    'home_recommendation_reason': '本周很多读者停在灯塔这一章，适合喜欢慢热叙事的你。',
+    'search_keywords': '治愈 海港 灯塔 慢热 情感 文学',
     'is_featured': True,
 }
 
@@ -217,6 +219,8 @@ def ensure_seed(book_id: int):
 
     db.session.flush()
 
+    tenant_id = int(getattr(book, 'tenant_id', 1) or 1)
+
     for highlight_data in DEFAULT_HIGHLIGHTS:
         highlight = ReaderHighlight(
             book_id=book_id,
@@ -237,6 +241,7 @@ def ensure_seed(book_id: int):
                     highlight_id=highlight.id,
                     author=comment_data['author'],
                     content=comment_data['content'],
+                    tenant_id=tenant_id,
                 )
             )
 
@@ -246,6 +251,7 @@ def ensure_seed(book_id: int):
                 book_id=book_id,
                 author=comment_data['author'],
                 content=comment_data['content'],
+                tenant_id=tenant_id,
             )
         )
 
@@ -407,7 +413,8 @@ def create_highlight_comment(book_id: int, highlight_id: int, payload: dict, use
     if not content:
         return None, 'content is required'
 
-    comment = ReaderHighlightComment(highlight_id=highlight.id, author=author, content=content)
+    tenant_id = int(getattr(user, 'tenant_id', 1) or 1) if user else 1
+    comment = ReaderHighlightComment(highlight_id=highlight.id, author=author, content=content, tenant_id=tenant_id)
     db.session.add(comment)
     db.session.commit()
     return {
@@ -425,7 +432,8 @@ def create_book_comment(book_id: int, payload: dict, user=None):
     if not content:
         return None, 'content is required'
 
-    comment = ReaderBookComment(book_id=book_id, author=author, content=content)
+    tenant_id = int(getattr(user, 'tenant_id', 1) or 1) if user else 1
+    comment = ReaderBookComment(book_id=book_id, author=author, content=content, tenant_id=tenant_id)
     db.session.add(comment)
     db.session.commit()
     return {

@@ -56,17 +56,18 @@ INSERT INTO tags (id, code, label) VALUES
   (4,'healing','Healing')
 ON DUPLICATE KEY UPDATE label=VALUES(label);
 
-INSERT INTO books (id, title, subtitle, author, description, cover, score, rating, rating_count, recent_reads, is_featured, category_id, created_at) VALUES
-  (1,'Reading Sample: Long Remaining Life','Find each other in fate','Luo Xin','A warm narrative suitable for reader experience.','https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',9.4,9.1,12000,128000,1,1,NOW()),
-  (2,'Night Dive Film','Silence and tide','Chen Chunguang','A reflective novel around city and loneliness.','https://images.unsplash.com/photo-1481627834876-b7833e8f5570?auto=format&fit=crop&w=900&q=80',9.1,9.0,9800,86000,0,1,NOW()),
-  (3,'Klara and the Sun','A machine and love','Kazuo Ishiguro','Stories about care, replacement and hope.','https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=900&q=80',9.0,8.9,15000,112000,0,2,NOW()),
-  (4,'Inside the Story','Details of ordinary life','Lan Xiaohuan','Small events with deep emotional waves.','https://images.unsplash.com/photo-1474932430478-367dbb6832c1?auto=format&fit=crop&w=900&q=80',8.8,8.7,7200,53000,0,1,NOW()),
-  (5,'Deep Focus','Work with calm mind','Lina Zhou','Build focus routines through practical methods.','https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&w=900&q=80',8.7,8.8,5400,41000,0,2,NOW()),
-  (6,'Archive of Rainy Night','Letters and weather','Ming Li','A collection of letters and emotional records.','https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&w=900&q=80',8.9,8.6,4600,37000,0,3,NOW())
+INSERT INTO books (id, title, subtitle, author, description, cover, score, rating, rating_count, recent_reads, home_recommendation_reason, search_keywords, is_featured, category_id, created_at) VALUES
+  (1,'样章阅读：漫长的余生','在命运回声里重新找到彼此','罗欣','这是一部适合沉浸式阅读体验的现代文学样章，节奏克制，情绪缓慢推进。','https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',9.4,9.1,12000,128000,'本周很多读者停在灯塔这一章，适合喜欢慢热叙事的你。','治愈 海港 灯塔 慢热 情感 文学',1,1,NOW()),
+  (2,'夜潜电影','沉默与潮汐之间','陈春光','一部围绕城市孤独与自我和解展开的小说。','https://images.unsplash.com/photo-1481627834876-b7833e8f5570?auto=format&fit=crop&w=900&q=80',9.1,9.0,9800,86000,'如果你喜欢海边、城市和缓慢推进的情绪线，可以从这本开始。','海边 城市 孤独 情绪 文学',0,1,NOW()),
+  (3,'克拉拉与太阳','关于机器、陪伴与希望','石黑一雄','关于照护、替代与希望的故事。','https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=900&q=80',9.0,8.9,15000,112000,'高分且讨论度稳定，适合喜欢思辨感阅读的读者。','科幻 陪伴 成长 思辨 未来',0,2,NOW()),
+  (4,'故事内部','日常细节里的回声','蓝小欢','写普通生活细部，却能带出很深的情绪波纹。','https://images.unsplash.com/photo-1474932430478-367dbb6832c1?auto=format&fit=crop&w=900&q=80',8.8,8.7,7200,53000,'适合想读一点细腻日常、又不想太费力的时候。','日常 情绪 生活 细腻 女性成长',0,1,NOW()),
+  (5,'深度专注','把注意力慢慢收回来','周莉娜','通过实用方法建立更稳定的专注节奏。','https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&w=900&q=80',8.7,8.8,5400,41000,'最近不少读者拿它做通勤阅读，节奏轻但很实用。','效率 专注 成长 方法论 工作',0,2,NOW()),
+  (6,'雨夜档案','信件、天气与未说完的话','李明','一组关于天气、信件与情感记录的文字。','https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&w=900&q=80',8.9,8.6,4600,37000,'如果你偏爱书信体和夜读氛围，这本会很容易读进去。','书信 夜读 治愈 雨夜 情感',0,3,NOW())
 ON DUPLICATE KEY UPDATE
   title=VALUES(title),subtitle=VALUES(subtitle),author=VALUES(author),description=VALUES(description),
   cover=VALUES(cover),score=VALUES(score),rating=VALUES(rating),rating_count=VALUES(rating_count),
-  recent_reads=VALUES(recent_reads),is_featured=VALUES(is_featured),category_id=VALUES(category_id);
+  recent_reads=VALUES(recent_reads),home_recommendation_reason=VALUES(home_recommendation_reason),
+  search_keywords=VALUES(search_keywords),is_featured=VALUES(is_featured),category_id=VALUES(category_id);
 
 INSERT INTO book_tags (id, book_id, tag_id) VALUES
   (1,1,1),(2,1,2),(3,1,4),

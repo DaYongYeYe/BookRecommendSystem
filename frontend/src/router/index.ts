@@ -16,10 +16,15 @@ import AdminComments from '@/views/admin/AdminComments.vue'
 import AdminBooks from '@/views/admin/AdminBooks.vue'
 import AdminUsers from '@/views/admin/AdminUsers.vue'
 import AdminManuscriptsReview from '@/views/admin/AdminManuscriptsReview.vue'
+import AdminRoles from '@/views/admin/AdminRoles.vue'
+import AdminPermissions from '@/views/admin/AdminPermissions.vue'
+import AdminRolePermissions from '@/views/admin/AdminRolePermissions.vue'
+import AdminUserRoles from '@/views/admin/AdminUserRoles.vue'
 import CreatorDashboard from '@/views/creator/CreatorDashboard.vue'
 import CreatorManuscripts from '@/views/creator/CreatorManuscripts.vue'
+import Forbidden from '@/views/Forbidden.vue'
 import { getToken } from '@/api/request'
-import { isAdminToken, isCreatorToken } from '@/utils/auth'
+import { isAdminToken, isCreatorToken, isSuperAdminToken } from '@/utils/auth'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -100,6 +105,11 @@ const routes: RouteRecordRaw[] = [
     component: AdminRegister,
   },
   {
+    path: '/403',
+    name: 'Forbidden',
+    component: Forbidden,
+  },
+  {
     path: '/manage',
     component: AdminLayout,
     meta: { requiresAdmin: true },
@@ -132,6 +142,30 @@ const routes: RouteRecordRaw[] = [
         path: 'manuscripts/review',
         name: 'AdminManuscriptsReview',
         component: AdminManuscriptsReview,
+      },
+      {
+        path: 'rbac/roles',
+        name: 'AdminRoles',
+        component: AdminRoles,
+        meta: { requiresSuperAdmin: true },
+      },
+      {
+        path: 'rbac/permissions',
+        name: 'AdminPermissions',
+        component: AdminPermissions,
+        meta: { requiresSuperAdmin: true },
+      },
+      {
+        path: 'rbac/role-permissions',
+        name: 'AdminRolePermissions',
+        component: AdminRolePermissions,
+        meta: { requiresSuperAdmin: true },
+      },
+      {
+        path: 'rbac/user-roles',
+        name: 'AdminUserRoles',
+        component: AdminUserRoles,
+        meta: { requiresSuperAdmin: true },
       },
     ],
   },
@@ -178,6 +212,28 @@ router.beforeEach((to, _from, next) => {
 
     if (!isAdminToken()) {
       next({ path: '/login' })
+      return
+    }
+  }
+
+  if (to.meta.requiresSuperAdmin) {
+    const token = getToken()
+    if (!token) {
+      next({
+        path: '/manage/login',
+        query: { redirect: to.fullPath },
+      })
+      return
+    }
+    if (!isAdminToken()) {
+      next({ path: '/login' })
+      return
+    }
+    if (!isSuperAdminToken()) {
+      next({
+        path: '/403',
+        query: { redirect: to.fullPath },
+      })
       return
     }
   }

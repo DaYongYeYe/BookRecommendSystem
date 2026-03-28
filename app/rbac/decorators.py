@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import request, jsonify, current_app
+from flask import request, jsonify, current_app, g
 from app.models import User, Role, Permission, RolePermission, UserRole
 from app.logging_utils import bind_identity, log_business_event
 import jwt
@@ -48,7 +48,19 @@ def _get_current_user():
         bind_identity(auth_state='user_not_found')
         return None, (jsonify({'error': '用户不存在'}), 404)
 
+    token_tenant_id = payload.get('tenant_id')
+    if token_tenant_id is not None:
+        try:
+            token_tenant_id = int(token_tenant_id)
+        except (TypeError, ValueError):
+            bind_identity(auth_state='invalid_payload')
+            return None, (jsonify({'error': 'Token 中租户信息非法'}), 401)
+        if int(getattr(user, 'tenant_id', 1) or 1) != token_tenant_id:
+            bind_identity(auth_state='tenant_mismatch')
+            return None, (jsonify({'error': '租户校验失败'}), 403)
+
     bind_identity(user, auth_state='authenticated')
+    g.current_tenant_id = int(getattr(user, 'tenant_id', 1) or 1)
     return user, None
 
 
@@ -151,6 +163,38 @@ def admin_required(f):
                 data={'path': request.path, 'method': request.method, 'user_id': user.id},
             )
             return jsonify({'error': '需要管理员权限'}), 403
+
+        return f(current_user=user, *args, **kwargs)
+
+    return decorated_function
+
+
+def super_admin_required(f):
+    """
+    超级管理员权限验证装饰器
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if _reject_options_preflight():
+            return '', 200
+        user, error_response = _get_current_user()
+        if error_response:
+            log_business_event(
+                current_app.logger,
+                'auth.super_admin_required_rejected',
+                tags=['auth', 'admin', 'security', 'business'],
+                data={'path': request.path, 'method': request.method},
+            )
+            return error_response
+
+        if not bool(getattr(user, 'is_super_admin', False)):
+            log_business_event(
+                current_app.logger,
+                'auth.super_admin_required_forbidden',
+                tags=['auth', 'admin', 'security', 'business'],
+                data={'path': request.path, 'method': request.method, 'user_id': user.id},
+            )
+            return jsonify({'error': '需要超级管理员权限'}), 403
 
         return f(current_user=user, *args, **kwargs)
 

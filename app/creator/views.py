@@ -69,7 +69,7 @@ def list_creator_manuscripts(current_user):
         return jsonify({'error': 'creator role required'}), 403
 
     status = (request.args.get('status') or '').strip()
-    query = BookManuscript.query.filter_by(creator_id=current_user.id)
+    query = BookManuscript.query.filter_by(creator_id=current_user.id, tenant_id=int(current_user.tenant_id or 1))
     if status:
         query = query.filter_by(status=status)
     rows = query.order_by(BookManuscript.updated_at.desc(), BookManuscript.id.desc()).all()
@@ -93,12 +93,13 @@ def create_creator_manuscript(current_user):
 
     book_id = payload.get('book_id')
     book = None
+    tenant_id = int(current_user.tenant_id or 1)
     if book_id not in (None, ''):
         try:
             book_id = int(book_id)
         except (TypeError, ValueError):
             return jsonify({'error': 'invalid book_id'}), 400
-        book = Book.query.get(book_id)
+        book = Book.query.filter_by(id=book_id, tenant_id=tenant_id).first()
         if not book:
             return jsonify({'error': 'book not found'}), 404
         if book.creator_id not in (None, current_user.id) and not current_user.is_admin():
@@ -110,6 +111,7 @@ def create_creator_manuscript(current_user):
             cover=payload.get('cover'),
             status='draft',
             creator_id=current_user.id,
+            tenant_id=tenant_id,
             created_at=datetime.utcnow(),
         )
         db.session.add(book)
@@ -123,6 +125,7 @@ def create_creator_manuscript(current_user):
         description=payload.get('description'),
         content_text=payload.get('content_text'),
         status='draft',
+        tenant_id=tenant_id,
     )
     db.session.add(manuscript)
     db.session.commit()
@@ -136,7 +139,7 @@ def update_creator_manuscript(current_user, manuscript_id: int):
     if not _is_creator(current_user):
         return jsonify({'error': 'creator role required'}), 403
 
-    manuscript = BookManuscript.query.get(manuscript_id)
+    manuscript = BookManuscript.query.filter_by(id=manuscript_id, tenant_id=int(current_user.tenant_id or 1)).first()
     if not manuscript:
         return jsonify({'error': 'manuscript not found'}), 404
     if manuscript.creator_id != current_user.id and not current_user.is_admin():
@@ -171,7 +174,7 @@ def submit_creator_manuscript(current_user, manuscript_id: int):
     if not _is_creator(current_user):
         return jsonify({'error': 'creator role required'}), 403
 
-    manuscript = BookManuscript.query.get(manuscript_id)
+    manuscript = BookManuscript.query.filter_by(id=manuscript_id, tenant_id=int(current_user.tenant_id or 1)).first()
     if not manuscript:
         return jsonify({'error': 'manuscript not found'}), 404
     if manuscript.creator_id != current_user.id and not current_user.is_admin():
@@ -211,7 +214,7 @@ def get_creator_books_analytics(current_user):
         limit = 50
 
     books = (
-        Book.query.filter_by(creator_id=current_user.id)
+        Book.query.filter_by(creator_id=current_user.id, tenant_id=int(current_user.tenant_id or 1))
         .order_by(Book.created_at.desc(), Book.id.desc())
         .limit(limit)
         .all()

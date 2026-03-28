@@ -1,26 +1,152 @@
 from datetime import date
 
 from flask import jsonify, request
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 
 from app import db
 from app.api import bp
 from app.models import (
-    UserShelf,
     Book,
-    Category,
-    Tag,
-    BookTag,
     BookRanking,
+    BookTag,
+    Category,
+    ReaderSection,
+    Tag,
+    UserReadingProgress,
+    UserShelf,
 )
-from app.rbac.decorators import login_required
+from app.rbac.decorators import login_optional, login_required
 
 
 def _message(text: str, **extra):
     payload = {'message': text}
     payload.update(extra)
     return payload
+
+
+def _book_payload(book: Book, *, recommend_reason: str | None = None, extra: dict | None = None):
+    payload = book.to_dict()
+    payload['recommend_reason'] = recommend_reason or book.home_recommendation_reason or '高分口碑推荐'
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _get_continue_reading(current_user):
+    if not current_user:
+        return None
+
+    row = (
+        db.session.query(UserReadingProgress, Book)
+        .join(Book, Book.id == UserReadingProgress.book_id)
+        .filter(
+            UserReadingProgress.user_id == current_user.id,
+            Book.status == 'published',
+        )
+        .order_by(UserReadingProgress.updated_at.desc(), UserReadingProgress.id.desc())
+        .first()
+    )
+    if not row:
+        return None
+
+    progress, book = row
+    section = None
+    if progress.section_id:
+        section = ReaderSection.query.filter_by(book_id=book.id, section_key=progress.section_id).first()
+
+    return {
+        **_book_payload(book, recommend_reason='继续上次的阅读进度'),
+        'section_id': progress.section_id,
+        'paragraph_id': progress.paragraph_id,
+        'section_title': section.title if section else None,
+        'scroll_percent': float(progress.scroll_percent or 0),
+        'updated_at': progress.updated_at.isoformat() if progress.updated_at else None,
+        'resume_url': f'/reader/{book.id}?resume=1',
+    }
+
+
+def _build_recommendation_context(current_user):
+    if not current_user:
+        return {
+            'latest_progress_book_id': None,
+            'preferred_category_id': None,
+            'preferred_tag_ids': set(),
+        }
+
+    latest_progress = (
+        UserReadingProgress.query.filter_by(user_id=current_user.id)
+        .order_by(UserReadingProgress.updated_at.desc(), UserReadingProgress.id.desc())
+        .first()
+    )
+    latest_progress_book_id = latest_progress.book_id if latest_progress else None
+
+    preferred_category_id = None
+    if latest_progress_book_id:
+        latest_book = Book.query.get(latest_progress_book_id)
+        preferred_category_id = latest_book.category_id if latest_book else None
+
+    shelf_book_ids = [row.book_id for row in UserShelf.query.filter_by(user_id=current_user.id).all()]
+    preferred_tag_ids = set()
+    if shelf_book_ids:
+        tag_rows = (
+            db.session.query(BookTag.tag_id, func.count(BookTag.id).label('cnt'))
+            .filter(BookTag.book_id.in_(shelf_book_ids))
+            .group_by(BookTag.tag_id)
+            .order_by(func.count(BookTag.id).desc(), BookTag.tag_id.asc())
+            .limit(3)
+            .all()
+        )
+        preferred_tag_ids = {int(tag_id) for tag_id, _cnt in tag_rows}
+
+    return {
+        'latest_progress_book_id': latest_progress_book_id,
+        'preferred_category_id': preferred_category_id,
+        'preferred_tag_ids': preferred_tag_ids,
+    }
+
+
+def _build_recommend_reason(book: Book, current_user=None, context: dict | None = None):
+    context = context or {}
+    preferred_category_id = context.get('preferred_category_id')
+    preferred_tag_ids = context.get('preferred_tag_ids') or set()
+
+    if current_user and preferred_category_id and book.category_id == preferred_category_id:
+        category = Category.query.get(preferred_category_id)
+        return f'延续你最近常读的“{category.name if category else "同类"}”题材'
+
+    if current_user and preferred_tag_ids:
+        matched_tag = (
+            db.session.query(Tag)
+            .join(BookTag, BookTag.tag_id == Tag.id)
+            .filter(BookTag.book_id == book.id, Tag.id.in_(preferred_tag_ids))
+            .order_by(Tag.id.asc())
+            .first()
+        )
+        if matched_tag:
+            return f'因为你最近常看“{matched_tag.label}”主题'
+
+    if book.is_featured:
+        return book.home_recommendation_reason or '本周主推，最近很多读者都在看'
+    if int(book.recent_reads or 0) >= 100000:
+        return '最近很多人在读，适合先加入你的候选书单'
+    if float(book.rating or 0) >= 9:
+        return '高分口碑稳定，适合先从这本开始'
+    return book.home_recommendation_reason or '为你挑出的高分好书'
+
+
+def _books_search_query(q: str):
+    like = f'%{q}%'
+    return Book.query.filter(
+        Book.status == 'published',
+        or_(
+            Book.title.ilike(like),
+            Book.subtitle.ilike(like),
+            Book.author.ilike(like),
+            Book.description.ilike(like),
+            Book.search_keywords.ilike(like),
+        ),
+    )
 
 
 @bp.route('/user/profile', methods=['GET'])
@@ -40,36 +166,47 @@ def api_get_unread_notifications_count(current_user):
 @bp.route('/books/search', methods=['GET'])
 def api_search_books():
     q = request.args.get('q', '').strip()
-    return jsonify(
-        {
-            'query': q,
-            'items': [
-                {
-                    'id': 1,
-                    'title': '阅读样章：漫长的余生',
-                    'author': '罗新',
-                    'cover': 'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
-                    'rating': 9.1,
-                }
-            ],
-        }
-    ), 200
+    try:
+        limit = max(1, min(int(request.args.get('limit', 8)), 20))
+    except ValueError:
+        limit = 8
+
+    if not q:
+        return jsonify({'query': q, 'items': []}), 200
+
+    books = (
+        _books_search_query(q)
+        .order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
+        .limit(limit)
+        .all()
+    )
+    items = []
+    for book in books:
+        items.append(
+            _book_payload(
+                book,
+                recommend_reason=f'搜索“{q}”命中了书名、作者或主题词',
+            )
+        )
+    return jsonify({'query': q, 'items': items}), 200
+
+
+@bp.route('/home/continue-reading', methods=['GET'])
+@login_optional
+def api_get_continue_reading(current_user):
+    return jsonify({'item': _get_continue_reading(current_user)}), 200
 
 
 @bp.route('/books/featured', methods=['GET'])
 def api_get_featured_book():
-    return jsonify(
-        {
-            'id': 1,
-            'title': '阅读样章：漫长的余生',
-            'subtitle': '在命运的褶皱里寻找互相照亮的时刻',
-            'author': '罗新',
-            'description': '一部带有纪实质感的文学样章，适合展示阅读器的交互体验。',
-            'cover': 'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
-            'score': 9.4,
-            'recent_reads': 128000,
-        }
-    ), 200
+    book = (
+        Book.query.filter_by(status='published')
+        .order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.asc())
+        .first()
+    )
+    if not book:
+        return jsonify({'error': 'book not found'}), 404
+    return jsonify(_book_payload(book, recommend_reason=book.home_recommendation_reason or '本周主推')), 200
 
 
 @bp.route('/shelf', methods=['POST'])
@@ -101,13 +238,16 @@ def api_add_to_shelf(current_user):
 
 @bp.route('/books/<int:book_id>/preview', methods=['GET'])
 def api_get_book_preview(book_id: int):
+    sections = (
+        ReaderSection.query.filter_by(book_id=book_id)
+        .order_by(ReaderSection.order_no.asc())
+        .limit(6)
+        .all()
+    )
     return jsonify(
         {
             'preview_url': f'/reader/{book_id}',
-            'chapters': [
-                {'id': 1, 'title': '第一章 抵达旧港'},
-                {'id': 2, 'title': '第二章 雨夜抄录'},
-            ],
+            'chapters': [{'id': item.id, 'title': item.title} for item in sections],
         }
     ), 200
 
@@ -117,9 +257,9 @@ def api_get_moods():
     return jsonify(
         {
             'items': [
-                {'id': 'healing', 'label': '寻求治愈', 'icon': 'hugeicons:cloud-01'},
-                {'id': 'brainstorm', 'label': '脑力风暴', 'icon': 'hugeicons:flash'},
-                {'id': 'focus', 'label': '深度专注', 'icon': 'hugeicons:target-02'},
+                {'id': 'healing', 'label': '治愈一下', 'icon': 'hugeicons:cloud-01'},
+                {'id': 'brainstorm', 'label': '脑洞打开', 'icon': 'hugeicons:flash'},
+                {'id': 'focus', 'label': '专注投入', 'icon': 'hugeicons:target-02'},
             ]
         }
     ), 200
@@ -128,37 +268,45 @@ def api_get_moods():
 @bp.route('/recommendations/by-mood', methods=['GET'])
 def api_get_recommendations_by_mood():
     mood_id = request.args.get('mood_id', 'healing')
+    books = (
+        Book.query.filter_by(status='published')
+        .order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.asc())
+        .limit(4)
+        .all()
+    )
     return jsonify(
         {
             'mood_id': mood_id,
             'books': [
-                {
-                    'id': 1,
-                    'title': '阅读样章：漫长的余生',
-                    'author': '罗新',
-                    'cover': 'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
-                    'rating': 8.9,
-                }
+                _book_payload(book, recommend_reason='按当下阅读情绪为你挑选')
+                for book in books
             ],
         }
     ), 200
 
 
 @bp.route('/recommendations/personalized', methods=['GET'])
-@login_required
+@login_optional
 def api_get_personalized_recommendations(current_user):
     try:
         limit = max(1, min(int(request.args.get('limit', 8)), 30))
     except ValueError:
         limit = 8
 
+    context = _build_recommendation_context(current_user)
+    continue_item = _get_continue_reading(current_user)
+
+    query = Book.query.filter_by(status='published')
+    if continue_item:
+        query = query.filter(Book.id != continue_item['id'])
+
     books = (
-        Book.query.filter_by(status='published')
-        .order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
+        query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
         .limit(limit)
         .all()
     )
-    return jsonify({'items': [book.to_dict() for book in books]}), 200
+    items = [_book_payload(book, recommend_reason=_build_recommend_reason(book, current_user, context)) for book in books]
+    return jsonify({'items': items}), 200
 
 
 @bp.route('/shelf/toggle', methods=['POST'])
@@ -239,12 +387,11 @@ def api_get_book_rankings():
         )
         items = []
         for ranking, book in rows:
-            payload = book.to_dict()
+            payload = _book_payload(book, recommend_reason='口碑榜稳定上榜')
             payload['rank'] = int(ranking.rank_no)
             items.append(payload)
         return jsonify({'type': rank_type, 'snapshot_date': latest_snapshot.isoformat(), 'items': items}), 200
 
-    # Fallback when no ranking snapshots are configured.
     books = (
         Book.query.filter_by(status='published')
         .order_by(Book.rating.desc(), Book.rating_count.desc(), Book.recent_reads.desc(), Book.id.desc())
@@ -253,7 +400,7 @@ def api_get_book_rankings():
     )
     items = []
     for idx, book in enumerate(books, start=1):
-        payload = book.to_dict()
+        payload = _book_payload(book, recommend_reason='口碑榜高分推荐')
         payload['rank'] = idx
         items.append(payload)
     return jsonify({'type': rank_type, 'snapshot_date': date.today().isoformat(), 'items': items}), 200
@@ -328,6 +475,8 @@ def api_get_books_by_category_or_tag():
         return jsonify({'error': 'missing category_id or tag_id'}), 400
 
     query = Book.query.filter_by(status='published')
+    category = None
+    tag = None
 
     if category_id:
         try:
@@ -335,6 +484,7 @@ def api_get_books_by_category_or_tag():
         except ValueError:
             return jsonify({'error': 'invalid category_id'}), 400
         query = query.filter(Book.category_id == category_id)
+        category = Category.query.get(category_id)
 
     if tag_id:
         try:
@@ -342,17 +492,24 @@ def api_get_books_by_category_or_tag():
         except ValueError:
             return jsonify({'error': 'invalid tag_id'}), 400
         query = query.join(BookTag, BookTag.book_id == Book.id).filter(BookTag.tag_id == tag_id)
+        tag = Tag.query.get(tag_id)
 
     books = (
         query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
         .limit(30)
         .all()
     )
+    reason = None
+    if category:
+        reason = f'因为你正在浏览“{category.name}”分类'
+    elif tag:
+        reason = f'因为你点开了“{tag.label}”标签'
+
     return jsonify(
         {
             'category_id': category_id,
             'tag_id': tag_id,
-            'items': [book.to_dict() for book in books],
+            'items': [_book_payload(book, recommend_reason=reason) for book in books],
         }
     ), 200
 
@@ -392,7 +549,7 @@ def api_get_more_recommendations():
     )
     return jsonify(
         {
-            'items': [book.to_dict() for book in books],
+            'items': [_book_payload(book) for book in books],
             'pagination': {
                 'page': page,
                 'page_size': page_size,
@@ -414,7 +571,7 @@ def api_get_highlighted_reviews():
                         'nickname': '木心追随者',
                         'avatar': 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80',
                     },
-                    'book': {'id': 1, 'title': '阅读样章：漫长的余生'},
+                    'book': {'id': 1, 'title': '样章阅读：漫长的余生'},
                     'content': '这本书像在夜色里慢慢点灯，读着读着，人就安静下来了。',
                     'likes': 1200,
                     'comments': 82,

@@ -13,6 +13,9 @@ export interface HomeBookItem {
   recent_reads?: number
   category_id?: number | null
   rank?: number
+  recommend_reason?: string | null
+  home_recommendation_reason?: string | null
+  search_keywords?: string | null
 }
 
 export interface HomeCategoryItem {
@@ -32,6 +35,15 @@ export interface HomeTagItem {
   book_count?: number
 }
 
+export interface HomeContinueReadingItem extends HomeBookItem {
+  section_id?: string | null
+  paragraph_id?: string | null
+  section_title?: string | null
+  scroll_percent?: number
+  updated_at?: string | null
+  resume_url?: string | null
+}
+
 export function getHotTags() {
   return request.get<any, { items: HomeTagItem[] }>('/api/tags/hot')
 }
@@ -44,6 +56,14 @@ export function getHomeRecommendations(limit = 8) {
   return request.get<any, { items: HomeBookItem[] }>('/api/recommendations/personalized', {
     params: { limit },
   })
+}
+
+export function getContinueReading() {
+  return request.get<any, { item: HomeContinueReadingItem | null }>('/api/home/continue-reading')
+}
+
+export function searchBooks(params: { q: string; limit?: number }) {
+  return request.get<any, { query: string; items: HomeBookItem[] }>('/api/books/search', { params })
 }
 
 export function getBooksByCategoryOrTag(params: { category_id?: number; tag_id?: number }) {

@@ -25,6 +25,14 @@ from app.services.captcha import generate_captcha, verify_captcha
 BOOK_STATUSES = ['published', 'draft', 'archived']
 
 
+def _tenant_id(user):
+    return int(getattr(user, 'tenant_id', 1) or 1)
+
+
+def _is_super_admin(user):
+    return bool(getattr(user, 'is_super_admin', False))
+
+
 def _parse_category_id(raw_value):
     if raw_value in (None, ''):
         return None, None
@@ -52,27 +60,31 @@ def _utc_day_range(day):
 def get_dashboard_overview(current_user):
     today = datetime.utcnow().date()
     today_start, tomorrow_start = _utc_day_range(today)
+    tenant_id = _tenant_id(current_user)
 
-    total_users = User.query.count()
+    total_users = User.query.filter_by(tenant_id=tenant_id).count()
     today_new_users = User.query.filter(
+        User.tenant_id == tenant_id,
         User.created_at.isnot(None),
         User.created_at >= today_start,
         User.created_at < tomorrow_start,
     ).count()
 
-    pending_manuscripts = BookManuscript.query.filter_by(status='submitted').count()
+    pending_manuscripts = BookManuscript.query.filter_by(status='submitted', tenant_id=tenant_id).count()
 
-    violated_book_comments = ReaderBookComment.query.filter_by(is_violation=True).count()
-    violated_highlight_comments = ReaderHighlightComment.query.filter_by(is_violation=True).count()
+    violated_book_comments = ReaderBookComment.query.filter_by(is_violation=True, tenant_id=tenant_id).count()
+    violated_highlight_comments = ReaderHighlightComment.query.filter_by(is_violation=True, tenant_id=tenant_id).count()
     violation_comments_total = violated_book_comments + violated_highlight_comments
 
     violated_today_book = ReaderBookComment.query.filter(
+        ReaderBookComment.tenant_id == tenant_id,
         ReaderBookComment.is_violation.is_(True),
         ReaderBookComment.moderated_at.isnot(None),
         ReaderBookComment.moderated_at >= today_start,
         ReaderBookComment.moderated_at < tomorrow_start,
     ).count()
     violated_today_highlight = ReaderHighlightComment.query.filter(
+        ReaderHighlightComment.tenant_id == tenant_id,
         ReaderHighlightComment.is_violation.is_(True),
         ReaderHighlightComment.moderated_at.isnot(None),
         ReaderHighlightComment.moderated_at >= today_start,
@@ -80,6 +92,7 @@ def get_dashboard_overview(current_user):
     ).count()
 
     today_published_books = Book.query.filter(
+        Book.tenant_id == tenant_id,
         Book.status == 'published',
         Book.published_at.isnot(None),
         Book.published_at >= today_start,
@@ -92,12 +105,14 @@ def get_dashboard_overview(current_user):
         day = today - timedelta(days=delta)
         start, end = _utc_day_range(day)
         published_count = Book.query.filter(
+            Book.tenant_id == tenant_id,
             Book.status == 'published',
             Book.published_at.isnot(None),
             Book.published_at >= start,
             Book.published_at < end,
         ).count()
         new_users_count = User.query.filter(
+            User.tenant_id == tenant_id,
             User.created_at.isnot(None),
             User.created_at >= start,
             User.created_at < end,
@@ -149,12 +164,22 @@ def admin_register():
     if register_code != expected_code:
         return jsonify({'error': '管理员注册码错误'}), 403
 
-    if User.query.filter_by(username=username).first():
+    tenant_id = int(current_app.config.get('DEFAULT_TENANT_ID', 1) or 1)
+
+    if User.query.filter_by(username=username, tenant_id=tenant_id).first():
         return jsonify({'error': '用户名已存在'}), 400
-    if User.query.filter_by(email=email).first():
+    if User.query.filter_by(email=email, tenant_id=tenant_id).first():
         return jsonify({'error': '邮箱已被注册'}), 400
 
-    user = User(username=username, name=username, email=email, role='admin')
+    has_super_admin = User.query.filter_by(tenant_id=tenant_id, is_super_admin=True).first() is not None
+    user = User(
+        username=username,
+        name=username,
+        email=email,
+        role='admin',
+        tenant_id=tenant_id,
+        is_super_admin=(not has_super_admin),
+    )
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
@@ -182,7 +207,8 @@ def admin_login():
     if not verify_captcha(captcha_id, captcha_code):
         return jsonify({'error': '验证码错误或已过期'}), 400
 
-    user = User.query.filter_by(username=username).first()
+    tenant_id = int(current_app.config.get('DEFAULT_TENANT_ID', 1) or 1)
+    user = User.query.filter_by(username=username, tenant_id=tenant_id).first()
     if not user or not user.check_password(password):
         return jsonify({'error': '用户名或密码错误'}), 401
     if not user.is_admin():
@@ -194,6 +220,8 @@ def admin_login():
         'username': user.username,
         'role': user.role,
         'is_admin': True,
+        'is_super_admin': bool(user.is_super_admin),
+        'tenant_id': int(user.tenant_id or tenant_id),
         'exp': datetime.utcnow() + expires_delta
     }
     token = jwt.encode(
@@ -212,6 +240,7 @@ def admin_login():
 @bp.route('/users', methods=['GET'])
 @admin_required
 def get_users(current_user):
+    tenant_id = _tenant_id(current_user)
     keyword = (request.args.get('keyword') or '').strip()
     try:
         page = max(int(request.args.get('page', 1)), 1)
@@ -223,7 +252,7 @@ def get_users(current_user):
         page_size = 10
     page_size = min(max(page_size, 1), 100)
 
-    query = User.query
+    query = User.query.filter_by(tenant_id=tenant_id)
     if keyword:
         query = query.filter(
             (User.username.like(f'%{keyword}%')) |
@@ -247,24 +276,35 @@ def get_users(current_user):
 @admin_required
 @business_log_aspect('admin.user.create', tags=['admin', 'user', 'business', 'aop'])
 def create_user(current_user):
+    tenant_id = _tenant_id(current_user)
     data = request.get_json() or {}
 
     username = (data.get('username') or '').strip()
     email = (data.get('email') or '').strip()
     password = data.get('password') or ''
     role = (data.get('role') or 'user').strip()
+    is_super_admin = bool(data.get('is_super_admin', False))
 
     if not username or not email or not password:
         return jsonify({'error': '用户名、邮箱和密码是必需的'}), 400
     if role not in ['user', 'admin', 'creator', 'editor']:
         return jsonify({'error': '角色必须是"user"或"admin"'}), 400
+    if is_super_admin and not _is_super_admin(current_user):
+        return jsonify({'error': '仅超级管理员可以创建超级管理员'}), 403
 
-    if User.query.filter_by(username=username).first():
+    if User.query.filter_by(username=username, tenant_id=tenant_id).first():
         return jsonify({'error': '用户名已存在'}), 400
-    if User.query.filter_by(email=email).first():
+    if User.query.filter_by(email=email, tenant_id=tenant_id).first():
         return jsonify({'error': '邮箱已被注册'}), 400
 
-    user = User(username=username, name=username, email=email, role=role)
+    user = User(
+        username=username,
+        name=username,
+        email=email,
+        role=role,
+        tenant_id=tenant_id,
+        is_super_admin=is_super_admin and role == 'admin',
+    )
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
@@ -274,7 +314,7 @@ def create_user(current_user):
 @bp.route('/users/<int:user_id>', methods=['GET'])
 @admin_required
 def get_user(current_user, user_id):
-    user = User.query.get(user_id)
+    user = User.query.filter_by(id=user_id, tenant_id=_tenant_id(current_user)).first()
     if not user:
         return jsonify({'error': '用户不存在'}), 404
     
@@ -284,7 +324,8 @@ def get_user(current_user, user_id):
 @admin_required
 @business_log_aspect('admin.user.update', tags=['admin', 'user', 'business', 'aop'])
 def update_user(current_user, user_id):
-    user = User.query.get(user_id)
+    tenant_id = _tenant_id(current_user)
+    user = User.query.filter_by(id=user_id, tenant_id=tenant_id).first()
     if not user:
         return jsonify({'error': '用户不存在'}), 404
     
@@ -295,14 +336,14 @@ def update_user(current_user, user_id):
     # 更新用户信息
     if 'username' in data:
         # 检查用户名是否已被其他用户使用
-        existing_user = User.query.filter_by(username=data['username']).first()
+        existing_user = User.query.filter_by(username=data['username'], tenant_id=tenant_id).first()
         if existing_user and existing_user.id != user.id:
             return jsonify({'error': '用户名已被其他用户使用'}), 400
         user.username = data['username']
     
     if 'email' in data:
         # 检查邮箱是否已被其他用户使用
-        existing_user = User.query.filter_by(email=data['email']).first()
+        existing_user = User.query.filter_by(email=data['email'], tenant_id=tenant_id).first()
         if existing_user and existing_user.id != user.id:
             return jsonify({'error': '邮箱已被其他用户使用'}), 400
         user.email = data['email']
@@ -310,8 +351,14 @@ def update_user(current_user, user_id):
     if 'role' in data:
         if data['role'] in ['user', 'admin', 'creator', 'editor']:
             user.role = data['role']
+            if user.role != 'admin':
+                user.is_super_admin = False
         else:
             return jsonify({'error': '角色必须是"user"或"admin"'}), 400
+    if 'is_super_admin' in data:
+        if not _is_super_admin(current_user):
+            return jsonify({'error': '仅超级管理员可以修改超级管理员标记'}), 403
+        user.is_super_admin = bool(data.get('is_super_admin')) and user.role == 'admin'
     
     db.session.commit()
     
@@ -321,13 +368,15 @@ def update_user(current_user, user_id):
 @admin_required
 @business_log_aspect('admin.user.delete', tags=['admin', 'user', 'business', 'aop'])
 def delete_user(current_user, user_id):
-    user = User.query.get(user_id)
+    user = User.query.filter_by(id=user_id, tenant_id=_tenant_id(current_user)).first()
     if not user:
         return jsonify({'error': '用户不存在'}), 404
     
     # 不允许用户删除自己
     if user.id == current_user.id:
         return jsonify({'error': '不能删除自己的账户'}), 400
+    if user.is_super_admin and not _is_super_admin(current_user):
+        return jsonify({'error': '仅超级管理员可以删除超级管理员'}), 403
     
     db.session.delete(user)
     db.session.commit()
@@ -339,7 +388,7 @@ def delete_user(current_user, user_id):
 @admin_required
 @business_log_aspect('admin.user.reset_password', tags=['admin', 'user', 'security', 'business', 'aop'])
 def reset_user_password(current_user, user_id):
-    user = User.query.get(user_id)
+    user = User.query.filter_by(id=user_id, tenant_id=_tenant_id(current_user)).first()
     if not user:
         return jsonify({'error': '用户不存在'}), 404
 
@@ -357,6 +406,7 @@ def reset_user_password(current_user, user_id):
 @bp.route('/books', methods=['GET'])
 @admin_required
 def get_books(current_user):
+    tenant_id = _tenant_id(current_user)
     keyword = (request.args.get('keyword') or '').strip()
     try:
         page = max(int(request.args.get('page', 1)), 1)
@@ -368,7 +418,7 @@ def get_books(current_user):
         page_size = 10
     page_size = min(max(page_size, 1), 100)
 
-    query = Book.query
+    query = Book.query.filter_by(tenant_id=tenant_id)
     if keyword:
         query = query.filter(
             (Book.title.like(f'%{keyword}%')) |
@@ -419,6 +469,7 @@ def get_books(current_user):
 @admin_required
 @business_log_aspect('admin.book.create', tags=['admin', 'book', 'business', 'aop'])
 def create_book(current_user):
+    tenant_id = _tenant_id(current_user)
     data = request.get_json() or {}
     title = (data.get('title') or '').strip()
     if not title:
@@ -461,6 +512,7 @@ def create_book(current_user):
         is_featured=bool(data.get('is_featured', False)),
         category_id=category_id,
         status=status,
+        tenant_id=tenant_id,
         published_at=datetime.utcnow() if status == 'published' else None,
     )
 
@@ -496,7 +548,7 @@ def create_book(current_user):
 @admin_required
 @business_log_aspect('admin.book.update', tags=['admin', 'book', 'business', 'aop'])
 def update_book(current_user, book_id):
-    book = Book.query.get(book_id)
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user)).first()
     if not book:
         return jsonify({'error': '图书不存在'}), 404
 
@@ -589,7 +641,7 @@ def update_book(current_user, book_id):
 @admin_required
 @business_log_aspect('admin.book.delete', tags=['admin', 'book', 'business', 'aop'])
 def delete_book(current_user, book_id):
-    book = Book.query.get(book_id)
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user)).first()
     if not book:
         return jsonify({'error': '图书不存在'}), 404
     db.session.delete(book)
@@ -613,6 +665,7 @@ def get_book_options(current_user):
 @admin_required
 @business_log_aspect('admin.book.batch_update', tags=['admin', 'book', 'business', 'aop'])
 def batch_update_books(current_user):
+    tenant_id = _tenant_id(current_user)
     payload = request.get_json() or {}
     raw_book_ids = payload.get('book_ids')
     changes = payload.get('changes') or {}
@@ -630,7 +683,7 @@ def batch_update_books(current_user):
             return jsonify({'error': 'invalid book_ids'}), 400
     book_ids = list(set(book_ids))
 
-    books = Book.query.filter(Book.id.in_(book_ids)).all()
+    books = Book.query.filter(Book.tenant_id == tenant_id, Book.id.in_(book_ids)).all()
     found_ids = {item.id for item in books}
     missing_ids = [item for item in book_ids if item not in found_ids]
     if missing_ids:
@@ -704,10 +757,11 @@ def batch_update_books(current_user):
 @bp.route('/manuscripts', methods=['GET'])
 @admin_required
 def get_manuscripts(current_user):
+    tenant_id = _tenant_id(current_user)
     status = (request.args.get('status') or '').strip()
     creator_id = request.args.get('creator_id')
 
-    query = BookManuscript.query
+    query = BookManuscript.query.filter_by(tenant_id=tenant_id)
     if status:
         query = query.filter_by(status=status)
     if creator_id not in (None, ''):
@@ -724,7 +778,7 @@ def get_manuscripts(current_user):
 @admin_required
 @business_log_aspect('admin.manuscript.review', tags=['admin', 'manuscript', 'review', 'business', 'aop'])
 def review_manuscript(current_user, manuscript_id):
-    manuscript = BookManuscript.query.get(manuscript_id)
+    manuscript = BookManuscript.query.filter_by(id=manuscript_id, tenant_id=_tenant_id(current_user)).first()
     if not manuscript:
         return jsonify({'error': 'manuscript not found'}), 404
 
@@ -748,7 +802,7 @@ def review_manuscript(current_user, manuscript_id):
 @admin_required
 @business_log_aspect('admin.manuscript.publish', tags=['admin', 'manuscript', 'publish', 'business', 'aop'])
 def publish_reviewed_manuscript(current_user, manuscript_id):
-    manuscript = BookManuscript.query.get(manuscript_id)
+    manuscript = BookManuscript.query.filter_by(id=manuscript_id, tenant_id=_tenant_id(current_user)).first()
     if not manuscript:
         return jsonify({'error': 'manuscript not found'}), 404
 
@@ -767,6 +821,7 @@ def publish_reviewed_manuscript(current_user, manuscript_id):
 @bp.route('/comments', methods=['GET'])
 @admin_required
 def get_comments(current_user):
+    tenant_id = _tenant_id(current_user)
     comment_type = (request.args.get('type') or '').strip().lower()
     keyword = (request.args.get('keyword') or '').strip()
     try:
@@ -795,6 +850,7 @@ def get_comments(current_user):
         ).outerjoin(
             Book, ReaderBookComment.book_id == Book.id
         )
+        query = query.filter(ReaderBookComment.tenant_id == tenant_id)
         if keyword:
             query = query.filter(
                 (ReaderBookComment.content.like(f'%{keyword}%')) |
@@ -821,6 +877,7 @@ def get_comments(current_user):
         ).outerjoin(
             Book, ReaderHighlight.book_id == Book.id
         )
+        query = query.filter(ReaderHighlightComment.tenant_id == tenant_id)
         if keyword:
             query = query.filter(
                 (ReaderHighlightComment.content.like(f'%{keyword}%')) |
@@ -878,9 +935,9 @@ def get_comments(current_user):
 def delete_comment(current_user, comment_type, comment_id):
     kind = (comment_type or '').strip().lower()
     if kind == 'book':
-        comment = ReaderBookComment.query.get(comment_id)
+        comment = ReaderBookComment.query.filter_by(id=comment_id, tenant_id=_tenant_id(current_user)).first()
     elif kind == 'highlight':
-        comment = ReaderHighlightComment.query.get(comment_id)
+        comment = ReaderHighlightComment.query.filter_by(id=comment_id, tenant_id=_tenant_id(current_user)).first()
     else:
         return jsonify({'error': 'invalid comment type'}), 400
 
@@ -898,9 +955,9 @@ def delete_comment(current_user, comment_type, comment_id):
 def mark_comment_violation(current_user, comment_type, comment_id):
     kind = (comment_type or '').strip().lower()
     if kind == 'book':
-        comment = ReaderBookComment.query.get(comment_id)
+        comment = ReaderBookComment.query.filter_by(id=comment_id, tenant_id=_tenant_id(current_user)).first()
     elif kind == 'highlight':
-        comment = ReaderHighlightComment.query.get(comment_id)
+        comment = ReaderHighlightComment.query.filter_by(id=comment_id, tenant_id=_tenant_id(current_user)).first()
     else:
         return jsonify({'error': 'invalid comment type'}), 400
 

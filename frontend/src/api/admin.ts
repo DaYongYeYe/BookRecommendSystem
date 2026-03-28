@@ -31,12 +31,14 @@ export interface AdminCreateUserPayload {
   email: string
   password: string
   role: 'user' | 'admin' | 'creator' | 'editor'
+  is_super_admin?: boolean
 }
 
 export interface AdminUpdateUserPayload {
   username?: string
   email?: string
   role?: 'user' | 'admin' | 'creator' | 'editor'
+  is_super_admin?: boolean
 }
 
 export interface AdminUsersResponse {
@@ -45,6 +47,8 @@ export interface AdminUsersResponse {
     username: string
     email: string
     role: 'user' | 'admin' | 'creator' | 'editor'
+    is_super_admin?: boolean
+    tenant_id?: number
   }>
   pagination?: {
     total: number

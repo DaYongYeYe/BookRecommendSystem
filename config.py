@@ -20,6 +20,7 @@ class Config:
     CAPTCHA_EXPIRES_IN = int(os.environ.get('CAPTCHA_EXPIRES_IN', 300))  # 单位：秒，默认5分钟
     # 管理员注册码（为空时禁止管理员自行注册）
     ADMIN_REGISTER_CODE = os.environ.get('ADMIN_REGISTER_CODE', '')
+    DEFAULT_TENANT_ID = int(os.environ.get('DEFAULT_TENANT_ID', 1))
     UPLOAD_DIR = os.environ.get('UPLOAD_DIR') or os.path.join('instance', 'uploads')
     COVER_UPLOAD_SUBDIR = os.environ.get('COVER_UPLOAD_SUBDIR', 'book_covers')
     MAX_COVER_UPLOAD_SIZE = int(os.environ.get('MAX_COVER_UPLOAD_SIZE', 5 * 1024 * 1024))

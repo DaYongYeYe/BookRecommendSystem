@@ -22,6 +22,8 @@ CREATE TABLE users (
     city VARCHAR(64),
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'user',
+    is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    tenant_id INT NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -64,6 +66,7 @@ CREATE TABLE user_roles (
 CREATE TABLE books (
     id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
+    subtitle VARCHAR(255),
     author VARCHAR(255) NOT NULL,
     isbn VARCHAR(20) UNIQUE,
     publication_date DATE,
@@ -71,6 +74,17 @@ CREATE TABLE books (
     genre VARCHAR(100),
     description TEXT,
     cover_image_url VARCHAR(500),
+    cover VARCHAR(500),
+    score DECIMAL(3,1) DEFAULT NULL,
+    recent_reads BIGINT DEFAULT 0,
+    home_recommendation_reason VARCHAR(255),
+    search_keywords VARCHAR(255),
+    is_featured TINYINT(1) NOT NULL DEFAULT 0,
+    category_id INT DEFAULT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'published',
+    creator_id INT DEFAULT NULL,
+    tenant_id INT NOT NULL DEFAULT 1,
+    published_at DATETIME DEFAULT NULL,
     average_rating DECIMAL(3,2) DEFAULT 0.00,
     rating_count INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -179,6 +193,7 @@ CREATE TABLE reader_highlight_comments (
     violation_reason VARCHAR(255),
     moderated_at TIMESTAMP NULL,
     moderated_by INT NULL,
+    tenant_id INT NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (highlight_id) REFERENCES reader_highlights(id) ON DELETE CASCADE
 );
@@ -192,6 +207,7 @@ CREATE TABLE reader_book_comments (
     violation_reason VARCHAR(255),
     moderated_at TIMESTAMP NULL,
     moderated_by INT NULL,
+    tenant_id INT NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
 );
@@ -262,9 +278,17 @@ GRANT ALL PRIVILEGES ON book_recommend_db.* TO 'book_user'@'%';
 FLUSH PRIVILEGES;
 
 -- Draft / Review / Publish workflow
-ALTER TABLE books ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'published';
-ALTER TABLE books ADD COLUMN creator_id INT DEFAULT NULL;
-ALTER TABLE books ADD COLUMN published_at DATETIME DEFAULT NULL;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'published';
+ALTER TABLE books ADD COLUMN IF NOT EXISTS creator_id INT DEFAULT NULL;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS published_at DATETIME DEFAULT NULL;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS subtitle VARCHAR(255) DEFAULT NULL;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS cover VARCHAR(500) DEFAULT NULL;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS score DECIMAL(3,1) DEFAULT NULL;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS recent_reads BIGINT DEFAULT 0;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS home_recommendation_reason VARCHAR(255) DEFAULT NULL;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS search_keywords VARCHAR(255) DEFAULT NULL;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS is_featured TINYINT(1) NOT NULL DEFAULT 0;
+ALTER TABLE books ADD COLUMN IF NOT EXISTS category_id INT DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS book_manuscripts (
     id INT AUTO_INCREMENT PRIMARY KEY,

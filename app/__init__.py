@@ -36,6 +36,10 @@ def _apply_schema_compatibility_patches(app: Flask):
             patches.append("ALTER TABLE users ADD COLUMN province VARCHAR(64) NULL")
         if 'city' not in user_columns:
             patches.append("ALTER TABLE users ADD COLUMN city VARCHAR(64) NULL")
+        if 'is_super_admin' not in user_columns:
+            patches.append("ALTER TABLE users ADD COLUMN is_super_admin TINYINT(1) NOT NULL DEFAULT 0")
+        if 'tenant_id' not in user_columns:
+            patches.append("ALTER TABLE users ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
         if 'created_at' not in user_columns:
             patches.append("ALTER TABLE users ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP")
         if 'updated_at' not in user_columns:
@@ -69,12 +73,30 @@ def _apply_schema_compatibility_patches(app: Flask):
 
         if 'books' in table_names:
             book_columns = {col['name'] for col in inspector.get_columns('books')}
+            if 'score' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN score DOUBLE NULL")
+            if 'rating' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN rating DOUBLE NULL")
+            if 'rating_count' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN rating_count BIGINT NOT NULL DEFAULT 0")
+            if 'recent_reads' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN recent_reads BIGINT NOT NULL DEFAULT 0")
+            if 'home_recommendation_reason' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN home_recommendation_reason VARCHAR(255) NULL")
+            if 'search_keywords' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN search_keywords VARCHAR(255) NULL")
+            if 'is_featured' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN is_featured TINYINT(1) NOT NULL DEFAULT 0")
+            if 'category_id' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN category_id INT NULL")
             if 'status' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'published'")
             if 'creator_id' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN creator_id BIGINT NULL")
             if 'published_at' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN published_at DATETIME NULL")
+            if 'tenant_id' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
 
         if 'reader_book_comments' in table_names:
             rbc_columns = {col['name'] for col in inspector.get_columns('reader_book_comments')}
@@ -86,6 +108,8 @@ def _apply_schema_compatibility_patches(app: Flask):
                 patches.append("ALTER TABLE reader_book_comments ADD COLUMN moderated_at DATETIME NULL")
             if 'moderated_by' not in rbc_columns:
                 patches.append("ALTER TABLE reader_book_comments ADD COLUMN moderated_by BIGINT NULL")
+            if 'tenant_id' not in rbc_columns:
+                patches.append("ALTER TABLE reader_book_comments ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
 
         if 'reader_highlight_comments' in table_names:
             rhc_columns = {col['name'] for col in inspector.get_columns('reader_highlight_comments')}
@@ -97,6 +121,8 @@ def _apply_schema_compatibility_patches(app: Flask):
                 patches.append("ALTER TABLE reader_highlight_comments ADD COLUMN moderated_at DATETIME NULL")
             if 'moderated_by' not in rhc_columns:
                 patches.append("ALTER TABLE reader_highlight_comments ADD COLUMN moderated_by BIGINT NULL")
+            if 'tenant_id' not in rhc_columns:
+                patches.append("ALTER TABLE reader_highlight_comments ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
 
         users_id_type = 'BIGINT'
         users_id_column = next((col for col in inspector.get_columns('users') if col.get('name') == 'id'), None)
@@ -134,6 +160,7 @@ def _apply_schema_compatibility_patches(app: Flask):
                     reviewed_at DATETIME NULL,
                     reviewed_by {users_id_type} NULL,
                     published_at DATETIME NULL,
+                    tenant_id INT NOT NULL DEFAULT 1,
                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     KEY idx_book_manuscripts_book (book_id),
@@ -141,6 +168,10 @@ def _apply_schema_compatibility_patches(app: Flask):
                 )
                 """
             )
+        else:
+            manuscript_columns = {col['name'] for col in inspector.get_columns('book_manuscripts')}
+            if 'tenant_id' not in manuscript_columns:
+                patches.append("ALTER TABLE book_manuscripts ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
 
         if 'book_versions' not in table_names:
             patches.append(
@@ -252,6 +283,26 @@ def _apply_schema_compatibility_patches(app: Flask):
         if applied:
             db.session.commit()
             app.logger.info("Applied schema compatibility patches: %s", ", ".join(applied))
+
+        # Safety bootstrap: ensure at least one super admin exists for default tenant.
+        try:
+            super_admin_count = db.session.execute(
+                text("SELECT COUNT(1) AS c FROM users WHERE role='admin' AND is_super_admin=1")
+            ).scalar() or 0
+            if super_admin_count == 0:
+                first_admin_id = db.session.execute(
+                    text("SELECT id FROM users WHERE role='admin' ORDER BY id ASC LIMIT 1")
+                ).scalar()
+                if first_admin_id:
+                    db.session.execute(
+                        text("UPDATE users SET is_super_admin=1 WHERE id=:uid"),
+                        {'uid': int(first_admin_id)},
+                    )
+                    db.session.commit()
+                    app.logger.info("Promoted first admin user to super admin: user_id=%s", first_admin_id)
+        except Exception as exc:
+            db.session.rollback()
+            app.logger.warning("Skip super admin bootstrap due to error: %s", exc)
 
 
 def create_app(config_class=Config):

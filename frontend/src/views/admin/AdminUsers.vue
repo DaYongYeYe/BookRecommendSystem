@@ -19,6 +19,12 @@
             <el-tag :type="roleTagType(row.role)">{{ row.role }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="超级管理员" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.is_super_admin ? 'danger' : 'info'">{{ row.is_super_admin ? '是' : '否' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="tenant_id" label="租户" width="90" />
         <el-table-column label="操作" width="300">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
@@ -54,6 +60,9 @@
             <el-option label="编辑" value="editor" />
           </el-select>
         </el-form-item>
+        <el-form-item label="超级管理员">
+          <el-switch v-model="createForm.is_super_admin" :disabled="!canManageSuperAdmin || createForm.role !== 'admin'" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
@@ -72,6 +81,9 @@
             <el-option label="创作者" value="creator" />
             <el-option label="编辑" value="editor" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="超级管理员">
+          <el-switch v-model="editForm.is_super_admin" :disabled="!canManageSuperAdmin || editForm.role !== 'admin'" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -104,6 +116,7 @@ import {
   resetAdminUserPassword,
   updateAdminUser,
 } from '../../api/admin'
+import { isSuperAdminToken } from '../../utils/auth'
 
 type UserRole = 'user' | 'admin' | 'creator' | 'editor'
 
@@ -112,7 +125,10 @@ type UserItem = {
   username: string
   email: string
   role: UserRole
+  is_super_admin?: boolean
+  tenant_id?: number
 }
+const canManageSuperAdmin = isSuperAdminToken()
 
 const users = ref<UserItem[]>([])
 const loading = ref(false)
@@ -129,6 +145,7 @@ const createForm = reactive({
   email: '',
   password: '',
   role: 'user' as UserRole,
+  is_super_admin: false,
 })
 const createRules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -148,6 +165,7 @@ const editForm = reactive({
   username: '',
   email: '',
   role: 'user' as UserRole,
+  is_super_admin: false,
 })
 const editRules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -209,6 +227,7 @@ const openCreateDialog = () => {
   createForm.email = ''
   createForm.password = ''
   createForm.role = 'user'
+  createForm.is_super_admin = false
   createDialogVisible.value = true
 }
 
@@ -235,6 +254,7 @@ const openEditDialog = (row: UserItem) => {
   editForm.username = row.username
   editForm.email = row.email
   editForm.role = row.role
+  editForm.is_super_admin = !!row.is_super_admin
   editDialogVisible.value = true
 }
 
@@ -249,6 +269,7 @@ const onEdit = async () => {
         username: editForm.username,
         email: editForm.email,
         role: editForm.role,
+        is_super_admin: editForm.role === 'admin' ? !!editForm.is_super_admin : false,
       })
       ElMessage.success('用户更新成功')
       editDialogVisible.value = false

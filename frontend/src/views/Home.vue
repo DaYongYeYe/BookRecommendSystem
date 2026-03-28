@@ -7,12 +7,15 @@ import { getUserProfile, type UserProfile } from '@/api/user'
 import {
   getBookRankings,
   getBooksByCategoryOrTag,
+  getContinueReading,
   getHighlightedCategories,
   getHomeRecommendations,
   getHotTags,
   getMoreRecommendations,
+  searchBooks,
   type HomeBookItem,
   type HomeCategoryItem,
+  type HomeContinueReadingItem,
   type HomeTagItem,
 } from '@/api/home'
 
@@ -25,14 +28,23 @@ const books = ref<HomeBookItem[]>([])
 const categories = ref<HomeCategoryItem[]>([])
 const tags = ref<HomeTagItem[]>([])
 const rankingBooks = ref<HomeBookItem[]>([])
+const continueReading = ref<HomeContinueReadingItem | null>(null)
 const activeCategoryId = ref<number | null>(null)
 const activeTagId = ref<number | null>(null)
 const loadingBooks = ref(false)
+const searchKeyword = ref('')
+const searchResults = ref<HomeBookItem[]>([])
+const searching = ref(false)
 
-const heroBook = computed(() => rankingBooks.value[0] || books.value[0] || null)
+const heroBook = computed(() => continueReading.value || rankingBooks.value[0] || books.value[0] || null)
+const hasSearchKeyword = computed(() => searchKeyword.value.trim().length > 0)
 
 function goBook(bookId: number) {
   router.push(`/books/${bookId}`)
+}
+
+function goReader(bookId: number) {
+  router.push({ path: `/reader/${bookId}`, query: { resume: '1' } })
 }
 
 function goProfile() {
@@ -54,6 +66,10 @@ function formatReads(value?: number) {
     return `${(num / 10000).toFixed(1)} 万人在读`
   }
   return `${num} 人在读`
+}
+
+function formatPercent(value?: number) {
+  return `${Math.round(Number(value || 0))}%`
 }
 
 async function loadHomeBooks() {
@@ -84,18 +100,48 @@ async function loadHomeBooks() {
 
 async function loadHomeData() {
   try {
-    const [tagsRes, categoriesRes, rankingRes] = await Promise.all([
+    const tasks = [
       getHotTags(),
       getHighlightedCategories(),
       getBookRankings({ type: 'high_score', limit: 4 }),
-    ])
+      getContinueReading(),
+    ]
+    const [tagsRes, categoriesRes, rankingRes, continueRes] = await Promise.all(tasks)
     tags.value = tagsRes.items || []
     categories.value = categoriesRes.items || []
     rankingBooks.value = rankingRes.items || []
+    continueReading.value = continueRes.item || null
   } catch (_error) {
-    ElMessage.warning('首页推荐数据加载不完整，已尽量展示可用内容')
+    ElMessage.warning('首页数据加载不完整，已尽量展示可用内容')
   }
   await loadHomeBooks()
+}
+
+async function handleSearch() {
+  const q = searchKeyword.value.trim()
+  if (!q) {
+    searchResults.value = []
+    return
+  }
+
+  searching.value = true
+  try {
+    const res = await searchBooks({ q, limit: 6 })
+    searchResults.value = res.items || []
+    if (!searchResults.value.length) {
+      ElMessage.info('没有找到相关书籍，试试换个关键词')
+    }
+  } catch (_error) {
+    searchResults.value = []
+    ElMessage.warning('搜索失败，请稍后重试')
+  } finally {
+    searching.value = false
+  }
+}
+
+function clearSearch() {
+  searchKeyword.value = ''
+  searchResults.value = []
 }
 
 async function selectCategory(categoryId: number | null) {
@@ -151,24 +197,92 @@ onMounted(async () => {
 
     <main class="mx-auto max-w-6xl px-4 py-10">
       <section class="rounded-3xl bg-[#171717] p-8 text-white md:p-12">
-        <p class="text-sm text-stone-300">本周精选</p>
-        <h1 class="mt-3 text-4xl font-semibold leading-tight">下一本让你读下去的书，也许就在这里。</h1>
+        <p class="text-sm text-stone-300">首页发现</p>
+        <h1 class="mt-3 text-4xl font-semibold leading-tight">先搜想看的，再决定要不要继续把今晚交给一本书。</h1>
         <p class="mt-3 max-w-2xl text-stone-300">
-          {{ heroBook ? `从《${heroBook.title}》开始，看看最近口碑最好的阅读选择。` : '按分类、标签和口碑榜单，慢慢挑到你今晚最想翻开的那一本。' }}
+          {{ heroBook ? `如果你还没想好从哪本开始，可以先看看《${heroBook.title}》。` : '支持按书名、作者和主题词搜索，找书会更快。' }}
         </p>
-        <div class="mt-6 flex flex-wrap items-center gap-3">
+
+        <div class="mt-6 flex flex-col gap-3 md:flex-row">
+          <input
+            v-model="searchKeyword"
+            type="text"
+            class="w-full rounded-full border border-white/15 bg-white/10 px-5 py-3 text-sm text-white outline-none placeholder:text-stone-300"
+            placeholder="搜索书名、作者或主题词，比如“治愈”“灯塔”“罗欣”"
+            @keyup.enter="handleSearch"
+          />
           <button
             class="rounded-full bg-white px-6 py-3 text-sm font-medium text-stone-900"
-            @click="heroBook ? goBook(heroBook.id) : goMoreRecommendations()"
+            :disabled="searching"
+            @click="handleSearch"
           >
-            {{ heroBook ? '查看本周主推' : '开始找书' }}
+            {{ searching ? '搜索中...' : '搜索找书' }}
           </button>
           <button
+            v-if="hasSearchKeyword"
             class="rounded-full border border-white/20 px-6 py-3 text-sm font-medium text-white"
-            @click="goMoreRecommendations"
+            @click="clearSearch"
           >
-            浏览更多推荐
+            清空
           </button>
+        </div>
+      </section>
+
+      <section
+        v-if="searchResults.length > 0"
+        class="mt-8 rounded-3xl bg-white p-6 shadow-sm"
+      >
+        <div class="mb-4 flex items-center justify-between">
+          <div>
+            <h2 class="text-2xl font-semibold">搜索结果</h2>
+            <p class="mt-1 text-sm text-stone-500">看看这些结果里有没有你想继续点开的那一本。</p>
+          </div>
+          <button class="text-sm text-stone-500 hover:text-stone-900" @click="clearSearch">收起结果</button>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <article
+            v-for="book in searchResults"
+            :key="`search-${book.id}`"
+            class="cursor-pointer rounded-2xl border border-stone-100 bg-stone-50 p-4 transition hover:border-stone-200 hover:bg-white"
+            @click="goBook(book.id)"
+          >
+            <div class="flex gap-4">
+              <img :src="book.cover || ''" :alt="book.title" class="h-28 w-20 rounded-xl object-cover" />
+              <div class="min-w-0 flex-1">
+                <h3 class="line-clamp-2 text-base font-semibold">{{ book.title }}</h3>
+                <p class="mt-1 text-sm text-stone-500">{{ book.author || '作者待补充' }}</p>
+                <p class="mt-2 text-xs text-amber-600">评分 {{ book.rating || book.score || '-' }}</p>
+                <p class="mt-2 line-clamp-2 text-xs text-stone-500">{{ book.recommend_reason }}</p>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section
+        v-if="continueReading"
+        class="mt-8 rounded-3xl bg-white p-6 shadow-sm"
+      >
+        <div class="flex flex-col gap-5 md:flex-row md:items-center">
+          <img :src="continueReading.cover || ''" :alt="continueReading.title" class="h-36 w-24 rounded-2xl object-cover" />
+          <div class="min-w-0 flex-1">
+            <p class="text-sm text-stone-400">继续阅读</p>
+            <h2 class="mt-2 text-2xl font-semibold">{{ continueReading.title }}</h2>
+            <p class="mt-2 text-sm text-stone-500">
+              {{ continueReading.section_title || '已为你保留上次阅读位置' }}
+            </p>
+            <p class="mt-2 text-sm text-stone-500">
+              当前进度 {{ formatPercent(continueReading.scroll_percent) }}
+            </p>
+          </div>
+          <div class="flex gap-3">
+            <button class="rounded-full border border-stone-300 px-5 py-3 text-sm" @click="goBook(continueReading.id)">
+              查看详情
+            </button>
+            <button class="rounded-full bg-stone-900 px-5 py-3 text-sm font-medium text-white" @click="goReader(continueReading.id)">
+              继续阅读
+            </button>
+          </div>
         </div>
       </section>
 
@@ -195,7 +309,7 @@ onMounted(async () => {
         <div class="mb-4 flex items-center justify-between">
           <div>
             <h2 class="text-2xl font-semibold">为你推荐</h2>
-            <p class="mt-1 text-sm text-stone-500">从最近高分、热门题材和读者反馈里，先挑 8 本更值得点开的。</p>
+            <p class="mt-1 text-sm text-stone-500">每张卡片都会告诉你它为什么值得先点开。</p>
           </div>
           <button class="text-sm font-medium text-stone-700 hover:text-stone-900" @click="goMoreRecommendations">更多推荐 ></button>
         </div>
@@ -218,6 +332,9 @@ onMounted(async () => {
             <p class="mt-1 text-xs text-stone-500">{{ book.author || '作者待补充' }}</p>
             <p class="mt-2 text-xs text-amber-600">评分 {{ book.rating || book.score || '-' }}</p>
             <p class="mt-1 text-xs text-stone-400">{{ formatReads(book.recent_reads) }}</p>
+            <p class="mt-3 line-clamp-2 min-h-10 text-xs leading-5 text-stone-600">
+              {{ book.recommend_reason || book.home_recommendation_reason || '高分口碑推荐' }}
+            </p>
           </article>
         </div>
       </section>

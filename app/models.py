@@ -16,6 +16,8 @@ class User(db.Model):
     # Werkzeug scrypt hashes are longer than legacy pbkdf2 hashes.
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='user')  # user or admin
+    is_super_admin = db.Column(db.Boolean, nullable=False, default=False)
+    tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
     
@@ -31,7 +33,7 @@ class User(db.Model):
             return False
     
     def is_admin(self):
-        return self.role == 'admin'
+        return self.role == 'admin' or bool(self.is_super_admin)
     
     def to_dict(self):
         return {
@@ -43,7 +45,9 @@ class User(db.Model):
             'age': self.age,
             'province': self.province,
             'city': self.city,
-            'role': self.role
+            'role': self.role,
+            'is_super_admin': bool(self.is_super_admin),
+            'tenant_id': int(self.tenant_id or 1),
         }
 
 class Role(db.Model):
@@ -122,10 +126,13 @@ class Book(db.Model):
     rating = db.Column(db.Float)
     rating_count = db.Column(db.BigInteger, default=0)
     recent_reads = db.Column(db.BigInteger, default=0)
+    home_recommendation_reason = db.Column(db.String(255))
+    search_keywords = db.Column(db.String(255))
     is_featured = db.Column(db.Boolean, default=False)
     category_id = db.Column(db.Integer)
     status = db.Column(db.String(20), nullable=False, default='published')
     creator_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     published_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime)
 
@@ -141,10 +148,13 @@ class Book(db.Model):
             'rating': self.rating,
             'rating_count': int(self.rating_count or 0),
             'recent_reads': int(self.recent_reads or 0),
+            'home_recommendation_reason': self.home_recommendation_reason,
+            'search_keywords': self.search_keywords,
             'is_featured': bool(self.is_featured),
             'category_id': self.category_id,
             'status': self.status or 'published',
             'creator_id': self.creator_id,
+            'tenant_id': int(self.tenant_id or 1),
             'published_at': self.published_at.isoformat() if self.published_at else None,
         }
 
@@ -330,6 +340,7 @@ class ReaderHighlightComment(db.Model):
     violation_reason = db.Column(db.String(255))
     moderated_at = db.Column(db.DateTime)
     moderated_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
 
@@ -344,6 +355,7 @@ class ReaderBookComment(db.Model):
     violation_reason = db.Column(db.String(255))
     moderated_at = db.Column(db.DateTime)
     moderated_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
 
@@ -363,6 +375,7 @@ class BookManuscript(db.Model):
     reviewed_at = db.Column(db.DateTime)
     reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     published_at = db.Column(db.DateTime)
+    tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
@@ -381,6 +394,7 @@ class BookManuscript(db.Model):
             'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None,
             'reviewed_by': self.reviewed_by,
             'published_at': self.published_at.isoformat() if self.published_at else None,
+            'tenant_id': int(self.tenant_id or 1),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

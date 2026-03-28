@@ -9,6 +9,8 @@ from app.logging_utils import bind_identity, business_log_aspect
 from app.models import User
 from app.services.captcha import generate_captcha, verify_captcha
 
+DEFAULT_TENANT_ID = 1
+
 
 def _clean_geo(value: str | None, max_len: int = 64):
     text = (value or '').strip()
@@ -68,7 +70,8 @@ def register():
     if User.query.filter_by(email=email).first():
         return jsonify({'error': 'email already exists'}), 400
 
-    user = User(username=username, name=username, email=email, age=age)
+    tenant_id = int(current_app.config.get('DEFAULT_TENANT_ID', DEFAULT_TENANT_ID) or DEFAULT_TENANT_ID)
+    user = User(username=username, name=username, email=email, age=age, tenant_id=tenant_id)
     user.set_password(password)
 
     db.session.add(user)
@@ -111,11 +114,14 @@ def login():
         db.session.commit()
 
     expires_delta = timedelta(seconds=current_app.config.get('JWT_EXPIRES_IN', 7200))
+    tenant_id = int(user.tenant_id or current_app.config.get('DEFAULT_TENANT_ID', DEFAULT_TENANT_ID) or DEFAULT_TENANT_ID)
     payload = {
         'user_id': user.id,
         'username': user.username,
         'role': user.role,
         'is_admin': user.is_admin(),
+        'is_super_admin': bool(user.is_super_admin),
+        'tenant_id': tenant_id,
         'exp': datetime.utcnow() + expires_delta,
     }
     token = jwt.encode(
