@@ -49,7 +49,7 @@ def _track_book_event(
 @bp.route('/books/<int:book_id>/reader', methods=['GET'])
 @login_optional
 def api_get_book_reader(current_user, book_id: int):
-    payload = build_reader_payload(book_id)
+    payload = build_reader_payload(book_id, current_user)
     if not payload:
         return jsonify({'error': 'book not found'}), 404
 
@@ -74,8 +74,9 @@ def api_get_book_reader(current_user, book_id: int):
 
 
 @bp.route('/books/<int:book_id>/landing', methods=['GET'])
-def api_get_book_landing(book_id: int):
-    payload = build_reader_payload(book_id)
+@login_optional
+def api_get_book_landing(current_user, book_id: int):
+    payload = build_reader_payload(book_id, current_user)
     if not payload:
         return jsonify({'error': 'book not found'}), 404
     _track_book_event(
@@ -87,7 +88,14 @@ def api_get_book_landing(book_id: int):
         age_group=request.args.get('age_group'),
     )
     db.session.commit()
-    return jsonify({'book': payload['book'], 'book_comments': payload['book_comments'], 'outline': payload['outline']}), 200
+    return jsonify(
+        {
+            'book': payload['book'],
+            'book_comments': payload['book_comments'],
+            'outline': payload['outline'],
+            'related_books': payload.get('related_books', []),
+        }
+    ), 200
 
 
 @bp.route('/books/<int:book_id>/highlights', methods=['POST'])

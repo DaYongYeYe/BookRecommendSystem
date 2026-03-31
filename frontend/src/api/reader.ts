@@ -50,6 +50,24 @@ export interface ReaderBook {
   rating?: number
   rating_count?: number
   recent_reads?: number
+  category?: {
+    id: number
+    code: string
+    name: string
+    en_name?: string | null
+    description?: string | null
+    cover?: string | null
+    is_highlighted?: boolean
+  } | null
+  tags?: Array<{ id: number; code?: string | null; label: string }>
+  word_count?: number
+  estimated_reading_minutes?: number
+  completion_status?: 'ongoing' | 'completed' | 'paused' | string
+  suitable_audience?: string
+  recommendation_reason?: string
+  keyword_tags?: string[]
+  in_shelf?: boolean
+  decision_points?: string[]
 }
 
 export interface ReaderPayload {
@@ -64,6 +82,18 @@ export interface BookLandingPayload {
   book: ReaderBook
   outline: ReaderOutlineItem[]
   book_comments: ReaderComment[]
+  related_books: Array<{
+    id: number
+    title: string
+    subtitle?: string | null
+    author?: string | null
+    cover?: string | null
+    rating?: number | null
+    recent_reads?: number
+    category_name?: string | null
+    completion_status?: string
+    word_count?: number
+  }>
 }
 
 export interface ReadingProgress {
@@ -146,6 +176,13 @@ export function saveReadingProgress(
 
 export function addBookToShelf(bookId: string | number) {
   return request.post<any, { message: string; book_id: number }>('/api/shelf', { book_id: Number(bookId) })
+}
+
+export function toggleBookShelf(bookId: string | number, inShelf: boolean) {
+  return request.post<any, { message: string; book_id: number; in_shelf: boolean }>('/api/shelf/toggle', {
+    book_id: Number(bookId),
+    in_shelf: inShelf,
+  })
 }
 
 export function getReaderPreferences() {

@@ -72,6 +72,9 @@ export interface AdminBookItem {
   is_featured: boolean
   status: 'published' | 'draft' | 'archived'
   category_id?: number | null
+  word_count?: number
+  completion_status?: 'ongoing' | 'completed' | 'paused' | string
+  suitable_audience?: string | null
   category_name?: string | null
   tags?: Array<{ id: number; label: string }>
   tag_ids?: number[]
@@ -100,6 +103,9 @@ export interface AdminCreateBookPayload {
   is_featured?: boolean
   status?: 'published' | 'draft' | 'archived'
   category_id?: number | null
+  word_count?: number
+  completion_status?: 'ongoing' | 'completed' | 'paused'
+  suitable_audience?: string
   tag_ids?: number[]
 }
 
@@ -109,6 +115,7 @@ export interface AdminBookOptionsResponse {
   categories: Array<{ id: number; name: string }>
   tags: Array<{ id: number; label: string }>
   statuses: Array<{ value: 'published' | 'draft' | 'archived'; label: string }>
+  completion_statuses?: Array<{ value: 'ongoing' | 'completed' | 'paused' | string; label: string }>
 }
 
 export interface AdminBatchUpdateBooksPayload {

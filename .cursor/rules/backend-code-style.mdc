@@ -4,7 +4,7 @@ globs: backend/**/*.py
 alwaysApply: false
 ---
 
-### 后端代码规范（Python + Flask，贴合当前项目日志体系）
+### 后端代码规范（Python + Flask系）
 
 - **整体风格**
   - 使用 **PEP 8**，统一 **4 空格缩进**，UTF-8 编码，文件末尾保留一个空行。

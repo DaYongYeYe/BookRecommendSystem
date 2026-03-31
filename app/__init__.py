@@ -89,6 +89,12 @@ def _apply_schema_compatibility_patches(app: Flask):
                 patches.append("ALTER TABLE books ADD COLUMN is_featured TINYINT(1) NOT NULL DEFAULT 0")
             if 'category_id' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN category_id INT NULL")
+            if 'word_count' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN word_count INT NOT NULL DEFAULT 0")
+            if 'completion_status' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN completion_status VARCHAR(20) NOT NULL DEFAULT 'ongoing'")
+            if 'suitable_audience' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN suitable_audience VARCHAR(255) NULL")
             if 'status' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'published'")
             if 'creator_id' not in book_columns:

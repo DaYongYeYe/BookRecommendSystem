@@ -23,6 +23,7 @@ from app.services.publishing_service import publish_manuscript
 from app.services.captcha import generate_captcha, verify_captcha
 
 BOOK_STATUSES = ['published', 'draft', 'archived']
+BOOK_COMPLETION_STATUSES = ['ongoing', 'completed', 'paused']
 
 
 def _tenant_id(user):
@@ -47,6 +48,13 @@ def _parse_category_id(raw_value):
         return None, 'category not found'
 
     return category_id, None
+
+
+def _parse_completion_status(raw_value, default='ongoing'):
+    status = (raw_value or default).strip().lower()
+    if status not in BOOK_COMPLETION_STATUSES:
+        return None, 'invalid completion_status'
+    return status, None
 
 
 def _utc_day_range(day):
@@ -494,6 +502,9 @@ def create_book(current_user):
     status = (data.get('status') or 'published').strip().lower()
     if status not in BOOK_STATUSES:
         return jsonify({'error': 'invalid status'}), 400
+    completion_status, completion_error = _parse_completion_status(data.get('completion_status'), 'ongoing')
+    if completion_error:
+        return jsonify({'error': completion_error}), 400
 
     category_id, category_error = _parse_category_id(data.get('category_id'))
     if category_error:
@@ -511,6 +522,9 @@ def create_book(current_user):
         recent_reads=parse_int(data.get('recent_reads'), 0),
         is_featured=bool(data.get('is_featured', False)),
         category_id=category_id,
+        word_count=parse_int(data.get('word_count'), 0),
+        completion_status=completion_status,
+        suitable_audience=(data.get('suitable_audience') or '').strip() or None,
         status=status,
         tenant_id=tenant_id,
         published_at=datetime.utcnow() if status == 'published' else None,
@@ -600,6 +614,15 @@ def update_book(current_user, book_id):
         if category_error:
             return jsonify({'error': category_error}), 400
         book.category_id = category_id
+    if 'word_count' in data:
+        book.word_count = parse_int(data.get('word_count'))
+    if 'completion_status' in data:
+        completion_status, completion_error = _parse_completion_status(data.get('completion_status'))
+        if completion_error:
+            return jsonify({'error': completion_error}), 400
+        book.completion_status = completion_status
+    if 'suitable_audience' in data:
+        book.suitable_audience = (data.get('suitable_audience') or '').strip() or None
     if 'status' in data:
         status = (data.get('status') or '').strip().lower()
         if status not in BOOK_STATUSES:
@@ -658,6 +681,7 @@ def get_book_options(current_user):
         'categories': [item.to_dict() for item in categories],
         'tags': [item.to_dict() for item in tags],
         'statuses': [{'value': item, 'label': item} for item in BOOK_STATUSES],
+        'completion_statuses': [{'value': item, 'label': item} for item in BOOK_COMPLETION_STATUSES],
     }), 200
 
 

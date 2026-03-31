@@ -3,12 +3,16 @@ from datetime import datetime
 from app import db
 from app.models import (
     Book,
+    BookTag,
+    Category,
     ReaderBookComment,
     ReaderHighlight,
     ReaderHighlightComment,
     ReaderParagraph,
     ReaderSection,
     ReaderUserPreference,
+    Tag,
+    UserShelf,
 )
 
 
@@ -20,7 +24,7 @@ DEFAULT_BOOK = {
     'subtitle': '在命运回声里重新找到彼此',
     'author': '罗欣',
     'description': (
-        '这是一部适合沉浸式阅读体验的现代文学样章，节奏克制，情绪缓慢推进。'
+        '这是一部适合沉浸式阅读的现代文学样章，节奏克制，情绪缓慢推进。'
         '你可以在这里体验目录跳转、进度续读、划线批注和评论互动。'
     ),
     'cover': 'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=900&q=80',
@@ -28,53 +32,45 @@ DEFAULT_BOOK = {
     'rating': 9.1,
     'rating_count': 12000,
     'recent_reads': 128000,
-    'home_recommendation_reason': '本周很多读者停在灯塔这一章，适合喜欢慢热叙事的你。',
+    'home_recommendation_reason': '适合喜欢慢热情绪和治愈氛围的读者。',
     'search_keywords': '治愈 海港 灯塔 慢热 情感 文学',
     'is_featured': True,
+    'category_id': 1,
+    'word_count': 8620,
+    'completion_status': 'completed',
+    'suitable_audience': '适合喜欢慢热、治愈、夜间阅读氛围的读者。',
 }
 
 DEFAULT_READER_SECTIONS = [
     {
         'section_key': 'chapter-1',
         'title': '第一章 抵达旧港',
-        'summary': '她在潮湿的海港小城重新落脚，也重新面对那些还没来得及解释的过去。',
+        'summary': '她回到潮湿的海港小城，也重新靠近那些多年没有说完的话。',
         'level': 1,
         'paragraphs': [
             {
                 'paragraph_key': 'p1',
-                'text': (
-                    '黄昏压低在港口上空，潮水拍打着木栈桥。她拖着行李走下最后一级台阶，'
-                    '空气里混着海盐、铁锈和雨前石板的气味。'
-                ),
+                'text': '黄昏压低在港口上空，潮水拍打木栈桥。她拖着行李走下最后一级台阶，空气里混着海盐、铁锈和雨前石板的味道。',
             },
             {
                 'paragraph_key': 'p2',
-                'text': (
-                    '旅馆老板递来钥匙，又朝远处灯塔抬了抬下巴，说今夜风会很大。'
-                    '她点头，却还是在门口站了几秒，像在等一个迟到了很多年的信号。'
-                ),
+                'text': '旅馆老板递来钥匙，又朝远处灯塔抬了抬下巴，说今夜风会很大。她点头，却还是在门口站了几秒，像在等一个迟到了很多年的信号。',
             },
         ],
     },
     {
         'section_key': 'chapter-1-1',
         'title': '1.1 海雾中的来信',
-        'summary': '一封没有署名的信，把她带回了那段始终没能讲完的关系。',
+        'summary': '一封没有署名的信，把她带回那段始终没有讲完的关系。',
         'level': 2,
         'paragraphs': [
             {
                 'paragraph_key': 'p3',
-                'text': (
-                    '信纸边角被海风吹得卷起，字迹却比记忆里的任何一次都更安稳。'
-                    '上面只写着一句话：有些人要绕很远的路，才能回到最初想靠近的光。'
-                ),
+                'text': '信纸边角被海风吹得卷起，字迹却比记忆里的任何一次都更安稳。上面只写着一句话：有些人要绕很远的路，才能回到最初想靠近的光。',
             },
             {
                 'paragraph_key': 'p4',
-                'text': (
-                    '窗外的海雾越积越厚，路灯一盏接一盏地模糊开来。'
-                    '她把那封信放在桌上，忽然觉得多年压住的话，也许并没有真正沉到底。'
-                ),
+                'text': '窗外的海雾越积越厚，路灯一盏接一盏地模糊开来。她把那封信放在桌上，忽然觉得多年压住的话，也许并没有真正沉到底。',
             },
         ],
     },
@@ -86,39 +82,27 @@ DEFAULT_READER_SECTIONS = [
         'paragraphs': [
             {
                 'paragraph_key': 'p5',
-                'text': (
-                    '守塔人说，船不会因为灯塔沉默就停下，但只要那束光还在，'
-                    '迷路的人就会知道自己并不是被彻底遗忘。'
-                ),
+                'text': '守塔人说，船不会因为灯塔沉默就停下，但只要那束光还在，迷路的人就会知道自己并不是被彻底遗忘。',
             },
             {
                 'paragraph_key': 'p6',
-                'text': (
-                    '风穿过栏杆，海面一片碎银般的冷意。她忽然很想把这些年没寄出的句子，'
-                    '都讲给潮声听，哪怕它不会回答。'
-                ),
+                'text': '风穿过栏杆，海面一片碎银般的冷意。她忽然很想把这些年没寄出的句子，都讲给潮声听，哪怕它不会回答。',
             },
         ],
     },
     {
         'section_key': 'chapter-2',
         'title': '第二章 雨夜摘录',
-        'summary': '在深夜整理旧笔记时，她终于理解，有些答案并不是为了原谅别人，而是为了安放自己。',
+        'summary': '在深夜整理旧笔记时，她终于理解有些答案不是为了原谅别人，而是为了安放自己。',
         'level': 1,
         'paragraphs': [
             {
                 'paragraph_key': 'p7',
-                'text': (
-                    '夜色完全沉下去以后，雨终于落了。她重翻旧笔记，把那些曾经匆匆读过的句子'
-                    '一行一行抄下来，像在替过去的自己补一场迟到的停顿。'
-                ),
+                'text': '夜色完全沉下去以后，雨终于落了。她翻开旧笔记，把那些曾经匆匆读过的句子一行一行抄下来，像在替过去的自己补一场迟到的停顿。',
             },
             {
                 'paragraph_key': 'p8',
-                'text': (
-                    '理解并不是原谅的附录，而是留给自己的那盏小灯。'
-                    '它未必能照亮所有回忆，却足够让人不再害怕回头。'
-                ),
+                'text': '理解并不是原谅的附录，而是留给自己的那盏小灯。它未必能照亮所有回忆，却足够让人不再害怕回头。',
             },
         ],
     },
@@ -131,32 +115,22 @@ DEFAULT_HIGHLIGHTS = [
         'start_offset': 33,
         'end_offset': 57,
         'color': 'amber',
-        'note': '这句像是整本书的情感核心，关于迟到、绕路和重新靠近。',
+        'note': '这一句像整本书的情感核心，关于迟到、绕路和重新靠近。',
         'created_by': 'Alice Lin',
         'comments': [
             {'author': 'Bob Chen', 'content': '这句和开头的港口意象连得特别好。'},
-            {'author': 'Cindy Wu', 'content': '读到这里时一下就记住了这本书。'},
+            {'author': 'Cindy Wu', 'content': '读到这里一下就记住这本书了。'},
         ],
     },
     {
         'paragraph_key': 'p5',
         'selected_text': '只要那束光还在，迷路的人就会知道自己并不是被彻底遗忘。',
-        'start_offset': 24,
-        'end_offset': 53,
+        'start_offset': 17,
+        'end_offset': 43,
         'color': 'sky',
         'note': '灯塔的比喻很克制，但很有力量。',
         'created_by': 'Bob Chen',
-        'comments': [{'author': 'Alice Lin', 'content': '很适合放进阅读摘录。'}],
-    },
-    {
-        'paragraph_key': 'p8',
-        'selected_text': '理解并不是原谅的附录，而是留给自己的那盏小灯。',
-        'start_offset': 0,
-        'end_offset': 27,
-        'color': 'rose',
-        'note': '这一句很温柔，像给整章收了个口。',
-        'created_by': 'Cindy Wu',
-        'comments': [],
+        'comments': [{'author': 'Alice Lin', 'content': '很适合收进阅读摘录。'}],
     },
 ]
 
@@ -177,6 +151,39 @@ def _display_name(user):
     if not user:
         return '当前读者'
     return (user.name or user.username or f'user-{user.id}').strip()
+
+
+def _estimate_reading_minutes(word_count: int) -> int:
+    if word_count <= 0:
+        return 0
+    return max(1, round(word_count / 450))
+
+
+def _split_keywords(raw_keywords: str | None):
+    if not raw_keywords:
+        return []
+
+    result = []
+    for item in raw_keywords.replace('，', ' ').replace(',', ' ').split():
+        item = item.strip()
+        if item and item not in result:
+            result.append(item)
+    return result
+
+
+def _build_decision_points(book: Book, category_name: str | None, tags: list[dict], total_words: int):
+    points = []
+    if category_name:
+        points.append(f'分类：{category_name}')
+    if tags:
+        points.append(f'标签：{" / ".join(tag["label"] for tag in tags[:3])}')
+    if total_words > 0:
+        points.append(f'字数约 {total_words:,}，阅读负担比较明确')
+    if book.suitable_audience:
+        points.append(book.suitable_audience)
+    if book.home_recommendation_reason:
+        points.append(book.home_recommendation_reason)
+    return points[:4]
 
 
 def ensure_seed(book_id: int):
@@ -258,12 +265,10 @@ def ensure_seed(book_id: int):
     db.session.commit()
 
 
-def build_reader_payload(book_id: int):
+def build_reader_payload(book_id: int, current_user=None):
     ensure_seed(book_id)
     book = Book.query.get(book_id)
-    if not book:
-        return None
-    if (book.status or 'published') != 'published':
+    if not book or (book.status or 'published') != 'published':
         return None
 
     sections = ReaderSection.query.filter_by(book_id=book_id).order_by(ReaderSection.order_no.asc()).all()
@@ -335,6 +340,56 @@ def build_reader_payload(book_id: int):
         for c in book_comments
     ]
 
+    category = Category.query.get(book.category_id) if book.category_id else None
+    tag_rows = (
+        db.session.query(Tag.id, Tag.code, Tag.label)
+        .join(BookTag, BookTag.tag_id == Tag.id)
+        .filter(BookTag.book_id == book.id)
+        .order_by(Tag.id.asc())
+        .all()
+    )
+    payload_tags = [{'id': int(tag_id), 'code': code, 'label': label} for tag_id, code, label in tag_rows]
+
+    total_words = int(book.word_count or 0)
+    if total_words <= 0:
+        total_words = sum(len(paragraph['text']) for section in payload_sections for paragraph in section['paragraphs'])
+
+    in_shelf = False
+    if current_user:
+        in_shelf = UserShelf.query.filter_by(user_id=current_user.id, book_id=book.id).first() is not None
+
+    related_query = Book.query.filter(Book.status == 'published', Book.id != book.id)
+    if book.category_id:
+        related_query = related_query.filter(Book.category_id == book.category_id)
+    related_books = (
+        related_query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
+        .limit(4)
+        .all()
+    )
+
+    if len(related_books) < 4 and payload_tags:
+        existing_ids = {item.id for item in related_books}
+        extra_books = (
+            Book.query.join(BookTag, BookTag.book_id == Book.id)
+            .filter(
+                Book.status == 'published',
+                Book.id != book.id,
+                Book.id.notin_(existing_ids or {-1}),
+                BookTag.tag_id.in_([item['id'] for item in payload_tags]),
+            )
+            .order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
+            .limit(4 - len(related_books))
+            .all()
+        )
+        related_books.extend(extra_books)
+
+    payload_related_books = []
+    for related_book in related_books[:4]:
+        related_category = Category.query.get(related_book.category_id) if related_book.category_id else None
+        payload = related_book.to_dict()
+        payload['category_name'] = related_category.name if related_category else None
+        payload_related_books.append(payload)
+
     return {
         'book': {
             'id': book.id,
@@ -344,15 +399,26 @@ def build_reader_payload(book_id: int):
             'cover': book.cover or '',
             'description': book.description or '',
             'progress_percent': 42,
-            'total_words': 8620,
+            'total_words': total_words,
             'rating': float(book.rating or 0),
             'rating_count': int(book.rating_count or 0),
             'recent_reads': int(book.recent_reads or 0),
+            'category': category.to_dict() if category else None,
+            'tags': payload_tags,
+            'word_count': total_words,
+            'estimated_reading_minutes': _estimate_reading_minutes(total_words),
+            'completion_status': book.completion_status or 'ongoing',
+            'suitable_audience': book.suitable_audience or '',
+            'recommendation_reason': book.home_recommendation_reason or '',
+            'keyword_tags': _split_keywords(book.search_keywords),
+            'in_shelf': in_shelf,
+            'decision_points': _build_decision_points(book, category.name if category else None, payload_tags, total_words),
         },
         'outline': payload_outline,
         'sections': payload_sections,
         'highlights': payload_highlights,
         'book_comments': payload_book_comments,
+        'related_books': payload_related_books,
     }
 
 
@@ -409,14 +475,19 @@ def create_highlight_comment(book_id: int, highlight_id: int, payload: dict, use
         return None, 'highlight not found'
 
     content = (payload.get('content') or '').strip()
-    author = _display_name(user)
     if not content:
         return None, 'content is required'
 
     tenant_id = int(getattr(user, 'tenant_id', 1) or 1) if user else 1
-    comment = ReaderHighlightComment(highlight_id=highlight.id, author=author, content=content, tenant_id=tenant_id)
+    comment = ReaderHighlightComment(
+        highlight_id=highlight.id,
+        author=_display_name(user),
+        content=content,
+        tenant_id=tenant_id,
+    )
     db.session.add(comment)
     db.session.commit()
+
     return {
         'id': comment.id,
         'author': comment.author,
@@ -428,14 +499,19 @@ def create_highlight_comment(book_id: int, highlight_id: int, payload: dict, use
 def create_book_comment(book_id: int, payload: dict, user=None):
     ensure_seed(book_id)
     content = (payload.get('content') or '').strip()
-    author = _display_name(user)
     if not content:
         return None, 'content is required'
 
     tenant_id = int(getattr(user, 'tenant_id', 1) or 1) if user else 1
-    comment = ReaderBookComment(book_id=book_id, author=author, content=content, tenant_id=tenant_id)
+    comment = ReaderBookComment(
+        book_id=book_id,
+        author=_display_name(user),
+        content=content,
+        tenant_id=tenant_id,
+    )
     db.session.add(comment)
     db.session.commit()
+
     return {
         'id': comment.id,
         'author': comment.author,
@@ -470,13 +546,12 @@ def save_reader_preferences(user, payload: dict):
     if theme in ('light', 'dark'):
         preference.theme = theme
 
-    font_size = payload.get('font_size')
-    if font_size is not None:
+    if payload.get('font_size') is not None:
         try:
-            value = int(font_size)
-            preference.font_size = max(16, min(30, value))
+            value = int(payload.get('font_size'))
         except (TypeError, ValueError):
             return None, 'invalid font_size'
+        preference.font_size = max(16, min(30, value))
 
     if 'show_highlights' in payload:
         preference.show_highlights = bool(payload.get('show_highlights'))

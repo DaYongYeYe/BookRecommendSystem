@@ -130,6 +130,9 @@ class Book(db.Model):
     search_keywords = db.Column(db.String(255))
     is_featured = db.Column(db.Boolean, default=False)
     category_id = db.Column(db.Integer)
+    word_count = db.Column(db.Integer, nullable=False, default=0)
+    completion_status = db.Column(db.String(20), nullable=False, default='ongoing')
+    suitable_audience = db.Column(db.String(255))
     status = db.Column(db.String(20), nullable=False, default='published')
     creator_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
@@ -152,6 +155,9 @@ class Book(db.Model):
             'search_keywords': self.search_keywords,
             'is_featured': bool(self.is_featured),
             'category_id': self.category_id,
+            'word_count': int(self.word_count or 0),
+            'completion_status': self.completion_status or 'ongoing',
+            'suitable_audience': self.suitable_audience,
             'status': self.status or 'published',
             'creator_id': self.creator_id,
             'tenant_id': int(self.tenant_id or 1),
