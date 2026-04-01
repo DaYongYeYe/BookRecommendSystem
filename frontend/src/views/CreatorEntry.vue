@@ -44,7 +44,7 @@ async function loadProfile() {
 
 function handlePrimaryAction() {
   if (canOpenCreator.value) {
-    router.push('/creator/dashboard')
+    router.push('/creator/works')
     return
   }
 

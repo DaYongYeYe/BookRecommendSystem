@@ -126,6 +126,7 @@ class Book(db.Model):
     author = db.Column(db.String(255))
     description = db.Column(db.Text)
     cover = db.Column(db.String(500))
+    subcategory_code = db.Column(db.String(64))
     score = db.Column(db.Float)
     rating = db.Column(db.Float)
     rating_count = db.Column(db.BigInteger, default=0)
@@ -137,11 +138,25 @@ class Book(db.Model):
     word_count = db.Column(db.Integer, nullable=False, default=0)
     completion_status = db.Column(db.String(20), nullable=False, default='ongoing')
     suitable_audience = db.Column(db.String(255))
+    price_type = db.Column(db.String(20), nullable=False, default='free')
+    creation_type = db.Column(db.String(20), nullable=False, default='original')
+    protagonist = db.Column(db.Text)
+    worldview = db.Column(db.Text)
+    author_message = db.Column(db.Text)
+    author_notice = db.Column(db.Text)
+    copyright_notice = db.Column(db.Text)
+    update_note = db.Column(db.Text)
+    audit_status = db.Column(db.String(20), nullable=False, default='draft')
+    audit_comment = db.Column(db.Text)
+    shelf_status = db.Column(db.String(20), nullable=False, default='down')
+    off_shelf_reason = db.Column(db.String(255))
+    audit_submitted_at = db.Column(db.DateTime)
     status = db.Column(db.String(20), nullable=False, default='published')
     creator_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     published_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime)
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
     def to_dict(self):
         return {
@@ -151,6 +166,7 @@ class Book(db.Model):
             'author': self.author,
             'description': self.description,
             'cover': self.cover,
+            'subcategory_code': self.subcategory_code,
             'score': self.score,
             'rating': self.rating,
             'rating_count': int(self.rating_count or 0),
@@ -162,10 +178,25 @@ class Book(db.Model):
             'word_count': int(self.word_count or 0),
             'completion_status': self.completion_status or 'ongoing',
             'suitable_audience': self.suitable_audience,
+            'price_type': self.price_type or 'free',
+            'creation_type': self.creation_type or 'original',
+            'protagonist': self.protagonist,
+            'worldview': self.worldview,
+            'author_message': self.author_message,
+            'author_notice': self.author_notice,
+            'copyright_notice': self.copyright_notice,
+            'update_note': self.update_note,
+            'audit_status': self.audit_status or 'draft',
+            'audit_comment': self.audit_comment,
+            'shelf_status': self.shelf_status or 'down',
+            'off_shelf_reason': self.off_shelf_reason,
             'status': self.status or 'published',
             'creator_id': self.creator_id,
             'tenant_id': int(self.tenant_id or 1),
+            'audit_submitted_at': self.audit_submitted_at.isoformat() if self.audit_submitted_at else None,
             'published_at': self.published_at.isoformat() if self.published_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
 
 

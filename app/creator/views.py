@@ -12,16 +12,33 @@ from app.models import (
     BookAnalyticsEvent,
     BookManuscript,
     BookVersion,
+    BookTag,
+    Category,
     ReaderParagraph,
     ReaderSection,
+    Tag,
     UserReadingProgress,
 )
 from app.rbac.decorators import login_required
+from app.services.work_catalog import (
+    WORK_CATEGORY_MAP,
+    WORK_TAG_MAP,
+    get_category_tag_codes,
+    get_subcategories,
+)
 from app.services.publishing_service import parse_content_sections
 from app.services.tencent_cos import upload_image
 
 ALLOWED_COVER_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 MANUSCRIPT_UPDATE_MODES = {'create', 'full', 'append'}
+WORK_AUDIT_STATUSES = {'draft', 'pending', 'approved', 'rejected'}
+WORK_SHELF_STATUSES = {'up', 'down', 'forced_down'}
+WORK_COMPLETION_STATUSES = {'ongoing', 'paused', 'completed'}
+WORK_PRICE_TYPES = {'free', 'paid'}
+WORK_CREATION_TYPES = {'original', 'fanfic', 'derivative'}
+WORK_REQUIRED_TAG_MIN = 3
+WORK_REQUIRED_TAG_MAX = 8
+WORK_DESCRIPTION_MIN_LENGTH = 20
 
 
 def _is_creator(user):
@@ -213,6 +230,318 @@ def _serialize_creator_book(book, *, section_count=0, version_count=0):
     return payload
 
 
+def _parse_jsonish_list(raw_value):
+    if raw_value in (None, ''):
+        return []
+
+    if isinstance(raw_value, list):
+        return raw_value
+
+    if isinstance(raw_value, str):
+        stripped = raw_value.strip()
+        if not stripped:
+            return []
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                return parsed
+        except (TypeError, ValueError):
+            return [item.strip() for item in stripped.split(',') if item.strip()]
+
+    return []
+
+
+def _parse_tag_ids(raw_value):
+    items = _parse_jsonish_list(raw_value)
+    tag_ids = []
+    for item in items:
+        try:
+            tag_ids.append(int(item))
+        except (TypeError, ValueError):
+            return None, 'invalid tag_ids'
+    return list(dict.fromkeys(tag_ids)), None
+
+
+def _serialize_work_options():
+    ordered_category_codes = list(WORK_CATEGORY_MAP.keys())
+    categories = Category.query.filter(Category.code.in_(ordered_category_codes)).all()
+    category_map = {item.code: item for item in categories}
+
+    ordered_tag_codes = list(WORK_TAG_MAP.keys())
+    tags = Tag.query.filter(Tag.code.in_(ordered_tag_codes)).all()
+    tag_map = {item.code: item for item in tags}
+
+    return {
+        'categories': [
+            {
+                'id': category_map[item['code']].id,
+                'code': item['code'],
+                'name': item['name'],
+                'subcategories': get_subcategories(item['code']),
+                'tag_candidates': [
+                    {
+                        'id': tag_map[tag_code].id,
+                        'code': tag_code,
+                        'label': tag_map[tag_code].label,
+                        'is_hot': True,
+                    }
+                    for tag_code in get_category_tag_codes(item['code'])
+                    if tag_code in tag_map
+                ],
+            }
+            for item in [WORK_CATEGORY_MAP[code] for code in ordered_category_codes]
+            if item['code'] in category_map
+        ],
+        'rules': {
+            'description_min_length': WORK_DESCRIPTION_MIN_LENGTH,
+            'tag_min_count': WORK_REQUIRED_TAG_MIN,
+            'tag_max_count': WORK_REQUIRED_TAG_MAX,
+            'cover_formats': sorted(ALLOWED_COVER_EXTENSIONS),
+            'cover_max_size': int(current_app.config.get('MAX_COVER_UPLOAD_SIZE', 5 * 1024 * 1024)),
+            'cover_ratio_hint': '3:4',
+        },
+        'enum_options': {
+            'audit_statuses': sorted(WORK_AUDIT_STATUSES),
+            'shelf_statuses': sorted(WORK_SHELF_STATUSES),
+            'completion_statuses': sorted(WORK_COMPLETION_STATUSES),
+            'price_types': sorted(WORK_PRICE_TYPES),
+            'creation_types': sorted(WORK_CREATION_TYPES),
+        },
+    }
+
+
+def _extract_work_payload():
+    if request.content_type and 'multipart/form-data' in request.content_type.lower():
+        form = request.form
+        files = request.files
+        cover, error = _save_cover_file(files.get('cover_file'))
+        if error:
+            return None, error
+
+        tag_ids, tag_error = _parse_tag_ids(form.get('tag_ids_json') or form.getlist('tag_ids'))
+        if tag_error:
+            return None, tag_error
+
+        raw_category_id = form.get('category_id')
+        category_id = None
+        if raw_category_id not in (None, ''):
+            try:
+                category_id = int(raw_category_id)
+            except (TypeError, ValueError):
+                return None, 'invalid category_id'
+
+        return {
+            'title': (form.get('title') or '').strip(),
+            'subtitle': (form.get('subtitle') or '').strip() or None,
+            'description': (form.get('description') or '').strip() or None,
+            'cover': cover or (form.get('cover') or '').strip() or None,
+            'category_id': category_id,
+            'subcategory_code': (form.get('subcategory_code') or '').strip() or None,
+            'tag_ids': tag_ids,
+            'completion_status': (form.get('completion_status') or '').strip().lower() or 'ongoing',
+            'price_type': (form.get('price_type') or '').strip().lower() or 'free',
+            'creation_type': (form.get('creation_type') or '').strip().lower() or 'original',
+            'protagonist': (form.get('protagonist') or '').strip() or None,
+            'worldview': (form.get('worldview') or '').strip() or None,
+            'author_message': (form.get('author_message') or '').strip() or None,
+            'author_notice': (form.get('author_notice') or '').strip() or None,
+            'copyright_notice': (form.get('copyright_notice') or '').strip() or None,
+            'update_note': (form.get('update_note') or '').strip() or None,
+        }, None
+
+    data = request.get_json() or {}
+    tag_ids, tag_error = _parse_tag_ids(data.get('tag_ids'))
+    if tag_error:
+        return None, tag_error
+
+    category_id = data.get('category_id')
+    if category_id not in (None, ''):
+        try:
+            category_id = int(category_id)
+        except (TypeError, ValueError):
+            return None, 'invalid category_id'
+    else:
+        category_id = None
+
+    return {
+        'title': (data.get('title') or '').strip(),
+        'subtitle': (data.get('subtitle') or '').strip() or None,
+        'description': (data.get('description') or '').strip() or None,
+        'cover': (data.get('cover') or '').strip() or None,
+        'category_id': category_id,
+        'subcategory_code': (data.get('subcategory_code') or '').strip() or None,
+        'tag_ids': tag_ids,
+        'completion_status': (data.get('completion_status') or '').strip().lower() or 'ongoing',
+        'price_type': (data.get('price_type') or '').strip().lower() or 'free',
+        'creation_type': (data.get('creation_type') or '').strip().lower() or 'original',
+        'protagonist': (data.get('protagonist') or '').strip() or None,
+        'worldview': (data.get('worldview') or '').strip() or None,
+        'author_message': (data.get('author_message') or '').strip() or None,
+        'author_notice': (data.get('author_notice') or '').strip() or None,
+        'copyright_notice': (data.get('copyright_notice') or '').strip() or None,
+        'update_note': (data.get('update_note') or '').strip() or None,
+    }, None
+
+
+def _validate_work_payload(payload, *, strict=False, current_book=None, tenant_id=1):
+    title = (payload.get('title') or '').strip()
+    if not title:
+        return 'title is required'
+
+    duplicate_query = Book.query.filter(
+        Book.title == title,
+        Book.tenant_id == int(getattr(current_book, 'tenant_id', tenant_id) or tenant_id),
+    )
+    if current_book is not None:
+        duplicate_query = duplicate_query.filter(Book.id != current_book.id)
+    if duplicate_query.first():
+        return 'book title already exists'
+
+    completion_status = payload.get('completion_status') or 'ongoing'
+    if completion_status not in WORK_COMPLETION_STATUSES:
+        return 'invalid completion_status'
+    if (payload.get('price_type') or 'free') not in WORK_PRICE_TYPES:
+        return 'invalid price_type'
+    if (payload.get('creation_type') or 'original') not in WORK_CREATION_TYPES:
+        return 'invalid creation_type'
+
+    category_id = payload.get('category_id')
+    category = None
+    if category_id is not None:
+        category = Category.query.get(category_id)
+        if not category:
+            return 'category not found'
+
+    subcategory_code = payload.get('subcategory_code')
+    if subcategory_code:
+        valid_subcategory_codes = {item['code'] for item in get_subcategories(category.code if category else None)}
+        if subcategory_code not in valid_subcategory_codes:
+            return 'invalid subcategory_code'
+
+    tag_ids = payload.get('tag_ids') or []
+    if tag_ids:
+        valid_tags = Tag.query.filter(Tag.id.in_(tag_ids)).all()
+        valid_tag_map = {item.id: item for item in valid_tags}
+        if len(valid_tag_map) != len(tag_ids):
+            return 'tag not found'
+        if category is not None:
+            allowed_tag_codes = set(get_category_tag_codes(category.code))
+            if allowed_tag_codes:
+                for tag_id in tag_ids:
+                    tag = valid_tag_map.get(tag_id)
+                    if tag and tag.code not in allowed_tag_codes:
+                        return 'tag does not match selected category'
+
+    if strict:
+        description = (payload.get('description') or '').strip()
+        if len(description) < WORK_DESCRIPTION_MIN_LENGTH:
+            return f'description must be at least {WORK_DESCRIPTION_MIN_LENGTH} characters'
+        if category is None:
+            return 'category_id is required'
+        if not payload.get('cover'):
+            return 'cover is required'
+        if len(tag_ids) < WORK_REQUIRED_TAG_MIN or len(tag_ids) > WORK_REQUIRED_TAG_MAX:
+            return f'tag count must be between {WORK_REQUIRED_TAG_MIN} and {WORK_REQUIRED_TAG_MAX}'
+
+    return None
+
+
+def _book_tag_payload_map(book_ids: list[int]):
+    if not book_ids:
+        return {}
+
+    rows = (
+        db.session.query(BookTag.book_id, Tag.id, Tag.code, Tag.label)
+        .join(Tag, Tag.id == BookTag.tag_id)
+        .filter(BookTag.book_id.in_(book_ids))
+        .order_by(Tag.id.asc())
+        .all()
+    )
+    tag_map = {}
+    for book_id, tag_id, tag_code, tag_label in rows:
+        tag_map.setdefault(book_id, []).append(
+            {
+                'id': int(tag_id),
+                'code': tag_code,
+                'label': tag_label,
+            }
+        )
+    return tag_map
+
+
+def _book_section_count_map(book_ids: list[int]):
+    if not book_ids:
+        return {}
+    rows = (
+        db.session.query(ReaderSection.book_id, func.count(ReaderSection.id).label('total'))
+        .filter(ReaderSection.book_id.in_(book_ids))
+        .group_by(ReaderSection.book_id)
+        .all()
+    )
+    return {row.book_id: int(row.total or 0) for row in rows}
+
+
+def _serialize_creator_work(book, *, tag_items=None, section_count=0):
+    payload = book.to_dict()
+    category = Category.query.get(book.category_id) if book.category_id else None
+    payload['category_name'] = category.name if category else None
+    payload['category_code'] = category.code if category else None
+    payload['subcategories'] = get_subcategories(category.code if category else None)
+    payload['tags'] = tag_items or []
+    payload['tag_ids'] = [item['id'] for item in payload['tags']]
+    payload['section_count'] = int(section_count or 0)
+    payload['ready_for_audit'] = bool(
+        payload.get('category_id')
+        and payload.get('cover')
+        and len((payload.get('description') or '').strip()) >= WORK_DESCRIPTION_MIN_LENGTH
+        and WORK_REQUIRED_TAG_MIN <= len(payload['tag_ids']) <= WORK_REQUIRED_TAG_MAX
+    )
+    payload['ready_for_publish'] = bool(payload['ready_for_audit'] and int(section_count or 0) > 0 and payload.get('audit_status') == 'approved')
+    return payload
+
+
+def _apply_work_tag_changes(book_id: int, tag_ids: list[int]):
+    BookTag.query.filter_by(book_id=book_id).delete(synchronize_session=False)
+    for tag_id in tag_ids:
+        db.session.add(BookTag(book_id=book_id, tag_id=tag_id))
+
+
+def _has_critical_work_changes(book, payload):
+    critical_fields = [
+        'title',
+        'subtitle',
+        'description',
+        'cover',
+        'category_id',
+        'subcategory_code',
+        'completion_status',
+        'price_type',
+        'creation_type',
+    ]
+    return any(getattr(book, field) != payload.get(field) for field in critical_fields)
+
+
+def _work_publish_readiness(book):
+    section_count = ReaderSection.query.filter_by(book_id=book.id).count()
+    tag_count = BookTag.query.filter_by(book_id=book.id).count()
+    errors = []
+    if not book.category_id:
+        errors.append('请选择主分类')
+    if len((book.description or '').strip()) < WORK_DESCRIPTION_MIN_LENGTH:
+        errors.append(f'简介不少于 {WORK_DESCRIPTION_MIN_LENGTH} 字')
+    if not book.cover:
+        errors.append('请上传作品封面')
+    if tag_count < WORK_REQUIRED_TAG_MIN or tag_count > WORK_REQUIRED_TAG_MAX:
+        errors.append(f'标签数量需在 {WORK_REQUIRED_TAG_MIN}-{WORK_REQUIRED_TAG_MAX} 个之间')
+    if section_count <= 0:
+        errors.append('请至少发布首章后再上架')
+    if (book.audit_status or 'draft') != 'approved':
+        errors.append('基础资料审核通过后才能上架')
+    if (book.shelf_status or 'down') == 'forced_down':
+        errors.append('该作品当前为平台强制下架状态，无法自行恢复')
+    return errors
+
+
 @bp.route('/books', methods=['GET'])
 @login_required
 def list_creator_books(current_user):
@@ -224,30 +553,301 @@ def list_creator_books(current_user):
         return jsonify({'items': []}), 200
 
     book_ids = [book.id for book in books]
-    section_rows = (
-        db.session.query(ReaderSection.book_id, func.count(ReaderSection.id).label('total'))
-        .filter(ReaderSection.book_id.in_(book_ids))
-        .group_by(ReaderSection.book_id)
-        .all()
-    )
+    section_map = _book_section_count_map(book_ids)
     version_rows = (
         db.session.query(BookVersion.book_id, func.count(BookVersion.id).label('total'))
         .filter(BookVersion.book_id.in_(book_ids))
         .group_by(BookVersion.book_id)
         .all()
     )
-    section_map = {row.book_id: int(row.total or 0) for row in section_rows}
     version_map = {row.book_id: int(row.total or 0) for row in version_rows}
+    tag_map = _book_tag_payload_map(book_ids)
 
     items = [
-        _serialize_creator_book(
-            book,
-            section_count=section_map.get(book.id, 0),
-            version_count=version_map.get(book.id, 0),
-        )
+        {
+            **_serialize_creator_book(
+                book,
+                section_count=section_map.get(book.id, 0),
+                version_count=version_map.get(book.id, 0),
+            ),
+            'tags': tag_map.get(book.id, []),
+            'tag_ids': [item['id'] for item in tag_map.get(book.id, [])],
+        }
         for book in books
     ]
     return jsonify({'items': items}), 200
+
+
+@bp.route('/work-options', methods=['GET'])
+@login_required
+def get_creator_work_options(current_user):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+    return jsonify(_serialize_work_options()), 200
+
+
+@bp.route('/works', methods=['GET'])
+@login_required
+def list_creator_works(current_user):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    keyword = (request.args.get('keyword') or '').strip()
+    audit_status = (request.args.get('audit_status') or '').strip().lower()
+    shelf_status = (request.args.get('shelf_status') or '').strip().lower()
+    completion_status = (request.args.get('completion_status') or '').strip().lower()
+
+    query = _creator_book_query(current_user)
+    if keyword:
+        query = query.filter(Book.title.like(f'%{keyword}%'))
+    if audit_status:
+        query = query.filter(Book.audit_status == audit_status)
+    if shelf_status:
+        query = query.filter(Book.shelf_status == shelf_status)
+    if completion_status:
+        query = query.filter(Book.completion_status == completion_status)
+
+    books = query.order_by(Book.updated_at.desc(), Book.id.desc()).all()
+    if not books:
+        return jsonify({'items': [], 'summary': {'total': 0, 'up': 0, 'pending': 0, 'completed': 0}}), 200
+
+    book_ids = [book.id for book in books]
+    section_map = _book_section_count_map(book_ids)
+    tag_map = _book_tag_payload_map(book_ids)
+
+    items = [_serialize_creator_work(book, tag_items=tag_map.get(book.id, []), section_count=section_map.get(book.id, 0)) for book in books]
+    return jsonify(
+        {
+            'items': items,
+            'summary': {
+                'total': len(items),
+                'up': sum(1 for item in items if item.get('shelf_status') == 'up'),
+                'pending': sum(1 for item in items if item.get('audit_status') == 'pending'),
+                'completed': sum(1 for item in items if item.get('completion_status') == 'completed'),
+            },
+        }
+    ), 200
+
+
+@bp.route('/works/<int:book_id>', methods=['GET'])
+@login_required
+def get_creator_work_detail(current_user, book_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
+    if not book:
+        return jsonify({'error': 'work not found'}), 404
+
+    tag_map = _book_tag_payload_map([book.id])
+    section_count = ReaderSection.query.filter_by(book_id=book.id).count()
+    return jsonify({'item': _serialize_creator_work(book, tag_items=tag_map.get(book.id, []), section_count=section_count)}), 200
+
+
+@bp.route('/works', methods=['POST'])
+@login_required
+@business_log_aspect('creator.work.create', tags=['creator', 'work', 'business', 'aop'])
+def create_creator_work(current_user):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    pen_name_error = _ensure_creator_pen_name(current_user)
+    if pen_name_error:
+        return pen_name_error
+
+    payload, error = _extract_work_payload()
+    if error:
+        return jsonify({'error': error}), 400
+
+    validation_error = _validate_work_payload(payload, strict=False, tenant_id=_tenant_id(current_user))
+    if validation_error:
+        return jsonify({'error': validation_error}), 400
+
+    book = Book(
+        title=payload['title'],
+        subtitle=payload.get('subtitle'),
+        author=_creator_pen_name(current_user),
+        description=payload.get('description'),
+        cover=payload.get('cover'),
+        category_id=payload.get('category_id'),
+        subcategory_code=payload.get('subcategory_code'),
+        completion_status=payload.get('completion_status') or 'ongoing',
+        price_type=payload.get('price_type') or 'free',
+        creation_type=payload.get('creation_type') or 'original',
+        protagonist=payload.get('protagonist'),
+        worldview=payload.get('worldview'),
+        author_message=payload.get('author_message'),
+        author_notice=payload.get('author_notice'),
+        copyright_notice=payload.get('copyright_notice'),
+        update_note=payload.get('update_note'),
+        audit_status='draft',
+        shelf_status='down',
+        status='draft',
+        creator_id=current_user.id,
+        tenant_id=_tenant_id(current_user),
+        created_at=datetime.utcnow(),
+    )
+    db.session.add(book)
+    db.session.flush()
+    _apply_work_tag_changes(book.id, payload.get('tag_ids') or [])
+    db.session.commit()
+
+    tag_map = _book_tag_payload_map([book.id])
+    return jsonify({'message': 'work created', 'item': _serialize_creator_work(book, tag_items=tag_map.get(book.id, []), section_count=0)}), 201
+
+
+@bp.route('/works/<int:book_id>', methods=['PUT'])
+@login_required
+@business_log_aspect('creator.work.update', tags=['creator', 'work', 'business', 'aop'])
+def update_creator_work(current_user, book_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
+    if not book:
+        return jsonify({'error': 'work not found'}), 404
+
+    payload, error = _extract_work_payload()
+    if error:
+        return jsonify({'error': error}), 400
+
+    validation_error = _validate_work_payload(payload, strict=False, current_book=book, tenant_id=_tenant_id(current_user))
+    if validation_error:
+        return jsonify({'error': validation_error}), 400
+
+    re_audit_required = _has_critical_work_changes(book, payload)
+    book.title = payload['title']
+    book.subtitle = payload.get('subtitle')
+    book.description = payload.get('description')
+    if payload.get('cover') is not None:
+        book.cover = payload.get('cover')
+    book.category_id = payload.get('category_id')
+    book.subcategory_code = payload.get('subcategory_code')
+    book.completion_status = payload.get('completion_status') or 'ongoing'
+    book.price_type = payload.get('price_type') or 'free'
+    book.creation_type = payload.get('creation_type') or 'original'
+    book.protagonist = payload.get('protagonist')
+    book.worldview = payload.get('worldview')
+    book.author_message = payload.get('author_message')
+    book.author_notice = payload.get('author_notice')
+    book.copyright_notice = payload.get('copyright_notice')
+    book.update_note = payload.get('update_note')
+    book.author = _creator_pen_name(current_user) or book.author
+
+    _apply_work_tag_changes(book.id, payload.get('tag_ids') or [])
+
+    if re_audit_required and (book.audit_status or 'draft') == 'approved':
+        book.audit_status = 'pending'
+        book.audit_comment = '核心资料已变更，请重新审核'
+
+    db.session.commit()
+    tag_map = _book_tag_payload_map([book.id])
+    section_count = ReaderSection.query.filter_by(book_id=book.id).count()
+    return jsonify(
+        {
+            'message': 'work updated',
+            're_audit_required': bool(re_audit_required),
+            'item': _serialize_creator_work(book, tag_items=tag_map.get(book.id, []), section_count=section_count),
+        }
+    ), 200
+
+
+@bp.route('/works/<int:book_id>/submit-audit', methods=['POST'])
+@login_required
+@business_log_aspect('creator.work.submit_audit', tags=['creator', 'work', 'review', 'business', 'aop'])
+def submit_creator_work_audit(current_user, book_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
+    if not book:
+        return jsonify({'error': 'work not found'}), 404
+    if (book.shelf_status or 'down') == 'forced_down':
+        return jsonify({'error': 'forced down work cannot submit audit'}), 400
+
+    payload = {
+        'title': book.title,
+        'subtitle': book.subtitle,
+        'description': book.description,
+        'cover': book.cover,
+        'category_id': book.category_id,
+        'subcategory_code': book.subcategory_code,
+        'tag_ids': [item.tag_id for item in BookTag.query.filter_by(book_id=book.id).all()],
+        'completion_status': book.completion_status,
+        'price_type': book.price_type,
+        'creation_type': book.creation_type,
+    }
+    validation_error = _validate_work_payload(payload, strict=True, current_book=book, tenant_id=_tenant_id(current_user))
+    if validation_error:
+        return jsonify({'error': validation_error}), 400
+
+    book.audit_status = 'pending'
+    book.audit_comment = None
+    book.audit_submitted_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'message': 'work submitted for audit', 'audit_status': book.audit_status}), 200
+
+
+@bp.route('/works/<int:book_id>/shelf', methods=['POST'])
+@login_required
+@business_log_aspect('creator.work.shelf', tags=['creator', 'work', 'status', 'business', 'aop'])
+def update_creator_work_shelf(current_user, book_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
+    if not book:
+        return jsonify({'error': 'work not found'}), 404
+
+    payload = request.get_json() or {}
+    action = (payload.get('action') or '').strip().lower()
+    if action not in {'up', 'down'}:
+        return jsonify({'error': 'action must be up or down'}), 400
+
+    if action == 'up':
+        errors = _work_publish_readiness(book)
+        if errors:
+            return jsonify({'error': 'work is not ready for publish', 'details': errors}), 400
+        book.shelf_status = 'up'
+        book.status = 'published'
+        if not book.published_at:
+            book.published_at = datetime.utcnow()
+        book.off_shelf_reason = None
+    else:
+        if (book.shelf_status or 'down') == 'forced_down':
+            return jsonify({'error': 'forced down work cannot be changed'}), 400
+        book.shelf_status = 'down'
+        book.status = 'draft'
+        book.off_shelf_reason = (payload.get('reason') or '').strip() or None
+
+    db.session.commit()
+    return jsonify({'message': 'work shelf updated', 'shelf_status': book.shelf_status, 'status': book.status}), 200
+
+
+@bp.route('/works/<int:book_id>/completion-status', methods=['POST'])
+@login_required
+@business_log_aspect('creator.work.completion_status', tags=['creator', 'work', 'status', 'business', 'aop'])
+def update_creator_work_completion_status(current_user, book_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
+    if not book:
+        return jsonify({'error': 'work not found'}), 404
+
+    payload = request.get_json() or {}
+    completion_status = (payload.get('completion_status') or '').strip().lower()
+    if completion_status not in WORK_COMPLETION_STATUSES:
+        return jsonify({'error': 'invalid completion_status'}), 400
+
+    if completion_status == 'completed' and (payload.get('confirm') is not True):
+        return jsonify({'error': 'complete action requires confirmation'}), 400
+
+    book.completion_status = completion_status
+    if completion_status == 'completed' and book.status == 'published':
+        book.status = 'published'
+    db.session.commit()
+    return jsonify({'message': 'completion status updated', 'completion_status': book.completion_status}), 200
 
 
 @bp.route('/books/<int:book_id>/chapters', methods=['GET'])

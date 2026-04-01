@@ -7,6 +7,7 @@ from flask_redis import FlaskRedis
 from sqlalchemy import inspect, text
 from config import Config
 from app.logging_utils import attach_request_hooks, register_error_handlers, setup_logging
+from app.services.work_catalog import WORK_CATEGORY_TAXONOMY, WORK_TAG_LIBRARY
 
 db = SQLAlchemy()
 redis_client = FlaskRedis()
@@ -100,6 +101,8 @@ def _apply_schema_compatibility_patches(app: Flask):
 
         if 'books' in table_names:
             book_columns = {col['name'] for col in inspector.get_columns('books')}
+            if 'subtitle' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN subtitle VARCHAR(255) NULL")
             if 'score' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN score DOUBLE NULL")
             if 'rating' not in book_columns:
@@ -116,18 +119,50 @@ def _apply_schema_compatibility_patches(app: Flask):
                 patches.append("ALTER TABLE books ADD COLUMN is_featured TINYINT(1) NOT NULL DEFAULT 0")
             if 'category_id' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN category_id INT NULL")
+            if 'subcategory_code' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN subcategory_code VARCHAR(64) NULL")
             if 'word_count' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN word_count INT NOT NULL DEFAULT 0")
             if 'completion_status' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN completion_status VARCHAR(20) NOT NULL DEFAULT 'ongoing'")
             if 'suitable_audience' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN suitable_audience VARCHAR(255) NULL")
+            if 'price_type' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN price_type VARCHAR(20) NOT NULL DEFAULT 'free'")
+            if 'creation_type' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN creation_type VARCHAR(20) NOT NULL DEFAULT 'original'")
+            if 'protagonist' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN protagonist TEXT NULL")
+            if 'worldview' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN worldview TEXT NULL")
+            if 'author_message' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN author_message TEXT NULL")
+            if 'author_notice' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN author_notice TEXT NULL")
+            if 'copyright_notice' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN copyright_notice TEXT NULL")
+            if 'update_note' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN update_note TEXT NULL")
+            if 'audit_status' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN audit_status VARCHAR(20) NOT NULL DEFAULT 'draft'")
+            if 'audit_comment' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN audit_comment TEXT NULL")
+            if 'shelf_status' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN shelf_status VARCHAR(20) NOT NULL DEFAULT 'down'")
+            if 'off_shelf_reason' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN off_shelf_reason VARCHAR(255) NULL")
+            if 'audit_submitted_at' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN audit_submitted_at DATETIME NULL")
             if 'status' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'published'")
             if 'creator_id' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN creator_id BIGINT NULL")
             if 'published_at' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN published_at DATETIME NULL")
+            if 'updated_at' not in book_columns:
+                patches.append(
+                    "ALTER TABLE books ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+                )
             if 'tenant_id' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
 
@@ -342,6 +377,45 @@ def _apply_schema_compatibility_patches(app: Flask):
         except Exception as exc:
             db.session.rollback()
             app.logger.warning("Skip super admin bootstrap due to error: %s", exc)
+
+        try:
+            refreshed_table_names = set(inspect(db.engine).get_table_names())
+            category_rows = (
+                db.session.execute(text("SELECT code FROM categories")).fetchall() if 'categories' in refreshed_table_names else []
+            )
+            existing_category_codes = {str(row[0]) for row in category_rows}
+            for item in WORK_CATEGORY_TAXONOMY:
+                if item['code'] in existing_category_codes:
+                    continue
+                db.session.execute(
+                    text(
+                        """
+                        INSERT INTO categories (code, name, description, is_highlighted)
+                        VALUES (:code, :name, :description, :is_highlighted)
+                        """
+                    ),
+                    {
+                        'code': item['code'],
+                        'name': item['name'],
+                        'description': f"{item['name']}频道",
+                        'is_highlighted': 1,
+                    },
+                )
+
+            tag_rows = db.session.execute(text("SELECT code FROM tags")).fetchall() if 'tags' in refreshed_table_names else []
+            existing_tag_codes = {str(row[0]) for row in tag_rows}
+            for item in WORK_TAG_LIBRARY:
+                if item['code'] in existing_tag_codes:
+                    continue
+                db.session.execute(
+                    text("INSERT INTO tags (code, label) VALUES (:code, :label)"),
+                    {'code': item['code'], 'label': item['label']},
+                )
+
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            app.logger.warning("Skip taxonomy bootstrap due to error: %s", exc)
 
 
 def create_app(config_class=Config):

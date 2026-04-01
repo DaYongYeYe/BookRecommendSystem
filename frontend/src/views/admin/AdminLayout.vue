@@ -16,6 +16,10 @@
             <el-icon><Reading /></el-icon>
             <span>书本管理</span>
           </el-menu-item>
+          <el-menu-item index="/manage/works/review">
+            <el-icon><Reading /></el-icon>
+            <span>作品审核</span>
+          </el-menu-item>
           <el-menu-item index="/manage/manuscripts/review">
             <el-icon><Document /></el-icon>
             <span>稿件审核</span>
@@ -66,6 +70,7 @@ const showRbacMenu = computed(() => isSuperAdminToken())
 const pageTitle = computed(() => {
   if (route.path.startsWith('/manage/comments')) return '评论管理'
   if (route.path.startsWith('/manage/books')) return '书本管理'
+  if (route.path.startsWith('/manage/works/review')) return '作品审核'
   if (route.path.startsWith('/manage/manuscripts/review')) return '稿件审核'
   if (route.path.startsWith('/manage/users')) return '用户管理'
   if (route.path.startsWith('/manage/rbac/roles')) return '角色管理'

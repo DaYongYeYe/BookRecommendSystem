@@ -18,6 +18,7 @@ import AdminLayout from '@/views/admin/AdminLayout.vue'
 import AdminDashboard from '@/views/admin/AdminDashboard.vue'
 import AdminComments from '@/views/admin/AdminComments.vue'
 import AdminBooks from '@/views/admin/AdminBooks.vue'
+import AdminWorksReview from '@/views/admin/AdminWorksReview.vue'
 import AdminUsers from '@/views/admin/AdminUsers.vue'
 import AdminManuscriptsReview from '@/views/admin/AdminManuscriptsReview.vue'
 import AdminRoles from '@/views/admin/AdminRoles.vue'
@@ -27,6 +28,7 @@ import AdminUserRoles from '@/views/admin/AdminUserRoles.vue'
 import CreatorLayout from '@/views/creator/CreatorLayout.vue'
 import CreatorDashboard from '@/views/creator/CreatorDashboard.vue'
 import CreatorManuscripts from '@/views/creator/CreatorManuscripts.vue'
+import CreatorWorks from '@/views/creator/CreatorWorks.vue'
 import Forbidden from '@/views/Forbidden.vue'
 import { getToken } from '@/api/request'
 import { isAdminToken, isCreatorToken, isSuperAdminToken } from '@/utils/auth'
@@ -159,6 +161,11 @@ const routes: RouteRecordRaw[] = [
         component: AdminBooks,
       },
       {
+        path: 'works/review',
+        name: 'AdminWorksReview',
+        component: AdminWorksReview,
+      },
+      {
         path: 'users',
         name: 'AdminUsers',
         component: AdminUsers,
@@ -201,7 +208,12 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: '',
-        redirect: '/creator/dashboard',
+        redirect: '/creator/works',
+      },
+      {
+        path: 'works',
+        name: 'CreatorWorks',
+        component: CreatorWorks,
       },
       {
         path: 'dashboard',

@@ -65,6 +65,28 @@ def _utc_day_range(day):
     return start, end
 
 
+def _admin_book_tag_payload_map(book_ids: list[int]):
+    if not book_ids:
+        return {}
+    rows = (
+        db.session.query(BookTag.book_id, Tag.id, Tag.code, Tag.label)
+        .join(Tag, Tag.id == BookTag.tag_id)
+        .filter(BookTag.book_id.in_(book_ids))
+        .order_by(Tag.id.asc())
+        .all()
+    )
+    tag_map = {}
+    for book_id, tag_id, tag_code, tag_label in rows:
+        tag_map.setdefault(book_id, []).append(
+            {
+                'id': int(tag_id),
+                'code': tag_code,
+                'label': tag_label,
+            }
+        )
+    return tag_map
+
+
 @bp.route('/dashboard/overview', methods=['GET'])
 @admin_required
 def get_dashboard_overview(current_user):
@@ -798,6 +820,68 @@ def batch_update_books(current_user):
         db.session.rollback()
         return jsonify({'error': 'failed to batch update books'}), 400
     return jsonify({'message': 'batch updated', 'updated_count': updated_count}), 200
+
+
+@bp.route('/works/reviews', methods=['GET'])
+@admin_required
+def get_work_reviews(current_user):
+    tenant_id = _tenant_id(current_user)
+    audit_status = (request.args.get('audit_status') or '').strip().lower()
+    shelf_status = (request.args.get('shelf_status') or '').strip().lower()
+    keyword = (request.args.get('keyword') or '').strip()
+
+    query = Book.query.filter_by(tenant_id=tenant_id)
+    if audit_status:
+        query = query.filter(Book.audit_status == audit_status)
+    if shelf_status:
+        query = query.filter(Book.shelf_status == shelf_status)
+    if keyword:
+        query = query.filter((Book.title.like(f'%{keyword}%')) | (Book.author.like(f'%{keyword}%')))
+
+    books = query.order_by(Book.audit_submitted_at.desc(), Book.updated_at.desc(), Book.id.desc()).all()
+    if not books:
+        return jsonify({'items': []}), 200
+
+    book_ids = [book.id for book in books]
+    category_ids = list({item.category_id for item in books if item.category_id})
+    category_map = {}
+    if category_ids:
+        category_map = {item.id: item for item in Category.query.filter(Category.id.in_(category_ids)).all()}
+    tag_map = _admin_book_tag_payload_map(book_ids)
+
+    items = []
+    for book in books:
+        item = book.to_dict()
+        category = category_map.get(book.category_id)
+        item['category_name'] = category.name if category else None
+        item['category_code'] = category.code if category else None
+        item['tags'] = tag_map.get(book.id, [])
+        item['tag_ids'] = [entry['id'] for entry in item['tags']]
+        items.append(item)
+
+    return jsonify({'items': items}), 200
+
+
+@bp.route('/works/<int:book_id>/review', methods=['POST'])
+@admin_required
+@business_log_aspect('admin.work.review', tags=['admin', 'work', 'review', 'business', 'aop'])
+def review_work(current_user, book_id):
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user)).first()
+    if not book:
+        return jsonify({'error': 'work not found'}), 404
+
+    payload = request.get_json() or {}
+    action = (payload.get('action') or '').strip().lower()
+    audit_comment = (payload.get('audit_comment') or '').strip() or None
+    if action not in ('approve', 'reject'):
+        return jsonify({'error': 'action must be approve or reject'}), 400
+    if (book.audit_status or 'draft') not in ('pending', 'approved', 'rejected'):
+        return jsonify({'error': 'work is not in reviewable status'}), 400
+
+    book.audit_status = 'approved' if action == 'approve' else 'rejected'
+    book.audit_comment = audit_comment
+    db.session.commit()
+    return jsonify({'message': 'work review updated', 'item': book.to_dict()}), 200
 
 @bp.route('/manuscripts', methods=['GET'])
 @admin_required

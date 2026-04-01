@@ -224,7 +224,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, FormInstance, FormRules } from 'element-plus'
 import {
   CreatorBookChapterItem,
@@ -254,6 +254,7 @@ const creatorBooks = ref<CreatorBookItem[]>([])
 const publishedChapters = ref<CreatorBookChapterItem[]>([])
 const statusFilter = ref('')
 const router = useRouter()
+const route = useRoute()
 
 const { penNameDialogVisible, penNameForm, saving, loadCreatorProfile, savePenName, hasPenName } = useCreatorPenName()
 
@@ -435,6 +436,22 @@ const openCreateDialog = () => {
   dialogVisible.value = true
 }
 
+const openCreateDialogForExistingBook = async (bookId?: number) => {
+  if (!bookId) {
+    openCreateDialog()
+    return
+  }
+  if (!hasPenName()) {
+    penNameDialogVisible.value = true
+    return
+  }
+  resetForm()
+  form.target_type = 'existing'
+  form.selectedBookId = bookId
+  await handleTargetBookChange(bookId)
+  dialogVisible.value = true
+}
+
 const openEditDialog = async (row: CreatorManuscriptItem) => {
   if (!hasPenName()) {
     penNameDialogVisible.value = true
@@ -590,6 +607,10 @@ const onSubmit = async (row: CreatorManuscriptItem) => {
 const bootstrap = async () => {
   await loadCreatorProfile()
   await reloadAll()
+  const routeBookId = Number(route.query.bookId || 0)
+  if (route.query.create === '1' && routeBookId > 0) {
+    await openCreateDialogForExistingBook(routeBookId)
+  }
 }
 
 onMounted(bootstrap)

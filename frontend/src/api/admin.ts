@@ -151,6 +151,32 @@ export interface AdminManuscriptItem {
   updated_at?: string | null
 }
 
+export interface AdminWorkReviewItem {
+  id: number
+  title: string
+  subtitle?: string | null
+  author?: string | null
+  description?: string | null
+  cover?: string | null
+  category_id?: number | null
+  category_name?: string | null
+  category_code?: string | null
+  subcategory_code?: string | null
+  tags?: Array<{ id: number; code?: string; label: string }>
+  tag_ids?: number[]
+  completion_status?: string
+  price_type?: string
+  creation_type?: string
+  audit_status: 'draft' | 'pending' | 'approved' | 'rejected' | string
+  audit_comment?: string | null
+  audit_submitted_at?: string | null
+  shelf_status?: 'up' | 'down' | 'forced_down' | string
+  status?: string
+  creator_id?: number | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
 export type AdminCommentType = 'book' | 'highlight'
 
 export interface AdminCommentItem {
@@ -273,6 +299,16 @@ export function reviewAdminManuscript(
 
 export function publishAdminManuscript(manuscriptId: number) {
   return request.post(`/admin/manuscripts/${manuscriptId}/publish`)
+}
+
+export function getAdminWorkReviews(params?: { audit_status?: string; shelf_status?: string; keyword?: string }) {
+  return request.get<{ items: AdminWorkReviewItem[] }, { items: AdminWorkReviewItem[] }>('/admin/works/reviews', {
+    params,
+  })
+}
+
+export function reviewAdminWork(bookId: number, data: { action: 'approve' | 'reject'; audit_comment?: string }) {
+  return request.post(`/admin/works/${bookId}/review`, data)
 }
 
 export function getAdminComments(params: { page: number; page_size: number; keyword?: string; type?: string }) {

@@ -7,20 +7,25 @@ const router = useRouter()
 
 const navItems = [
   {
-    label: '数据总览',
-    path: '/creator/dashboard',
-    matches: (path: string) => path.startsWith('/creator/dashboard'),
+    label: '我的作品',
+    path: '/creator/works',
+    matches: (path: string) => path.startsWith('/creator/works'),
   },
   {
     label: '稿件与章节',
     path: '/creator/manuscripts',
     matches: (path: string) => path.startsWith('/creator/manuscripts'),
   },
+  {
+    label: '数据总览',
+    path: '/creator/dashboard',
+    matches: (path: string) => path.startsWith('/creator/dashboard'),
+  },
 ]
 
 const activePath = computed(() => {
   const current = navItems.find((item) => item.matches(route.path))
-  return current?.path || '/creator/dashboard'
+  return current?.path || '/creator/works'
 })
 </script>
 
@@ -31,7 +36,7 @@ const activePath = computed(() => {
         <span class="brand-mark">C</span>
         <span>
           <strong>创作中心</strong>
-          <small>独立入口与独立导航</small>
+          <small>作品、章节、审核与创作数据统一管理</small>
         </span>
       </button>
 
@@ -48,8 +53,8 @@ const activePath = computed(() => {
       </nav>
 
       <section class="boundary-card">
-        <p class="boundary-label">仅创作中心处理</p>
-        <p class="boundary-title">草稿、章节、审核状态、创作分析等后台内容在这里独立承载。</p>
+        <p class="boundary-label">创作者工作台</p>
+        <p class="boundary-title">作品基础资料、章节草稿、审核流转和创作分析都在这里独立承载，不打断读者端浏览路径。</p>
       </section>
 
       <div class="utility-actions">

@@ -25,9 +25,7 @@ const total = computed(() =>
 )
 
 const formatDistribution = (rows: { label: string; percent: number; count: number }[]) => {
-  if (!rows.length) {
-    return '暂无数据'
-  }
+  if (!rows.length) return '暂无数据'
   return rows
     .slice(0, 3)
     .map((row) => `${row.label} ${row.percent}%`)
@@ -40,7 +38,7 @@ async function loadData() {
     const res = await getCreatorBookAnalytics({ limit: 100 })
     items.value = res.items || []
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.error || '加载创作者数据失败')
+    ElMessage.error(error?.response?.data?.error || '加载创作数据失败')
   } finally {
     loading.value = false
   }
@@ -57,9 +55,10 @@ onMounted(bootstrap)
 <template>
   <div class="dashboard-page">
     <div class="topbar">
-      <h2>创作者数据看板</h2>
+      <h2>创作数据看板</h2>
       <div class="actions">
-        <el-button type="primary" :disabled="!hasPenName()" @click="router.push('/creator/manuscripts')">稿件管理</el-button>
+        <el-button type="primary" :disabled="!hasPenName()" @click="router.push('/creator/works')">我的作品</el-button>
+        <el-button :disabled="!hasPenName()" @click="router.push('/creator/manuscripts')">稿件管理</el-button>
         <el-button @click="router.push('/user/profile')">个人资料</el-button>
         <el-button @click="router.push('/')">返回首页</el-button>
       </div>
@@ -67,7 +66,7 @@ onMounted(bootstrap)
 
     <el-alert
       v-if="!hasPenName()"
-      title="进入创作者端前需要先设置笔名，发布后的书籍会以该笔名展示。"
+      title="进入创作者端前需要先设置笔名，作品和章节会以该笔名展示作者身份。"
       type="warning"
       show-icon
       :closable="false"
@@ -88,7 +87,7 @@ onMounted(bootstrap)
 
     <el-card class="panel" shadow="never">
       <template #header>
-        <div class="panel-header">每本书的数据</div>
+        <div class="panel-header">每本作品的阅读表现</div>
       </template>
       <el-table :data="items" v-loading="loading" border>
         <el-table-column prop="title" label="书名" min-width="220" />
@@ -107,25 +106,23 @@ onMounted(bootstrap)
 
     <el-card class="panel" shadow="never">
       <template #header>
-        <div class="panel-header">创作者端建议优化</div>
+        <div class="panel-header">创作优化建议</div>
       </template>
       <div class="tips-grid">
         <div class="tip-card">
-          <div class="tip-title">1. 转化漏斗</div>
-          <div class="tip-desc">建议补充从曝光到阅读到持续阅读的转化指标，便于判断封面、简介和开篇是否有效。</div>
+          <div class="tip-title">1. 先补基础资料</div>
+          <div class="tip-desc">书名、封面、简介、分类与标签会直接影响读者点击和推荐分发，建议优先在作品管理页补齐。</div>
         </div>
         <div class="tip-card">
-          <div class="tip-title">2. 章节热度</div>
-          <div class="tip-desc">支持按章节统计停留时长和流失率后，更容易判断作者每次新增 1-2 章的效果。</div>
+          <div class="tip-title">2. 关注首章转化</div>
+          <div class="tip-desc">如果曝光高但阅读低，优先回看封面和简介；如果阅读高但留存低，重点优化开篇节奏和前几章承接。</div>
         </div>
         <div class="tip-card">
-          <div class="tip-title">3. 人群画像</div>
-          <div class="tip-desc">加入时间范围和人群筛选，能更快看出不同地区、年龄层对作品更新的反馈差异。</div>
+          <div class="tip-title">3. 用数据安排更新</div>
+          <div class="tip-desc">对阅读活跃高的作品保持稳定更新，对已完结或暂停作品及时同步状态，避免读者预期落差。</div>
         </div>
       </div>
-      <div v-if="topBooks.length" class="top-books">
-        当前阅读量最高：{{ topBooks.map((item) => item.title).join(' / ') }}
-      </div>
+      <div v-if="topBooks.length" class="top-books">当前阅读量最高：{{ topBooks.map((item) => item.title).join(' / ') }}</div>
     </el-card>
 
     <el-dialog
@@ -137,9 +134,9 @@ onMounted(bootstrap)
     >
       <el-form label-position="top">
         <el-form-item label="笔名">
-          <el-input v-model="penNameForm.pen_name" maxlength="80" placeholder="例如：青山、北舟、林间夜雨" />
+          <el-input v-model="penNameForm.pen_name" maxlength="80" placeholder="例如：青山、北舟、林间夜雪" />
         </el-form-item>
-        <div class="dialog-tip">笔名会作为作者名显示在作品详情页与阅读页中。</div>
+        <div class="dialog-tip">笔名会显示在作品详情页与阅读页中，也会作为稿件和作品管理的默认作者名。</div>
       </el-form>
       <template #footer>
         <el-button @click="router.push('/user/profile')">去个人资料页</el-button>
