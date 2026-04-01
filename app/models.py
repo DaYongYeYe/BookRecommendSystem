@@ -275,6 +275,27 @@ class UserShelf(db.Model):
         }
 
 
+class UserSearchHistory(db.Model):
+    __tablename__ = 'user_search_history'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    keyword = db.Column(db.String(100), nullable=False)
+    search_count = db.Column(db.Integer, nullable=False, default=1)
+    last_searched_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'keyword', name='uniq_user_search_keyword'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'keyword': self.keyword,
+            'search_count': int(self.search_count or 0),
+            'last_searched_at': self.last_searched_at.isoformat() if self.last_searched_at else None,
+        }
+
+
 class ReaderUserPreference(db.Model):
     __tablename__ = 'reader_user_preferences'
 

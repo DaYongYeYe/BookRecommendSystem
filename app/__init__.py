@@ -73,6 +73,31 @@ def _apply_schema_compatibility_patches(app: Flask):
                 .replace('{user_id_type}', user_id_type)
             )
 
+        if 'user_search_history' not in table_names:
+            user_id_type = 'INT'
+            users_id_column = next((col for col in inspector.get_columns('users') if col.get('name') == 'id'), None)
+            if users_id_column:
+                raw_type = str(users_id_column.get('type', '')).upper()
+                if 'BIGINT' in raw_type:
+                    user_id_type = 'BIGINT'
+                if 'UNSIGNED' in raw_type:
+                    user_id_type = f'{user_id_type} UNSIGNED'
+            patches.append(
+                """
+                CREATE TABLE user_search_history (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id {user_id_type} NOT NULL,
+                    keyword VARCHAR(100) NOT NULL,
+                    search_count INT NOT NULL DEFAULT 1,
+                    last_searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_user_search_keyword (user_id, keyword),
+                    KEY idx_ush_user (user_id),
+                    KEY idx_ush_last_searched_at (last_searched_at)
+                )
+                """
+                .replace('{user_id_type}', user_id_type)
+            )
+
         if 'books' in table_names:
             book_columns = {col['name'] for col in inspector.get_columns('books')}
             if 'score' not in book_columns:

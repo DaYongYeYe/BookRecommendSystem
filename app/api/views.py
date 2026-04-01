@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from flask import jsonify, request
 from sqlalchemy import func, or_
@@ -8,20 +8,319 @@ from app import db
 from app.api import bp
 from app.models import (
     Book,
-    BookRanking,
+    BookAnalyticsEvent,
     BookTag,
     Category,
     ReaderSection,
     Tag,
     UserReadingProgress,
+    UserSearchHistory,
     UserShelf,
 )
 from app.rbac.decorators import login_optional, login_required
+
+DEFAULT_HOT_SEARCH_TERMS = [
+    '悬疑',
+    '治愈',
+    '都市',
+    '成长',
+    '古言',
+    '科幻',
+    '权谋',
+    '轻松',
+]
+DEFAULT_SEARCH_HISTORY_LIMIT = 8
+VALID_COMPLETION_STATUSES = {'ongoing', 'completed', 'paused'}
+RANKING_WINDOW_DAYS = 7
+RANKING_TYPE_ORDER = ['hot', 'new_book', 'surging', 'completed', 'collection', 'following']
+RANKING_TYPE_CONFIG = {
+    'hot': {
+        'label': '热门榜',
+        'description': '综合阅读热度、收藏人数和口碑表现排序。',
+        'update_cycle': '每小时更新',
+        'primary_metric': '综合热度',
+    },
+    'new_book': {
+        'label': '新书榜',
+        'description': '优先展示近期上架且热度起势明显的新作品。',
+        'update_cycle': '每6小时更新',
+        'primary_metric': '新书热度',
+    },
+    'surging': {
+        'label': '飙升榜',
+        'description': f'按近 {RANKING_WINDOW_DAYS} 天增长速度排序，适合发现趋势作品。',
+        'update_cycle': '每2小时更新',
+        'primary_metric': '增长速度',
+    },
+    'completed': {
+        'label': '完结榜',
+        'description': '优先展示已完结且口碑稳定的作品。',
+        'update_cycle': '每日更新',
+        'primary_metric': '完结口碑',
+    },
+    'collection': {
+        'label': '收藏榜',
+        'description': '按加入书架人数排序，反映用户长期收藏意愿。',
+        'update_cycle': '每小时更新',
+        'primary_metric': '收藏人数',
+    },
+    'following': {
+        'label': '追更榜',
+        'description': '聚焦连载作品的在读人数与近期追更活跃度。',
+        'update_cycle': '每小时更新',
+        'primary_metric': '追更热度',
+    },
+}
+RANKING_TYPE_ALIASES = {
+    'high_score': 'hot',
+    'hot': 'hot',
+    'popular': 'hot',
+    'new': 'new_book',
+    'new_book': 'new_book',
+    'surging': 'surging',
+    'rising': 'surging',
+    'completed': 'completed',
+    'finished': 'completed',
+    'collection': 'collection',
+    'favorite': 'collection',
+    'following': 'following',
+    'ongoing': 'following',
+}
 
 
 def _message(text: str, **extra):
     payload = {'message': text}
     payload.update(extra)
+    return payload
+
+
+def _format_compact_number(value: int | float | None):
+    num = max(0, int(value or 0))
+    if num >= 10000:
+        return f'{num / 10000:.1f}万'
+    return str(num)
+
+
+def _normalize_ranking_type(value: str | None):
+    return RANKING_TYPE_ALIASES.get((value or 'hot').strip(), None)
+
+
+def _ranking_type_options():
+    return [
+        {
+            'key': key,
+            **RANKING_TYPE_CONFIG[key],
+            'period_hint': '日榜/周榜/月榜后续开放',
+        }
+        for key in RANKING_TYPE_ORDER
+    ]
+
+
+def _collect_ranking_stats():
+    window_start = datetime.utcnow() - timedelta(days=RANKING_WINDOW_DAYS)
+    books = Book.query.filter_by(status='published').all()
+    categories = {item.id: item for item in Category.query.all()}
+
+    shelf_counts = {
+        int(book_id): int(count or 0)
+        for book_id, count in db.session.query(UserShelf.book_id, func.count(UserShelf.id))
+        .group_by(UserShelf.book_id)
+        .all()
+    }
+    reading_users = {
+        int(book_id): int(count or 0)
+        for book_id, count in db.session.query(UserReadingProgress.book_id, func.count(UserReadingProgress.id))
+        .group_by(UserReadingProgress.book_id)
+        .all()
+    }
+    recent_progress = {
+        int(book_id): int(count or 0)
+        for book_id, count in db.session.query(UserReadingProgress.book_id, func.count(UserReadingProgress.id))
+        .filter(UserReadingProgress.updated_at >= window_start)
+        .group_by(UserReadingProgress.book_id)
+        .all()
+    }
+    recent_events = {
+        int(book_id): {
+            'count': int(count or 0),
+            'read_minutes': int((seconds or 0) / 60),
+        }
+        for book_id, count, seconds in db.session.query(
+            BookAnalyticsEvent.book_id,
+            func.count(BookAnalyticsEvent.id),
+            func.coalesce(func.sum(BookAnalyticsEvent.read_duration_seconds), 0),
+        )
+        .filter(BookAnalyticsEvent.created_at >= window_start)
+        .group_by(BookAnalyticsEvent.book_id)
+        .all()
+    }
+
+    return books, categories, shelf_counts, reading_users, recent_progress, recent_events
+
+
+def _build_book_ranking_context(
+    book: Book,
+    shelf_counts: dict[int, int],
+    reading_users: dict[int, int],
+    recent_progress: dict[int, int],
+    recent_events: dict[int, dict[str, int]],
+):
+    published_date = book.published_at.date() if book.published_at else None
+    published_days = 999
+    if published_date:
+        published_days = max(1, (date.today() - published_date).days + 1)
+
+    recent_reads = int(book.recent_reads or 0)
+    rating = float(book.rating or book.score or 0)
+    rating_count = int(book.rating_count or 0)
+    shelf_count = shelf_counts.get(book.id, 0)
+    reading_count = reading_users.get(book.id, 0)
+    recent_progress_count = recent_progress.get(book.id, 0)
+    recent_event_data = recent_events.get(book.id, {'count': 0, 'read_minutes': 0})
+    recent_event_count = int(recent_event_data.get('count', 0))
+    recent_read_minutes = int(recent_event_data.get('read_minutes', 0))
+    freshness_bonus = max(0, 60 - min(published_days, 60)) if published_days != 999 else 0
+    growth_points = recent_progress_count * 6 + recent_event_count * 3 + min(recent_read_minutes, 720)
+
+    return {
+        'published_days': published_days,
+        'freshness_bonus': freshness_bonus,
+        'recent_reads': recent_reads,
+        'rating': rating,
+        'rating_count': rating_count,
+        'shelf_count': shelf_count,
+        'reading_users': reading_count,
+        'recent_progress': recent_progress_count,
+        'recent_event_count': recent_event_count,
+        'recent_read_minutes': recent_read_minutes,
+        'growth_points': growth_points,
+    }
+
+
+def _score_book_for_ranking(book: Book, rank_type: str, context: dict):
+    if rank_type == 'hot':
+        return {
+            'score': (
+                context['recent_reads']
+                + context['shelf_count'] * 220
+                + context['reading_users'] * 200
+                + context['recent_event_count'] * 45
+                + context['rating_count'] * 30
+                + context['rating'] * 120
+            ),
+            'heat_label': f"{_format_compact_number(max(context['recent_reads'], context['reading_users']))}热度",
+            'ranking_note': '阅读、收藏与口碑综合表现领先',
+        }
+
+    if rank_type == 'new_book':
+        return {
+            'score': (
+                context['freshness_bonus'] * 260
+                + context['recent_reads'] * 0.55
+                + context['recent_event_count'] * 70
+                + context['rating'] * 100
+                + context['shelf_count'] * 140
+                + context['reading_users'] * 150
+            ),
+            'heat_label': (
+                f"{context['published_days']}天内上新"
+                if context['published_days'] != 999
+                else '近期新作'
+            ),
+            'ranking_note': '近期上线且热度起势快',
+        }
+
+    if rank_type == 'surging':
+        return {
+            'score': (
+                context['growth_points'] * 45
+                + context['recent_progress'] * 180
+                + context['recent_event_count'] * 80
+                + context['recent_read_minutes'] * 2
+                + context['recent_reads'] * 0.05
+            ),
+            'heat_label': f"近{RANKING_WINDOW_DAYS}日增长{_format_compact_number(context['growth_points'])}",
+            'ranking_note': '最近一周增长速度最快',
+        }
+
+    if rank_type == 'completed':
+        if book.completion_status != 'completed':
+            return None
+        return {
+            'score': (
+                context['rating'] * 220
+                + context['rating_count'] * 40
+                + context['recent_reads'] * 0.2
+                + context['shelf_count'] * 180
+                + context['reading_users'] * 120
+            ),
+            'heat_label': '已完结，可放心一口气读',
+            'ranking_note': '完结作品中口碑与热度兼具',
+        }
+
+    if rank_type == 'collection':
+        return {
+            'score': (
+                context['shelf_count'] * 320
+                + context['rating'] * 120
+                + context['rating_count'] * 25
+                + context['recent_reads'] * 0.1
+            ),
+            'heat_label': f"{_format_compact_number(context['shelf_count'])}人收藏",
+            'ranking_note': '加入书架人数领先',
+        }
+
+    if rank_type == 'following':
+        if book.completion_status != 'ongoing':
+            return None
+        return {
+            'score': (
+                context['reading_users'] * 260
+                + context['recent_progress'] * 210
+                + context['recent_event_count'] * 70
+                + context['shelf_count'] * 120
+                + context['recent_reads'] * 0.12
+            ),
+            'heat_label': f"{_format_compact_number(max(context['reading_users'], context['recent_progress']))}人追更",
+            'ranking_note': '连载作品中追更讨论最活跃',
+        }
+
+    return None
+
+
+def _ranking_sort_key(item: dict, rank_type: str):
+    context = item['context']
+    rating = float(item['book'].rating or item['book'].score or 0)
+    recent_reads = int(item['book'].recent_reads or 0)
+
+    if rank_type == 'new_book':
+        return (-item['score'], context['published_days'], -recent_reads, item['book'].id)
+    if rank_type == 'surging':
+        return (-item['score'], -context['recent_event_count'], -context['recent_progress'], item['book'].id)
+    if rank_type == 'completed':
+        return (-item['score'], -rating, -context['shelf_count'], item['book'].id)
+    if rank_type == 'collection':
+        return (-item['score'], -context['shelf_count'], -rating, item['book'].id)
+    if rank_type == 'following':
+        return (-item['score'], -context['reading_users'], -context['recent_progress'], item['book'].id)
+    return (-item['score'], -rating, -recent_reads, item['book'].id)
+
+
+def _build_ranking_payload(book: Book, category: Category | None, rank_type: str, rank_no: int, ranking: dict, context: dict):
+    payload = _book_payload(book, recommend_reason=ranking['ranking_note'])
+    payload.update(
+        {
+            'rank': rank_no,
+            'category_name': category.name if category else None,
+            'heat_label': ranking['heat_label'],
+            'ranking_note': ranking['ranking_note'],
+            'ranking_score': round(float(ranking['score']), 2),
+            'shelf_count': context['shelf_count'],
+            'reading_users': context['reading_users'],
+            'recent_growth': context['growth_points'],
+            'published_days': context['published_days'] if context['published_days'] != 999 else None,
+        }
+    )
     return payload
 
 
@@ -135,18 +434,109 @@ def _build_recommend_reason(book: Book, current_user=None, context: dict | None 
     return book.home_recommendation_reason or '为你挑出的高分好书'
 
 
+def _normalize_search_keyword(value, max_len: int = 100):
+    keyword = ' '.join((value or '').split())
+    return keyword[:max_len]
+
+
 def _books_search_query(q: str):
     like = f'%{q}%'
-    return Book.query.filter(
-        Book.status == 'published',
-        or_(
-            Book.title.ilike(like),
-            Book.subtitle.ilike(like),
-            Book.author.ilike(like),
-            Book.description.ilike(like),
-            Book.search_keywords.ilike(like),
-        ),
+    return (
+        Book.query.outerjoin(Category, Category.id == Book.category_id)
+        .outerjoin(BookTag, BookTag.book_id == Book.id)
+        .outerjoin(Tag, Tag.id == BookTag.tag_id)
+        .filter(
+            Book.status == 'published',
+            or_(
+                Book.title.ilike(like),
+                Book.subtitle.ilike(like),
+                Book.author.ilike(like),
+                Book.description.ilike(like),
+                Book.search_keywords.ilike(like),
+                Category.name.ilike(like),
+                Category.en_name.ilike(like),
+                Tag.label.ilike(like),
+                Tag.code.ilike(like),
+            ),
+        )
+        .distinct()
     )
+
+
+def _build_search_recommendations(limit: int = 4, exclude_ids: list[int] | None = None):
+    query = Book.query.filter_by(status='published')
+    if exclude_ids:
+        query = query.filter(~Book.id.in_(exclude_ids))
+
+    books = (
+        query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_book_payload(book, recommend_reason='大家都在看，也许这本正适合现在打开') for book in books]
+
+
+def _record_search_history(current_user, keyword: str):
+    if not current_user or not keyword:
+        return
+
+    history = UserSearchHistory.query.filter_by(user_id=current_user.id, keyword=keyword).first()
+    if history:
+        history.search_count = int(history.search_count or 0) + 1
+        history.last_searched_at = db.func.now()
+    else:
+        db.session.add(
+            UserSearchHistory(
+                user_id=current_user.id,
+                keyword=keyword,
+                search_count=1,
+            )
+        )
+
+    overflow_rows = (
+        UserSearchHistory.query.filter_by(user_id=current_user.id)
+        .order_by(UserSearchHistory.last_searched_at.desc(), UserSearchHistory.id.desc())
+        .offset(20)
+        .all()
+    )
+    for row in overflow_rows:
+        db.session.delete(row)
+
+
+def _get_hot_search_term_items(limit: int = 8):
+    items = []
+    seen = set()
+
+    def append_term(keyword: str, source: str):
+        text = _normalize_search_keyword(keyword, max_len=20)
+        if not text or text in seen:
+            return
+        seen.add(text)
+        items.append({'keyword': text, 'source': source})
+
+    for keyword in DEFAULT_HOT_SEARCH_TERMS:
+        append_term(keyword, 'configured')
+
+    tag_rows = (
+        db.session.query(Tag, func.count(BookTag.id).label('book_count'))
+        .outerjoin(BookTag, BookTag.tag_id == Tag.id)
+        .group_by(Tag.id)
+        .order_by(func.count(BookTag.id).desc(), Tag.id.asc())
+        .limit(limit)
+        .all()
+    )
+    for tag, _book_count in tag_rows:
+        append_term(tag.label, 'tag')
+
+    category_rows = (
+        Category.query.order_by(Category.is_highlighted.desc(), Category.id.asc())
+        .limit(limit)
+        .all()
+    )
+    for category in category_rows:
+        append_term(category.name, 'category')
+
+    return items[:limit]
 
 
 @bp.route('/user/profile', methods=['GET'])
@@ -163,7 +553,7 @@ def api_get_unread_notifications_count(current_user):
     return jsonify({'unread_count': 3}), 200
 
 
-@bp.route('/books/search', methods=['GET'])
+@bp.route('/books/search-legacy', methods=['GET'])
 def api_search_books():
     q = request.args.get('q', '').strip()
     try:
@@ -189,6 +579,89 @@ def api_search_books():
             )
         )
     return jsonify({'query': q, 'items': items}), 200
+
+
+@bp.route('/search/hot-terms', methods=['GET'])
+def api_get_search_hot_terms():
+    try:
+        limit = max(1, min(int(request.args.get('limit', 8)), 20))
+    except ValueError:
+        limit = 8
+
+    return jsonify({'items': _get_hot_search_term_items(limit)}), 200
+
+
+@bp.route('/search/history', methods=['GET'])
+@login_optional
+def api_get_search_history(current_user):
+    try:
+        limit = max(1, min(int(request.args.get('limit', DEFAULT_SEARCH_HISTORY_LIMIT)), 20))
+    except ValueError:
+        limit = DEFAULT_SEARCH_HISTORY_LIMIT
+
+    if not current_user:
+        return jsonify({'items': []}), 200
+
+    items = (
+        UserSearchHistory.query.filter_by(user_id=current_user.id)
+        .order_by(UserSearchHistory.last_searched_at.desc(), UserSearchHistory.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return jsonify({'items': [item.to_dict() for item in items]}), 200
+
+
+@bp.route('/search/history', methods=['DELETE'])
+@login_required
+def api_clear_search_history(current_user):
+    UserSearchHistory.query.filter_by(user_id=current_user.id).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify(_message('search history cleared')), 200
+
+
+@bp.route('/books/search', methods=['GET'])
+@login_optional
+def api_search_books_v2(current_user):
+    q = _normalize_search_keyword(request.args.get('q', ''))
+    try:
+        limit = max(1, min(int(request.args.get('limit', 12)), 30))
+    except ValueError:
+        limit = 12
+    try:
+        recommend_limit = max(1, min(int(request.args.get('recommend_limit', 4)), 8))
+    except ValueError:
+        recommend_limit = 4
+
+    if not q:
+        return jsonify({'query': q, 'total': 0, 'items': [], 'recommended_items': []}), 200
+
+    books = (
+        _books_search_query(q)
+        .order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    if current_user:
+        _record_search_history(current_user, q)
+        db.session.commit()
+
+    items = [
+        _book_payload(book, recommend_reason=f'搜索“{q}”时命中了书名、作者、标签或简介关键词')
+        for book in books
+    ]
+    recommended_items = []
+    if not items:
+        recommended_items = _build_search_recommendations(recommend_limit)
+
+    return jsonify(
+        {
+            'query': q,
+            'total': len(items),
+            'items': items,
+            'recommended_items': recommended_items,
+        }
+    ), 200
 
 
 @bp.route('/home/continue-reading', methods=['GET'])
@@ -360,50 +833,56 @@ def api_recommendation_feedback(current_user):
 
 @bp.route('/books/rankings', methods=['GET'])
 def api_get_book_rankings():
-    rank_type = request.args.get('type', 'high_score')
+    rank_type = _normalize_ranking_type(request.args.get('type', 'hot'))
+    if not rank_type:
+        return jsonify({'error': 'invalid type', 'available_types': _ranking_type_options()}), 400
     try:
-        limit = int(request.args.get('limit', '10'))
+        limit = max(1, min(int(request.args.get('limit', '10')), 50))
     except ValueError:
         limit = 10
 
-    latest_snapshot = (
-        db.session.query(func.max(BookRanking.snapshot_date))
-        .filter(BookRanking.type == rank_type)
-        .scalar()
-    )
+    books, categories, shelf_counts, reading_users, recent_progress, recent_events = _collect_ranking_stats()
 
-    if latest_snapshot:
-        rows = (
-            db.session.query(BookRanking, Book)
-            .join(Book, Book.id == BookRanking.book_id)
-            .filter(
-                BookRanking.type == rank_type,
-                BookRanking.snapshot_date == latest_snapshot,
-                Book.status == 'published',
-            )
-            .order_by(BookRanking.rank_no.asc())
-            .limit(limit)
-            .all()
+    ranked_items = []
+    for book in books:
+        context = _build_book_ranking_context(
+            book,
+            shelf_counts=shelf_counts,
+            reading_users=reading_users,
+            recent_progress=recent_progress,
+            recent_events=recent_events,
         )
-        items = []
-        for ranking, book in rows:
-            payload = _book_payload(book, recommend_reason='口碑榜稳定上榜')
-            payload['rank'] = int(ranking.rank_no)
-            items.append(payload)
-        return jsonify({'type': rank_type, 'snapshot_date': latest_snapshot.isoformat(), 'items': items}), 200
+        ranking = _score_book_for_ranking(book, rank_type, context)
+        if not ranking:
+            continue
+        ranked_items.append({'book': book, 'context': context, **ranking})
 
-    books = (
-        Book.query.filter_by(status='published')
-        .order_by(Book.rating.desc(), Book.rating_count.desc(), Book.recent_reads.desc(), Book.id.desc())
-        .limit(limit)
-        .all()
-    )
-    items = []
-    for idx, book in enumerate(books, start=1):
-        payload = _book_payload(book, recommend_reason='口碑榜高分推荐')
-        payload['rank'] = idx
-        items.append(payload)
-    return jsonify({'type': rank_type, 'snapshot_date': date.today().isoformat(), 'items': items}), 200
+    ranked_items = sorted(ranked_items, key=lambda item: _ranking_sort_key(item, rank_type))[:limit]
+    items = [
+        _build_ranking_payload(
+            item['book'],
+            categories.get(item['book'].category_id),
+            rank_type,
+            idx,
+            item,
+            item['context'],
+        )
+        for idx, item in enumerate(ranked_items, start=1)
+    ]
+
+    return jsonify(
+        {
+            'type': rank_type,
+            'meta': {
+                'key': rank_type,
+                **RANKING_TYPE_CONFIG[rank_type],
+                'period_hint': '日榜/周榜/月榜后续开放',
+            },
+            'available_types': _ranking_type_options(),
+            'snapshot_date': date.today().isoformat(),
+            'items': items,
+        }
+    ), 200
 
 
 @bp.route('/user/weekly-reading-task', methods=['GET'])
@@ -447,6 +926,24 @@ def api_get_highlighted_categories():
         .all()
     )
     return jsonify({'items': [item.to_dict() for item in categories]}), 200
+
+
+@bp.route('/categories', methods=['GET'])
+def api_get_categories():
+    rows = (
+        db.session.query(Category, func.count(Book.id).label('book_count'))
+        .outerjoin(Book, db.and_(Book.category_id == Category.id, Book.status == 'published'))
+        .group_by(Category.id)
+        .order_by(Category.is_highlighted.desc(), Category.name.asc(), Category.id.asc())
+        .all()
+    )
+
+    items = []
+    for category, book_count in rows:
+        payload = category.to_dict()
+        payload['book_count'] = int(book_count or 0)
+        items.append(payload)
+    return jsonify({'items': items}), 200
 
 
 @bp.route('/tags/hot', methods=['GET'])
@@ -527,6 +1024,8 @@ def api_get_more_recommendations():
 
     category_id = request.args.get('category_id')
     tag_id = request.args.get('tag_id')
+    completion_status = request.args.get('completion_status')
+    keyword = _normalize_search_keyword(request.args.get('keyword', ''), max_len=40)
 
     query = Book.query.filter_by(status='published')
     if category_id not in (None, ''):
@@ -539,6 +1038,27 @@ def api_get_more_recommendations():
             query = query.join(BookTag, BookTag.book_id == Book.id).filter(BookTag.tag_id == int(tag_id))
         except ValueError:
             return jsonify({'error': 'invalid tag_id'}), 400
+    if completion_status not in (None, ''):
+        if completion_status not in VALID_COMPLETION_STATUSES:
+            return jsonify({'error': 'invalid completion_status'}), 400
+        query = query.filter(Book.completion_status == completion_status)
+    if keyword:
+        like = f'%{keyword}%'
+        query = (
+            query.outerjoin(Category, Category.id == Book.category_id)
+            .filter(
+                or_(
+                    Book.title.ilike(like),
+                    Book.subtitle.ilike(like),
+                    Book.author.ilike(like),
+                    Book.description.ilike(like),
+                    Book.search_keywords.ilike(like),
+                    Category.name.ilike(like),
+                    Category.en_name.ilike(like),
+                )
+            )
+            .distinct()
+        )
 
     total = query.count()
     books = (

@@ -1,4 +1,5 @@
 import request from '@/api/request'
+import type { BookRankingType } from '@/constants/bookRankings'
 
 export interface HomeBookItem {
   id: number
@@ -12,10 +13,35 @@ export interface HomeBookItem {
   rating_count?: number
   recent_reads?: number
   category_id?: number | null
+  completion_status?: 'ongoing' | 'completed' | 'paused' | string
   rank?: number
+  category_name?: string | null
   recommend_reason?: string | null
   home_recommendation_reason?: string | null
   search_keywords?: string | null
+}
+
+export interface BookRankingMeta {
+  key: BookRankingType
+  label: string
+  description: string
+  update_cycle: string
+  primary_metric: string
+  period_hint?: string
+}
+
+export interface BookRankingTypeOption extends BookRankingMeta {}
+
+export interface BookRankingItem extends HomeBookItem {
+  rank: number
+  category_name?: string | null
+  heat_label?: string | null
+  ranking_note?: string | null
+  ranking_score?: number
+  shelf_count?: number
+  reading_users?: number
+  recent_growth?: number
+  published_days?: number | null
 }
 
 export interface HomeCategoryItem {
@@ -26,6 +52,7 @@ export interface HomeCategoryItem {
   description?: string | null
   cover?: string | null
   is_highlighted?: boolean
+  book_count?: number
 }
 
 export interface HomeTagItem {
@@ -52,6 +79,10 @@ export function getHighlightedCategories() {
   return request.get<any, { items: HomeCategoryItem[] }>('/api/categories/highlighted')
 }
 
+export function getAllCategories() {
+  return request.get<any, { items: HomeCategoryItem[] }>('/api/categories')
+}
+
 export function getHomeRecommendations(limit = 8) {
   return request.get<any, { items: HomeBookItem[] }>('/api/recommendations/personalized', {
     params: { limit },
@@ -70,8 +101,17 @@ export function getBooksByCategoryOrTag(params: { category_id?: number; tag_id?:
   return request.get<any, { items: HomeBookItem[] }>('/api/books/by-category', { params })
 }
 
-export function getBookRankings(params?: { type?: string; limit?: number }) {
-  return request.get<any, { type: string; items: HomeBookItem[] }>('/api/books/rankings', { params })
+export function getBookRankings(params?: { type?: BookRankingType | string; limit?: number }) {
+  return request.get<
+    any,
+    {
+      type: BookRankingType
+      meta: BookRankingMeta
+      available_types: BookRankingTypeOption[]
+      snapshot_date: string
+      items: BookRankingItem[]
+    }
+  >('/api/books/rankings', { params })
 }
 
 export function getMoreRecommendations(params: {
@@ -79,6 +119,8 @@ export function getMoreRecommendations(params: {
   page_size: number
   category_id?: number
   tag_id?: number
+  completion_status?: 'ongoing' | 'completed' | 'paused' | string
+  keyword?: string
 }) {
   return request.get<any, { items: HomeBookItem[]; pagination: { page: number; page_size: number; total: number } }>(
     '/api/recommendations/more',

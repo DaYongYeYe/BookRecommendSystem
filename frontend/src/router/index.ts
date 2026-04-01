@@ -2,10 +2,14 @@ import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 import Login from '@/views/Login.vue'
 import Register from '@/views/Register.vue'
 import Home from '@/views/Home.vue'
+import Search from '@/views/Search.vue'
+import CategoryDiscovery from '@/views/CategoryDiscovery.vue'
+import Rankings from '@/views/Rankings.vue'
 import RecommendationsMore from '@/views/RecommendationsMore.vue'
 import Reader from '@/views/Reader.vue'
 import BookDetail from '@/views/BookDetail.vue'
 import BookEntry from '@/views/BookEntry.vue'
+import CreatorEntry from '@/views/CreatorEntry.vue'
 import UserProfile from '@/views/UserProfile.vue'
 import UserLibrary from '@/views/UserLibrary.vue'
 import AdminLogin from '@/views/admin/AdminLogin.vue'
@@ -20,6 +24,7 @@ import AdminRoles from '@/views/admin/AdminRoles.vue'
 import AdminPermissions from '@/views/admin/AdminPermissions.vue'
 import AdminRolePermissions from '@/views/admin/AdminRolePermissions.vue'
 import AdminUserRoles from '@/views/admin/AdminUserRoles.vue'
+import CreatorLayout from '@/views/creator/CreatorLayout.vue'
 import CreatorDashboard from '@/views/creator/CreatorDashboard.vue'
 import CreatorManuscripts from '@/views/creator/CreatorManuscripts.vue'
 import Forbidden from '@/views/Forbidden.vue'
@@ -33,9 +38,24 @@ const routes: RouteRecordRaw[] = [
     component: Home,
   },
   {
+    path: '/search',
+    name: 'Search',
+    component: Search,
+  },
+  {
+    path: '/categories',
+    name: 'CategoryDiscovery',
+    component: CategoryDiscovery,
+  },
+  {
     path: '/recommendations',
     name: 'RecommendationsMore',
     component: RecommendationsMore,
+  },
+  {
+    path: '/rankings',
+    name: 'Rankings',
+    component: Rankings,
   },
   {
     path: '/login',
@@ -61,6 +81,11 @@ const routes: RouteRecordRaw[] = [
     path: '/books/:bookId/entry',
     name: 'BookEntry',
     component: BookEntry,
+  },
+  {
+    path: '/creator-center',
+    name: 'CreatorEntry',
+    component: CreatorEntry,
   },
   {
     path: '/user/profile',
@@ -170,16 +195,25 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
-    path: '/creator/dashboard',
-    name: 'CreatorDashboard',
-    component: CreatorDashboard,
+    path: '/creator',
+    component: CreatorLayout,
     meta: { requiresAuth: true, requiresCreator: true },
-  },
-  {
-    path: '/creator/manuscripts',
-    name: 'CreatorManuscripts',
-    component: CreatorManuscripts,
-    meta: { requiresAuth: true, requiresCreator: true },
+    children: [
+      {
+        path: '',
+        redirect: '/creator/dashboard',
+      },
+      {
+        path: 'dashboard',
+        name: 'CreatorDashboard',
+        component: CreatorDashboard,
+      },
+      {
+        path: 'manuscripts',
+        name: 'CreatorManuscripts',
+        component: CreatorManuscripts,
+      },
+    ],
   },
 ]
 
