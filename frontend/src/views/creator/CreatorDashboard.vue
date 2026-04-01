@@ -3,14 +3,14 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getCreatorBookAnalytics, type CreatorBookAnalyticsItem } from '@/api/creator'
+import { useCreatorPenName } from '@/composables/useCreatorPenName'
 
 const router = useRouter()
 const loading = ref(false)
 const items = ref<CreatorBookAnalyticsItem[]>([])
+const { penNameDialogVisible, penNameForm, saving, loadCreatorProfile, savePenName, hasPenName } = useCreatorPenName()
 
-const topBooks = computed(() =>
-  [...items.value].sort((a, b) => b.metrics.reads - a.metrics.reads).slice(0, 3)
-)
+const topBooks = computed(() => [...items.value].sort((a, b) => b.metrics.reads - a.metrics.reads).slice(0, 3))
 
 const total = computed(() =>
   items.value.reduce(
@@ -40,13 +40,18 @@ async function loadData() {
     const res = await getCreatorBookAnalytics({ limit: 100 })
     items.value = res.items || []
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.error || '加载数据看板失败')
+    ElMessage.error(error?.response?.data?.error || '加载创作者数据失败')
   } finally {
     loading.value = false
   }
 }
 
-onMounted(loadData)
+async function bootstrap() {
+  await loadCreatorProfile()
+  await loadData()
+}
+
+onMounted(bootstrap)
 </script>
 
 <template>
@@ -54,10 +59,20 @@ onMounted(loadData)
     <div class="topbar">
       <h2>创作者数据看板</h2>
       <div class="actions">
-        <el-button @click="router.push('/creator/manuscripts')">稿件管理</el-button>
+        <el-button type="primary" :disabled="!hasPenName()" @click="router.push('/creator/manuscripts')">稿件管理</el-button>
+        <el-button @click="router.push('/user/profile')">个人资料</el-button>
         <el-button @click="router.push('/')">返回首页</el-button>
       </div>
     </div>
+
+    <el-alert
+      v-if="!hasPenName()"
+      title="进入创作者端前需要先设置笔名，发布后的书籍会以该笔名展示。"
+      type="warning"
+      show-icon
+      :closable="false"
+      class="notice"
+    />
 
     <el-row :gutter="12" class="summary-row">
       <el-col :xs="24" :sm="8">
@@ -73,7 +88,7 @@ onMounted(loadData)
 
     <el-card class="panel" shadow="never">
       <template #header>
-        <div class="panel-header">每本书数据</div>
+        <div class="panel-header">每本书的数据</div>
       </template>
       <el-table :data="items" v-loading="loading" border>
         <el-table-column prop="title" label="书名" min-width="220" />
@@ -81,10 +96,10 @@ onMounted(loadData)
         <el-table-column prop="metrics.reads" label="阅读量" width="110" />
         <el-table-column prop="metrics.read_users" label="阅读用户数" width="130" />
         <el-table-column prop="metrics.avg_read_duration_label" label="平均阅读时长" width="140" />
-        <el-table-column label="地域分布（Top3）" min-width="220">
+        <el-table-column label="地域分布 Top3" min-width="220">
           <template #default="{ row }">{{ formatDistribution(row.geo_distribution || []) }}</template>
         </el-table-column>
-        <el-table-column label="年龄分布（Top3）" min-width="220">
+        <el-table-column label="年龄分布 Top3" min-width="220">
           <template #default="{ row }">{{ formatDistribution(row.age_distribution || []) }}</template>
         </el-table-column>
       </el-table>
@@ -96,22 +111,41 @@ onMounted(loadData)
       </template>
       <div class="tips-grid">
         <div class="tip-card">
-          <div class="tip-title">1. 漏斗指标</div>
-          <div class="tip-desc">增加“曝光到阅读到完成阅读”的转化率，帮助定位封面与简介是否有效。</div>
+          <div class="tip-title">1. 转化漏斗</div>
+          <div class="tip-desc">建议补充从曝光到阅读到持续阅读的转化指标，便于判断封面、简介和开篇是否有效。</div>
         </div>
         <div class="tip-card">
-          <div class="tip-title">2. 章节热力</div>
-          <div class="tip-desc">按章节展示退出率与平均停留，快速发现读者流失点。</div>
+          <div class="tip-title">2. 章节热度</div>
+          <div class="tip-desc">支持按章节统计停留时长和流失率后，更容易判断作者每次新增 1-2 章的效果。</div>
         </div>
         <div class="tip-card">
-          <div class="tip-title">3. 分人群表现</div>
-          <div class="tip-desc">加入时间范围筛选，对比不同年龄段和地区的阅读时长与留存。</div>
+          <div class="tip-title">3. 人群画像</div>
+          <div class="tip-desc">加入时间范围和人群筛选，能更快看出不同地区、年龄层对作品更新的反馈差异。</div>
         </div>
       </div>
       <div v-if="topBooks.length" class="top-books">
         当前阅读量最高：{{ topBooks.map((item) => item.title).join(' / ') }}
       </div>
     </el-card>
+
+    <el-dialog
+      v-model="penNameDialogVisible"
+      title="先设置创作者笔名"
+      width="420px"
+      :close-on-click-modal="false"
+      :show-close="hasPenName()"
+    >
+      <el-form label-position="top">
+        <el-form-item label="笔名">
+          <el-input v-model="penNameForm.pen_name" maxlength="80" placeholder="例如：青山、北舟、林间夜雨" />
+        </el-form-item>
+        <div class="dialog-tip">笔名会作为作者名显示在作品详情页与阅读页中。</div>
+      </el-form>
+      <template #footer>
+        <el-button @click="router.push('/user/profile')">去个人资料页</el-button>
+        <el-button type="primary" :loading="saving" @click="savePenName">保存笔名</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -125,11 +159,17 @@ onMounted(loadData)
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  gap: 12px;
 }
 
 .actions {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.notice {
+  margin-bottom: 16px;
 }
 
 .summary-row {
@@ -183,5 +223,11 @@ onMounted(loadData)
   margin-top: 12px;
   color: #374151;
   font-size: 13px;
+}
+
+.dialog-tip {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.6;
 }
 </style>

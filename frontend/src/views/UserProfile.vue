@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
@@ -13,7 +13,9 @@ const profile = ref<UserProfile | null>(null)
 
 const form = reactive({
   name: '',
+  pen_name: '',
   avatar_url: '',
+  age: null as number | null,
   province: '',
   city: '',
 })
@@ -29,7 +31,9 @@ async function loadProfile() {
     const res = await getUserProfile()
     profile.value = res.user
     form.name = res.user.name || ''
+    form.pen_name = res.user.pen_name || ''
     form.avatar_url = res.user.avatar_url || ''
+    form.age = typeof res.user.age === 'number' ? res.user.age : null
     form.province = res.user.province || ''
     form.city = res.user.city || ''
   } catch (_error) {
@@ -45,11 +49,15 @@ async function saveProfile() {
   try {
     const res = await updateUserProfile({
       name: form.name,
+      pen_name: form.pen_name,
       avatar_url: form.avatar_url,
+      age: form.age,
       province: form.province,
       city: form.city,
     })
     profile.value = res.user
+    form.pen_name = res.user.pen_name || ''
+    form.age = typeof res.user.age === 'number' ? res.user.age : null
     ElMessage.success('资料保存成功')
   } catch (_error: any) {
     ElMessage.error(_error?.response?.data?.error || '资料保存失败')
@@ -101,7 +109,7 @@ onMounted(loadProfile)
 
       <div class="rounded-3xl bg-white p-6 shadow-sm md:p-8">
         <h1 class="text-2xl font-semibold">用户详情</h1>
-        <p class="mt-2 text-sm text-stone-500">你可以在这里设置头像、昵称与地区</p>
+        <p class="mt-2 text-sm text-stone-500">你可以在这里设置头像、昵称、创作者笔名与地区</p>
 
         <div v-if="loading" class="mt-8 text-sm text-stone-500">正在加载...</div>
 
@@ -115,6 +123,7 @@ onMounted(loadProfile)
               />
               <p class="mt-3 text-sm text-stone-500">用户名：{{ profile.username }}</p>
               <p class="mt-1 text-sm text-stone-500">年龄：{{ profile.age ?? '未填写' }}</p>
+              <p class="mt-1 text-sm text-stone-500">当前笔名：{{ profile.pen_name || '未设置' }}</p>
             </div>
 
             <div class="space-y-5">
@@ -124,6 +133,29 @@ onMounted(loadProfile)
                   v-model="form.name"
                   class="w-full rounded-2xl border border-stone-200 px-4 py-3 outline-none focus:border-stone-500"
                   placeholder="请输入名称"
+                />
+              </label>
+
+              <label class="block">
+                <span class="mb-2 block text-sm text-stone-600">创作者笔名</span>
+                <input
+                  v-model="form.pen_name"
+                  class="w-full rounded-2xl border border-stone-200 px-4 py-3 outline-none focus:border-stone-500"
+                  maxlength="80"
+                  placeholder="进入创作者端前需要先设置笔名"
+                />
+                <p class="mt-2 text-xs text-stone-500">如果你有创作者权限，这个笔名会显示为书籍作者名，并用于创作者端发布内容。</p>
+              </label>
+
+              <label class="block">
+                <span class="mb-2 block text-sm text-stone-600">年龄</span>
+                <input
+                  v-model.number="form.age"
+                  type="number"
+                  min="1"
+                  max="120"
+                  class="w-full rounded-2xl border border-stone-200 px-4 py-3 outline-none focus:border-stone-500"
+                  placeholder="请输入年龄（1-120）"
                 />
               </label>
 

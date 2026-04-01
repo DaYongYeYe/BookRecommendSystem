@@ -8,6 +8,8 @@ export interface CreatorManuscriptItem {
   cover?: string | null
   description?: string | null
   content_text?: string | null
+  chapters?: CreatorBookChapterItem[]
+  update_mode: 'create' | 'full' | 'append'
   status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'published'
   review_comment?: string | null
   submitted_at?: string | null
@@ -22,6 +24,37 @@ export function getCreatorManuscripts(params?: { status?: string }) {
   return request.get<{ items: CreatorManuscriptItem[] }, { items: CreatorManuscriptItem[] }>('/creator/manuscripts', {
     params,
   })
+}
+
+export interface CreatorBookItem {
+  id: number
+  title: string
+  author?: string | null
+  status: string
+  cover?: string | null
+  description?: string | null
+  word_count: number
+  section_count?: number
+  version_count?: number
+  published_at?: string | null
+}
+
+export function getCreatorBooks() {
+  return request.get<{ items: CreatorBookItem[] }, { items: CreatorBookItem[] }>('/creator/books')
+}
+
+export interface CreatorBookChapterItem {
+  section_key?: string | null
+  title: string
+  content_text: string
+  paragraph_ids?: string[]
+  order_no?: number
+}
+
+export function getCreatorBookChapters(bookId: number) {
+  return request.get<{ items: CreatorBookChapterItem[] }, { items: CreatorBookChapterItem[] }>(
+    `/creator/books/${bookId}/chapters`
+  )
 }
 
 export function createCreatorManuscript(data: FormData | Record<string, any>) {

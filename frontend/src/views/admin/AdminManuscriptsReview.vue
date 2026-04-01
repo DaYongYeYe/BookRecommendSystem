@@ -19,7 +19,10 @@
       <el-table :data="manuscripts" v-loading="loading" border>
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="title" label="书名" min-width="220" />
-        <el-table-column prop="creator_id" label="创作者ID" width="100" />
+        <el-table-column prop="creator_id" label="创作者 ID" width="100" />
+        <el-table-column label="章节数" width="100">
+          <template #default="{ row }">{{ row.chapters?.length || 0 }}</template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="120">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
@@ -32,14 +35,7 @@
             <el-button link type="primary" @click="onViewDetail(row)">查看</el-button>
             <el-button link type="success" @click="openReviewDialog(row, 'approve')">通过</el-button>
             <el-button link type="danger" @click="openReviewDialog(row, 'reject')">驳回</el-button>
-            <el-button
-              link
-              type="warning"
-              :disabled="row.status !== 'approved'"
-              @click="onPublish(row)"
-            >
-              发布
-            </el-button>
+            <el-button link type="warning" :disabled="row.status !== 'approved'" @click="onPublish(row)">发布</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -52,7 +48,7 @@
             v-model="reviewForm.review_comment"
             type="textarea"
             :rows="5"
-            placeholder="可选，填写给创作者的意见"
+            placeholder="可选，填写给创作者的反馈"
           />
         </el-form-item>
       </el-form>
@@ -69,7 +65,13 @@
         <p><strong>简介:</strong> {{ activeManuscript.description || '无' }}</p>
         <p><strong>审核意见:</strong> {{ activeManuscript.review_comment || '无' }}</p>
         <el-divider />
-        <pre class="content">{{ activeManuscript.content_text || '无正文' }}</pre>
+        <div v-if="activeManuscript.chapters?.length" class="chapter-preview">
+          <div v-for="(chapter, index) in activeManuscript.chapters" :key="chapter.section_key || index" class="chapter-item">
+            <h4>{{ index + 1 }}. {{ chapter.title }}</h4>
+            <pre class="content">{{ chapter.content_text }}</pre>
+          </div>
+        </div>
+        <pre v-else class="content">{{ activeManuscript.content_text || '无正文' }}</pre>
       </div>
     </el-drawer>
   </div>
@@ -152,7 +154,7 @@ const onSubmitReview = async () => {
 
 const onPublish = async (row: AdminManuscriptItem) => {
   try {
-    await ElMessageBox.confirm(`确认发布《${row.title}》吗？发布后将进入读者端。`, '发布确认', { type: 'warning' })
+    await ElMessageBox.confirm(`确认发布《${row.title}》吗？发布后内容会进入读者端。`, '发布确认', { type: 'warning' })
     await publishAdminManuscript(row.id)
     ElMessage.success('发布成功')
     await loadManuscripts()
@@ -187,6 +189,18 @@ onMounted(() => {
 
 .detail {
   font-size: 14px;
+}
+
+.chapter-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chapter-item {
+  border: 1px solid #ebeef5;
+  border-radius: 10px;
+  padding: 12px;
 }
 
 .content {

@@ -150,7 +150,7 @@ def _fmt(dt):
 def _display_name(user):
     if not user:
         return '当前读者'
-    return (user.name or user.username or f'user-{user.id}').strip()
+    return (getattr(user, 'pen_name', None) or user.name or user.username or f'user-{user.id}').strip()
 
 
 def _estimate_reading_minutes(word_count: int) -> int:

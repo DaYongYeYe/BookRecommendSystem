@@ -20,10 +20,12 @@ from app.models import (
 from app.logging_utils import business_log_aspect
 from app.rbac.decorators import admin_required
 from app.services.publishing_service import publish_manuscript
+from app.services.tencent_cos import upload_image
 from app.services.captcha import generate_captcha, verify_captcha
 
 BOOK_STATUSES = ['published', 'draft', 'archived']
 BOOK_COMPLETION_STATUSES = ['ongoing', 'completed', 'paused']
+ALLOWED_COVER_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 
 
 def _tenant_id(user):
@@ -683,6 +685,25 @@ def get_book_options(current_user):
         'statuses': [{'value': item, 'label': item} for item in BOOK_STATUSES],
         'completion_statuses': [{'value': item, 'label': item} for item in BOOK_COMPLETION_STATUSES],
     }), 200
+
+
+@bp.route('/books/cover/upload', methods=['POST'])
+@admin_required
+@business_log_aspect('admin.book.cover_upload', tags=['admin', 'book', 'upload', 'business', 'aop'])
+def upload_book_cover(current_user):
+    file_obj = request.files.get('cover')
+    max_size = int(current_app.config.get('MAX_COVER_UPLOAD_SIZE', 5 * 1024 * 1024))
+    folder = current_app.config.get('COVER_UPLOAD_SUBDIR', 'book_covers')
+    cover_url, error = upload_image(
+        file_obj,
+        folder=folder,
+        allowed_extensions=ALLOWED_COVER_EXTENSIONS,
+        max_size=max_size,
+    )
+    if error:
+        status = 500 if error in ('cos not configured', 'invalid cos secret id', 'cos upload failed') else 400
+        return jsonify({'error': error}), status
+    return jsonify({'message': '封面上传成功', 'cover': cover_url}), 200
 
 
 @bp.route('/books/batch', methods=['POST'])

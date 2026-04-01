@@ -136,6 +136,11 @@ export interface AdminManuscriptItem {
   cover?: string | null
   description?: string | null
   content_text?: string | null
+  chapters?: Array<{
+    section_key?: string | null
+    title: string
+    content_text: string
+  }>
   status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'published'
   review_comment?: string | null
   submitted_at?: string | null
@@ -245,6 +250,12 @@ export function getAdminBookOptions() {
 
 export function batchUpdateAdminBooks(data: AdminBatchUpdateBooksPayload) {
   return request.post('/admin/books/batch', data)
+}
+
+export function uploadAdminBookCover(file: File) {
+  const formData = new FormData()
+  formData.append('cover', file)
+  return request.post<any, { cover: string }>('/admin/books/cover/upload', formData)
 }
 
 export function getAdminManuscripts(params?: { status?: string; creator_id?: number }) {

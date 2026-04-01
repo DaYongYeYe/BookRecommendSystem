@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="admin-page">
     <div class="toolbar">
       <h2>书本管理</h2>
@@ -75,7 +75,24 @@
         <el-form-item label="书名" prop="title"><el-input v-model="form.title" /></el-form-item>
         <el-form-item label="副标题"><el-input v-model="form.subtitle" /></el-form-item>
         <el-form-item label="作者"><el-input v-model="form.author" /></el-form-item>
-        <el-form-item label="封面 URL"><el-input v-model="form.cover" /></el-form-item>
+        <el-form-item label="封面图片">
+          <div class="cover-uploader">
+            <el-upload
+              action="#"
+              accept="image/png,image/jpeg,image/webp"
+              :show-file-list="false"
+              :http-request="onCoverUpload"
+              :disabled="coverUploading"
+            >
+              <el-button :loading="coverUploading" type="primary" plain size="small">上传图片</el-button>
+            </el-upload>
+            <div class="cover-preview-wrap" v-if="form.cover">
+              <el-image :src="form.cover" fit="cover" class="cover-preview" />
+              <el-button link type="danger" size="small" @click="form.cover = ''">移除</el-button>
+            </div>
+            <span v-else class="cover-placeholder">支持 JPG/PNG/WEBP，建议竖图封面</span>
+          </div>
+        </el-form-item>
         <el-form-item label="描述"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item>
         <el-row :gutter="12">
           <el-col :span="12">
@@ -164,6 +181,7 @@ import {
   deleteAdminBook,
   getAdminBookOptions,
   getAdminBooks,
+  uploadAdminBookCover,
   updateAdminBook,
 } from '../../api/admin'
 
@@ -190,6 +208,7 @@ const statuses = ref<Array<{ value: BookStatus; label: string }>>([
 const dialogVisible = ref(false)
 const isEditMode = ref(false)
 const submitLoading = ref(false)
+const coverUploading = ref(false)
 const editingBookId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
 const form = reactive({
@@ -325,6 +344,24 @@ const openEditDialog = (row: AdminBookItem) => {
 
 const onPreview = (row: AdminBookItem) => {
   window.open(`/books/${row.id}`, '_blank')
+}
+
+const onCoverUpload = async (options: any) => {
+  const rawFile = options?.file
+  if (!(rawFile instanceof File)) {
+    ElMessage.error('请选择有效的图片文件')
+    return
+  }
+  coverUploading.value = true
+  try {
+    const res = await uploadAdminBookCover(rawFile)
+    form.cover = res.cover
+    ElMessage.success('封面上传成功')
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '封面上传失败')
+  } finally {
+    coverUploading.value = false
+  }
 }
 
 const onSubmit = async () => {
@@ -469,6 +506,35 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.cover-uploader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+}
+
+.cover-preview-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.cover-preview {
+  width: 34px;
+  height: 48px;
+  border-radius: 4px;
+  border: 1px solid #f0f2f5;
+}
+
+.cover-placeholder {
+  color: #909399;
+  font-size: 12px;
 }
 
 .tip {

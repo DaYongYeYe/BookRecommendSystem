@@ -27,8 +27,27 @@ def update_profile(current_user):
     if 'name' in data:
         current_user.name = (data.get('name') or '').strip() or None
 
+    if 'pen_name' in data:
+        pen_name = (data.get('pen_name') or '').strip()
+        if pen_name and len(pen_name) > 80:
+            return jsonify({'error': '笔名长度不能超过 80 个字符'}), 400
+        current_user.pen_name = pen_name or None
+
     if 'avatar_url' in data:
         current_user.avatar_url = (data.get('avatar_url') or '').strip() or None
+
+    if 'age' in data:
+        raw_age = data.get('age')
+        if raw_age in (None, ''):
+            current_user.age = None
+        else:
+            try:
+                parsed_age = int(raw_age)
+            except (TypeError, ValueError):
+                return jsonify({'error': '年龄必须是数字'}), 400
+            if parsed_age < 1 or parsed_age > 120:
+                return jsonify({'error': '年龄需在 1-120 之间'}), 400
+            current_user.age = parsed_age
 
     if 'province' in data:
         current_user.province = (data.get('province') or '').strip() or None

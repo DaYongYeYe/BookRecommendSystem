@@ -1,3 +1,5 @@
+import json
+
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from app import db
@@ -8,6 +10,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     name = db.Column(db.String(80))
+    pen_name = db.Column(db.String(80))
     email = db.Column(db.String(120), unique=True, nullable=False)
     avatar_url = db.Column(db.String(500))
     age = db.Column(db.Integer)
@@ -40,6 +43,7 @@ class User(db.Model):
             'id': self.id,
             'username': self.username,
             'name': self.name,
+            'pen_name': self.pen_name,
             'email': self.email,
             'avatar_url': self.avatar_url,
             'age': self.age,
@@ -375,6 +379,8 @@ class BookManuscript(db.Model):
     cover = db.Column(db.String(500))
     description = db.Column(db.Text)
     content_text = db.Column(db.Text)
+    chapter_payload = db.Column(db.Text)
+    update_mode = db.Column(db.String(20), nullable=False, default='create')
     status = db.Column(db.String(20), nullable=False, default='draft')
     review_comment = db.Column(db.Text)
     submitted_at = db.Column(db.DateTime)
@@ -386,6 +392,12 @@ class BookManuscript(db.Model):
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
     def to_dict(self):
+        chapters = []
+        if self.chapter_payload:
+            try:
+                chapters = json.loads(self.chapter_payload)
+            except (TypeError, ValueError):
+                chapters = []
         return {
             'id': self.id,
             'book_id': self.book_id,
@@ -394,6 +406,8 @@ class BookManuscript(db.Model):
             'cover': self.cover,
             'description': self.description,
             'content_text': self.content_text,
+            'chapters': chapters,
+            'update_mode': self.update_mode or 'create',
             'status': self.status,
             'review_comment': self.review_comment,
             'submitted_at': self.submitted_at.isoformat() if self.submitted_at else None,

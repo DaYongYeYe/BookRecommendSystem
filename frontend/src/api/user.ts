@@ -4,6 +4,7 @@ export interface UserProfile {
   id: number
   username: string
   name: string | null
+  pen_name: string | null
   email: string
   avatar_url: string | null
   age: number | null
@@ -34,7 +35,9 @@ export function getUserProfile() {
 
 export function updateUserProfile(payload: {
   name?: string
+  pen_name?: string
   avatar_url?: string
+  age?: number | null
   email?: string
   province?: string
   city?: string

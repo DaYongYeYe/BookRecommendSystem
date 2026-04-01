@@ -28,6 +28,8 @@ def _apply_schema_compatibility_patches(app: Flask):
 
         if 'name' not in user_columns:
             patches.append("ALTER TABLE users ADD COLUMN name VARCHAR(80) NULL")
+        if 'pen_name' not in user_columns:
+            patches.append("ALTER TABLE users ADD COLUMN pen_name VARCHAR(80) NULL")
         if 'avatar_url' not in user_columns:
             patches.append("ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500) NULL")
         if 'age' not in user_columns:
@@ -160,6 +162,8 @@ def _apply_schema_compatibility_patches(app: Flask):
                     cover VARCHAR(500) NULL,
                     description TEXT NULL,
                     content_text LONGTEXT NULL,
+                    chapter_payload LONGTEXT NULL,
+                    update_mode VARCHAR(20) NOT NULL DEFAULT 'create',
                     status VARCHAR(20) NOT NULL DEFAULT 'draft',
                     review_comment TEXT NULL,
                     submitted_at DATETIME NULL,
@@ -178,6 +182,10 @@ def _apply_schema_compatibility_patches(app: Flask):
             manuscript_columns = {col['name'] for col in inspector.get_columns('book_manuscripts')}
             if 'tenant_id' not in manuscript_columns:
                 patches.append("ALTER TABLE book_manuscripts ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
+            if 'chapter_payload' not in manuscript_columns:
+                patches.append("ALTER TABLE book_manuscripts ADD COLUMN chapter_payload LONGTEXT NULL")
+            if 'update_mode' not in manuscript_columns:
+                patches.append("ALTER TABLE book_manuscripts ADD COLUMN update_mode VARCHAR(20) NOT NULL DEFAULT 'create'")
 
         if 'book_versions' not in table_names:
             patches.append(

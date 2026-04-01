@@ -356,8 +356,12 @@ watch([readerTheme, readerFontSize, showComments], () => {
 
       <template v-else-if="reader">
         <section
-          class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] px-5 py-4"
-          :class="readerTheme === 'dark' ? 'bg-[#111b28]' : 'bg-white'"
+          class="sticky top-3 z-30 mb-6 overflow-hidden rounded-[1.25rem] border px-5 py-4 shadow-lg backdrop-blur-xl md:top-4 md:px-6"
+          :class="
+            readerTheme === 'dark'
+              ? 'border-white/10 bg-[#111b28]/92'
+              : 'border-white/70 bg-white/92'
+          "
         >
           <div class="min-w-0">
             <h1 class="truncate text-xl font-semibold">{{ reader.book.title }}</h1>
@@ -366,7 +370,8 @@ watch([readerTheme, readerFontSize, showComments], () => {
               阅读进度约 {{ progressPercent }}%，共 {{ reader.sections.length }} 个章节节点
             </p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2 lg:justify-end">
+            <button class="rounded-full border px-4 py-2 text-sm" @click="router.push('/')">回到首页</button>
             <button class="rounded-full border px-4 py-2 text-sm" @click="router.push(`/books/${bookId}`)">返回详情</button>
             <button class="rounded-full border px-4 py-2 text-sm" @click="router.push('/user/library')">我的书架</button>
             <button
@@ -376,6 +381,20 @@ watch([readerTheme, readerFontSize, showComments], () => {
             >
               {{ addingToShelf ? '加入中...' : isInShelf ? '已在书架' : '加入书架' }}
             </button>
+          </div>
+          <div class="mt-4 flex items-center gap-3">
+            <div
+              class="h-2 flex-1 overflow-hidden rounded-full"
+              :class="readerTheme === 'dark' ? 'bg-white/10' : 'bg-stone-200'"
+            >
+              <div
+                class="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                :style="{ width: `${progressPercent}%` }"
+              />
+            </div>
+            <span class="text-xs font-medium tabular-nums" :class="readerTheme === 'dark' ? 'text-emerald-300' : 'text-emerald-700'">
+              {{ progressPercent }}%
+            </span>
           </div>
         </section>
 
@@ -418,7 +437,7 @@ watch([readerTheme, readerFontSize, showComments], () => {
             v-for="section in reader.sections"
             :id="section.id"
             :key="section.id"
-            class="scroll-mt-24 border-b py-7 first:pt-0 last:border-b-0"
+            class="scroll-mt-40 border-b py-7 first:pt-0 last:border-b-0 md:scroll-mt-44"
             :class="readerTheme === 'dark' ? 'border-white/10' : 'border-stone-100'"
           >
             <p class="text-xs uppercase tracking-[0.35em]" :class="readerTheme === 'dark' ? 'text-stone-400' : 'text-stone-400'">
