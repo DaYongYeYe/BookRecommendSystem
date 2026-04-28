@@ -148,7 +148,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="router.push('/user/profile')">去个人资料页</el-button>
+        <el-button @click="router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })">去个人资料页</el-button>
         <el-button type="primary" :loading="saving" @click="savePenName">保存笔名</el-button>
       </template>
     </el-dialog>
@@ -171,6 +171,7 @@ import {
   type CreatorChapterRevisionItem,
 } from '@/api/creator'
 import { useCreatorPenName } from '@/composables/useCreatorPenName'
+import { USER_PROFILE_HUB_ROUTE_NAME } from '@/constants/routes'
 
 const route = useRoute()
 const router = useRouter()

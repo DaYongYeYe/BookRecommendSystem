@@ -3,7 +3,9 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getToken } from '@/api/request'
-import { getUserProfile, type UserProfile } from '@/api/user'
+import { USER_PROFILE_HUB_ROUTE_NAME } from '@/constants/routes'
+import { DEFAULT_AVATAR_URL } from '@/utils/profile'
+import { useUserProfileStore } from '@/stores/userProfile'
 import { isCreatorToken } from '@/utils/auth'
 import CategoryEntryGrid from '@/components/home/CategoryEntryGrid.vue'
 import {
@@ -30,10 +32,10 @@ import {
 } from '@/constants/bookRankings'
 
 const router = useRouter()
+const userProfileStore = useUserProfileStore()
 
-const currentUser = ref<UserProfile | null>(null)
-const defaultAvatar =
-  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=200&q=80'
+const currentUser = computed(() => userProfileStore.profile)
+const defaultAvatar = DEFAULT_AVATAR_URL
 const books = ref<HomeBookItem[]>([])
 const categories = ref<HomeCategoryItem[]>([])
 const tags = ref<HomeTagItem[]>([])
@@ -68,7 +70,7 @@ function goProfile() {
     router.push('/login')
     return
   }
-  router.push('/user/profile')
+  router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })
 }
 
 function goCreatorEntry() {
@@ -194,10 +196,9 @@ async function selectRankingType(type: BookRankingType) {
 async function loadProfile() {
   if (!getToken()) return
   try {
-    const res = await getUserProfile()
-    currentUser.value = res.user
+    await userProfileStore.fetchProfile()
   } catch {
-    currentUser.value = null
+    userProfileStore.clearProfile()
   }
 }
 

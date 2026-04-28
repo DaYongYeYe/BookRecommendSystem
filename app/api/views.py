@@ -548,9 +548,7 @@ def _get_hot_search_term_items(limit: int = 8):
 @bp.route('/user/profile', methods=['GET'])
 @login_required
 def api_get_user_profile(current_user):
-    user_data = current_user.to_dict()
-    user_data['book_age_days'] = 1240
-    return jsonify(user_data), 200
+    return jsonify({'user': current_user.to_self_dict(), 'meta': {}}), 200
 
 
 @bp.route('/notifications/unread-count', methods=['GET'])

@@ -13,7 +13,7 @@ ALLOWED_AVATAR_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 @bp.route('/profile', methods=['GET'])
 @login_required
 def get_profile(current_user):
-    return jsonify({'user': current_user.to_dict()}), 200
+    return jsonify({'user': current_user.to_self_dict(), 'meta': {}}), 200
 
 
 @bp.route('/profile', methods=['PUT'])
@@ -67,7 +67,7 @@ def update_profile(current_user):
         current_user.email = email
 
     db.session.commit()
-    return jsonify({'message': '用户信息更新成功', 'user': current_user.to_dict()}), 200
+    return jsonify({'message': '用户信息更新成功', 'user': current_user.to_self_dict(), 'meta': {}}), 200
 
 
 @bp.route('/avatar/upload', methods=['POST'])
@@ -88,7 +88,7 @@ def upload_avatar(current_user):
 
     current_user.avatar_url = avatar_url
     db.session.commit()
-    return jsonify({'message': '头像上传成功', 'avatar_url': avatar_url, 'user': current_user.to_dict()}), 200
+    return jsonify({'message': '头像上传成功', 'avatar_url': avatar_url, 'user': current_user.to_self_dict(), 'meta': {}}), 200
 
 
 @bp.route('/change_password', methods=['POST'])

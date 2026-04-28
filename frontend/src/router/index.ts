@@ -10,6 +10,7 @@ import Reader from '@/views/Reader.vue'
 import BookDetail from '@/views/BookDetail.vue'
 import BookEntry from '@/views/BookEntry.vue'
 import CreatorEntry from '@/views/CreatorEntry.vue'
+import UserProfileHub from '@/views/UserProfileHub.vue'
 import UserProfile from '@/views/UserProfile.vue'
 import UserLibrary from '@/views/UserLibrary.vue'
 import AdminLogin from '@/views/admin/AdminLogin.vue'
@@ -33,6 +34,7 @@ import CreatorBookChapters from '@/views/creator/CreatorBookChapters.vue'
 import CreatorWorks from '@/views/creator/CreatorWorks.vue'
 import Forbidden from '@/views/Forbidden.vue'
 import { clearToken, getToken } from '@/api/request'
+import { USER_PROFILE_HUB_ROUTE_NAME, USER_PROFILE_ROUTE_NAME } from '@/constants/routes'
 import { isAdminToken, isCreatorToken, isSuperAdminToken } from '@/utils/auth'
 
 const routes: RouteRecordRaw[] = [
@@ -92,8 +94,14 @@ const routes: RouteRecordRaw[] = [
     component: CreatorEntry,
   },
   {
+    path: '/user/profile-hub',
+    name: USER_PROFILE_HUB_ROUTE_NAME,
+    component: UserProfileHub,
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/user/profile',
-    name: 'UserProfile',
+    name: USER_PROFILE_ROUTE_NAME,
     component: UserProfile,
     meta: { requiresAuth: true },
   },

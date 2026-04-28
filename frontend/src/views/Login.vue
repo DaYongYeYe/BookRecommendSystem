@@ -177,9 +177,11 @@ import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, FormInstance, FormRules } from 'element-plus'
 import { getCaptcha, login, resetPassword, sendEmailCode } from '../api/auth'
+import { useUserProfileStore } from '@/stores/userProfile'
 
 const router = useRouter()
 const route = useRoute()
+const userProfileStore = useUserProfileStore()
 
 const formRef = ref<FormInstance>()
 const resetFormRef = ref<FormInstance>()
@@ -290,7 +292,8 @@ const onSubmit = () => {
     if (!valid) return
     loading.value = true
     try {
-      await login(form)
+      const res = await login(form)
+      userProfileStore.setProfile(res?.user || null)
       ElMessage.success('登录成功')
       const redirect = (route.query.redirect as string) || '/'
       router.push(redirect)

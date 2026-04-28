@@ -222,7 +222,7 @@
         <div class="hint block">笔名将作为作品作者名展示，也会用于你后续所有书籍更新。</div>
       </el-form>
       <template #footer>
-        <el-button @click="router.push('/user/profile')">去个人资料页</el-button>
+        <el-button @click="router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })">去个人资料页</el-button>
         <el-button type="primary" :loading="saving" @click="savePenName">保存笔名</el-button>
       </template>
     </el-dialog>
@@ -247,6 +247,7 @@ import {
   updateCreatorManuscript,
 } from '@/api/creator'
 import { useCreatorPenName } from '@/composables/useCreatorPenName'
+import { USER_PROFILE_HUB_ROUTE_NAME } from '@/constants/routes'
 
 type EditableChapter = {
   local_id: string

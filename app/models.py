@@ -38,13 +38,12 @@ class User(db.Model):
     def is_admin(self):
         return self.role == 'admin' or bool(self.is_super_admin)
     
-    def to_dict(self):
+    def to_public_dict(self):
         return {
             'id': self.id,
             'username': self.username,
             'name': self.name,
             'pen_name': self.pen_name,
-            'email': self.email,
             'avatar_url': self.avatar_url,
             'age': self.age,
             'province': self.province,
@@ -53,6 +52,15 @@ class User(db.Model):
             'is_super_admin': bool(self.is_super_admin),
             'tenant_id': int(self.tenant_id or 1),
         }
+
+    def to_self_dict(self):
+        payload = self.to_public_dict()
+        payload['email'] = self.email
+        return payload
+
+    def to_dict(self):
+        # Keep backward compatibility with existing call sites.
+        return self.to_self_dict()
 
 
 class CreatorApplication(db.Model):

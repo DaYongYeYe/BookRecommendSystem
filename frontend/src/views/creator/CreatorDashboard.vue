@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getCreatorBookAnalytics, type CreatorBookAnalyticsItem } from '@/api/creator'
 import { useCreatorPenName } from '@/composables/useCreatorPenName'
+import { USER_PROFILE_HUB_ROUTE_NAME } from '@/constants/routes'
 
 const router = useRouter()
 const loading = ref(false)
@@ -59,7 +60,7 @@ onMounted(bootstrap)
       <div class="actions">
         <el-button type="primary" :disabled="!hasPenName()" @click="router.push('/creator/works')">我的作品</el-button>
         <el-button :disabled="!hasPenName()" @click="router.push('/creator/manuscripts')">稿件管理</el-button>
-        <el-button @click="router.push('/user/profile')">个人资料</el-button>
+        <el-button @click="router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })">个人资料</el-button>
         <el-button @click="router.push('/')">返回首页</el-button>
       </div>
     </div>
@@ -139,7 +140,7 @@ onMounted(bootstrap)
         <div class="dialog-tip">笔名会显示在作品详情页与阅读页中，也会作为稿件和作品管理的默认作者名。</div>
       </el-form>
       <template #footer>
-        <el-button @click="router.push('/user/profile')">去个人资料页</el-button>
+        <el-button @click="router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })">去个人资料页</el-button>
         <el-button type="primary" :loading="saving" @click="savePenName">保存笔名</el-button>
       </template>
     </el-dialog>

@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { getToken } from '@/api/request'
 import { getUserProfile, type UserProfile } from '@/api/user'
 import { getCreatorApplication, submitCreatorApplication, type CreatorApplicationItem } from '@/api/creator'
+import { USER_PROFILE_HUB_ROUTE_NAME } from '@/constants/routes'
 import { isCreatorToken } from '@/utils/auth'
 
 const router = useRouter()
@@ -119,7 +120,7 @@ function handlePrimaryAction() {
     ElMessage.info('申请已通过，请重新登录后进入创作中心')
     return
   }
-  router.push('/user/profile')
+  router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })
 }
 
 onMounted(async () => {
@@ -135,7 +136,10 @@ onMounted(async () => {
         <button class="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm" @click="router.push('/')">
           返回阅读端
         </button>
-        <button class="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm" @click="router.push('/user/profile')">
+        <button
+          class="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm"
+          @click="router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })"
+        >
           账号资料
         </button>
       </div>
@@ -166,7 +170,10 @@ onMounted(async () => {
               <p class="text-sm text-stone-500">共享信息</p>
               <h2 class="mt-1 text-2xl font-semibold">适合和阅读端打通的部分</h2>
             </div>
-            <button class="rounded-full border border-stone-300 px-4 py-2 text-sm" @click="router.push('/user/profile')">
+            <button
+              class="rounded-full border border-stone-300 px-4 py-2 text-sm"
+              @click="router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })"
+            >
               查看账号资料
             </button>
           </div>

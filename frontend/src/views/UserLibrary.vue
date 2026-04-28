@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getUserFavorites, getUserHistory, type BookItem } from '@/api/user'
+import { USER_PROFILE_HUB_ROUTE_NAME } from '@/constants/routes'
 
 const router = useRouter()
 const loading = ref(false)
@@ -33,7 +34,10 @@ onMounted(loadData)
   <div class="min-h-screen bg-stone-100 px-4 py-10 text-stone-900">
     <div class="mx-auto max-w-6xl">
       <div class="mb-6 flex items-center justify-between">
-        <button class="rounded-full border border-stone-300 px-4 py-2 text-sm" @click="router.push('/user/profile')">
+        <button
+          class="rounded-full border border-stone-300 px-4 py-2 text-sm"
+          @click="router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })"
+        >
           返回用户详情
         </button>
         <button class="rounded-full bg-stone-900 px-4 py-2 text-sm text-white" @click="router.push('/')">返回首页</button>

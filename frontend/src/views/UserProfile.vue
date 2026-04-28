@@ -3,10 +3,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { getCreatorBookAnalytics, getCreatorBooks, type CreatorBookAnalyticsItem, type CreatorBookItem } from '@/api/creator'
-import { getUserProfile, updateUserProfile, uploadUserAvatar, type UserProfile } from '@/api/user'
+import { updateUserProfile, uploadUserAvatar, type UserProfile } from '@/api/user'
+import { DEFAULT_AVATAR_URL } from '@/utils/profile'
+import { useUserProfileStore } from '@/stores/userProfile'
 import { isCreatorToken } from '@/utils/auth'
 
 const router = useRouter()
+const userProfileStore = useUserProfileStore()
 const loading = ref(false)
 const saving = ref(false)
 const uploadingAvatar = ref(false)
@@ -24,8 +27,7 @@ const form = reactive({
   city: '',
 })
 
-const defaultAvatar =
-  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=240&q=80'
+const defaultAvatar = DEFAULT_AVATAR_URL
 
 const canOpenCreator = computed(() => {
   if (profile.value?.role) return profile.value.role === 'creator'
@@ -48,14 +50,17 @@ const recentCreatorBooks = computed(() => creatorBooks.value.slice(0, 3))
 async function loadProfile() {
   loading.value = true
   try {
-    const res = await getUserProfile()
-    profile.value = res.user
-    form.name = res.user.name || ''
-    form.pen_name = res.user.pen_name || ''
-    form.avatar_url = res.user.avatar_url || ''
-    form.age = typeof res.user.age === 'number' ? res.user.age : null
-    form.province = res.user.province || ''
-    form.city = res.user.city || ''
+    const user = await userProfileStore.fetchProfile(true)
+    if (!user) {
+      throw new Error('empty user profile')
+    }
+    profile.value = user
+    form.name = user.name || ''
+    form.pen_name = user.pen_name || ''
+    form.avatar_url = user.avatar_url || ''
+    form.age = typeof user.age === 'number' ? user.age : null
+    form.province = user.province || ''
+    form.city = user.city || ''
   } catch (_error) {
     ElMessage.error('用户信息加载失败')
   } finally {
@@ -96,6 +101,7 @@ async function saveProfile() {
       city: form.city,
     })
     profile.value = res.user
+    userProfileStore.setProfile(res.user)
     form.pen_name = res.user.pen_name || ''
     form.age = typeof res.user.age === 'number' ? res.user.age : null
     ElMessage.success('资料保存成功')
@@ -116,6 +122,7 @@ async function handleAvatarChange(event: Event) {
     const res = await uploadUserAvatar(file)
     form.avatar_url = res.avatar_url || ''
     profile.value = res.user
+    userProfileStore.setProfile(res.user)
     ElMessage.success('头像上传成功')
   } catch (_error: any) {
     ElMessage.error(_error?.response?.data?.error || '头像上传失败')

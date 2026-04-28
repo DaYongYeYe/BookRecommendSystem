@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { USER_PROFILE_HUB_ROUTE_NAME } from '@/constants/routes'
 
 const route = useRoute()
 const router = useRouter()
@@ -58,7 +59,7 @@ const activePath = computed(() => {
       </section>
 
       <div class="utility-actions">
-        <button class="utility-button" @click="router.push('/user/profile')">账号资料</button>
+        <button class="utility-button" @click="router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })">账号资料</button>
         <button class="utility-button" @click="router.push('/')">返回阅读端</button>
       </div>
     </aside>
