@@ -24,6 +24,10 @@
             <el-icon><Document /></el-icon>
             <span>稿件审核</span>
           </el-menu-item>
+          <el-menu-item index="/manage/chapters/review">
+            <el-icon><Document /></el-icon>
+            <span>章节审核</span>
+          </el-menu-item>
           <el-menu-item index="/manage/users">
             <el-icon><User /></el-icon>
             <span>用户管理</span>
@@ -72,6 +76,7 @@ const pageTitle = computed(() => {
   if (route.path.startsWith('/manage/books')) return '书本管理'
   if (route.path.startsWith('/manage/works/review')) return '作品审核'
   if (route.path.startsWith('/manage/manuscripts/review')) return '稿件审核'
+  if (route.path.startsWith('/manage/chapters/review')) return '章节审核'
   if (route.path.startsWith('/manage/users')) return '用户管理'
   if (route.path.startsWith('/manage/rbac/roles')) return '角色管理'
   if (route.path.startsWith('/manage/rbac/permissions')) return '权限管理'

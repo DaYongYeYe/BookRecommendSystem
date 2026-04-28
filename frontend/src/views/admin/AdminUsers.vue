@@ -47,6 +47,51 @@
       </div>
     </el-card>
 
+    <el-card class="mt16">
+      <template #header>
+        <div class="toolbar">
+          <h3>创作者入驻申请</h3>
+          <div class="actions">
+            <el-input v-model="appKeyword" placeholder="搜索申请人用户名或邮箱" clearable style="width: 240px" @keyup.enter="loadCreatorApplications" />
+            <el-select v-model="appStatus" placeholder="状态筛选" clearable style="width: 140px" @change="loadCreatorApplications">
+              <el-option label="待审核" value="pending" />
+              <el-option label="已通过" value="approved" />
+              <el-option label="已驳回" value="rejected" />
+            </el-select>
+            <el-button @click="loadCreatorApplications">刷新</el-button>
+          </div>
+        </div>
+      </template>
+      <el-table :data="creatorApplications" v-loading="appLoading" border>
+        <el-table-column prop="id" label="申请ID" width="90" />
+        <el-table-column label="申请人" min-width="180">
+          <template #default="{ row }">
+            <div>{{ row.username || '-' }}</div>
+            <div class="sub">{{ row.email || '-' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="apply_reason" label="申请说明" min-width="280" />
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="applicationTagType(row.status)">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="review_comment" label="审核备注" min-width="200" />
+        <el-table-column label="审核信息" min-width="180">
+          <template #default="{ row }">
+            <div>{{ row.reviewed_by_name || '-' }}</div>
+            <div class="sub">{{ row.reviewed_at || '-' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="160">
+          <template #default="{ row }">
+            <el-button link type="success" :disabled="row.status !== 'pending'" @click="onReviewApplication(row, 'approve')">通过</el-button>
+            <el-button link type="danger" :disabled="row.status !== 'pending'" @click="onReviewApplication(row, 'reject')">驳回</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <el-dialog v-model="createDialogVisible" title="新增用户" width="500px">
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="90px">
         <el-form-item label="用户名" prop="username"><el-input v-model="createForm.username" /></el-form-item>
@@ -112,7 +157,9 @@ import { ElMessage, ElMessageBox, FormInstance, FormRules } from 'element-plus'
 import {
   createAdminUser,
   deleteAdminUser,
+  getAdminCreatorApplications,
   getAdminUsers,
+  reviewAdminCreatorApplication,
   resetAdminUserPassword,
   updateAdminUser,
 } from '../../api/admin'
@@ -128,6 +175,19 @@ type UserItem = {
   is_super_admin?: boolean
   tenant_id?: number
 }
+
+type CreatorApplicationItem = {
+  id: number
+  user_id: number
+  status: 'pending' | 'approved' | 'rejected' | string
+  username?: string | null
+  email?: string | null
+  apply_reason?: string | null
+  review_comment?: string | null
+  reviewed_by_name?: string | null
+  created_at?: string | null
+  reviewed_at?: string | null
+}
 const canManageSuperAdmin = isSuperAdminToken()
 
 const users = ref<UserItem[]>([])
@@ -136,6 +196,10 @@ const keyword = ref('')
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
+const appLoading = ref(false)
+const appStatus = ref('')
+const appKeyword = ref('')
+const creatorApplications = ref<CreatorApplicationItem[]>([])
 
 const createDialogVisible = ref(false)
 const createLoading = ref(false)
@@ -194,6 +258,13 @@ const roleTagType = (role: UserRole) => {
   return 'info'
 }
 
+const applicationTagType = (status: string) => {
+  if (status === 'approved') return 'success'
+  if (status === 'rejected') return 'danger'
+  if (status === 'pending') return 'warning'
+  return 'info'
+}
+
 const loadUsers = async () => {
   loading.value = true
   try {
@@ -208,6 +279,21 @@ const loadUsers = async () => {
     ElMessage.error(error?.response?.data?.error || '加载用户列表失败')
   } finally {
     loading.value = false
+  }
+}
+
+const loadCreatorApplications = async () => {
+  appLoading.value = true
+  try {
+    const res = await getAdminCreatorApplications({
+      status: appStatus.value || undefined,
+      keyword: appKeyword.value || undefined,
+    })
+    creatorApplications.value = res.items || []
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '加载创作者申请失败')
+  } finally {
+    appLoading.value = false
   }
 }
 
@@ -319,8 +405,33 @@ const onDelete = async (row: UserItem) => {
   }
 }
 
+const onReviewApplication = async (row: CreatorApplicationItem, action: 'approve' | 'reject') => {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      action === 'approve' ? '通过后将自动开通创作者角色，可填写备注（可选）' : '请填写驳回原因（可选）',
+      action === 'approve' ? '通过申请' : '驳回申请',
+      {
+        inputPlaceholder: action === 'approve' ? '例如：请注意版权规范' : '例如：申请说明不足',
+        confirmButtonText: '确认',
+        cancelButtonText: '取消',
+      }
+    )
+    await reviewAdminCreatorApplication(row.id, {
+      action,
+      review_comment: (value || '').trim() || undefined,
+    })
+    ElMessage.success(action === 'approve' ? '已通过申请并开通创作者' : '已驳回申请')
+    await Promise.all([loadUsers(), loadCreatorApplications()])
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.response?.data?.error || '审核失败')
+    }
+  }
+}
+
 onMounted(() => {
   loadUsers()
+  loadCreatorApplications()
 })
 </script>
 
@@ -345,5 +456,14 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.mt16 {
+  margin-top: 16px;
+}
+
+.sub {
+  color: #909399;
+  font-size: 12px;
 }
 </style>

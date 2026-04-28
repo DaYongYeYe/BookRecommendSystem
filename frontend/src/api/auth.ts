@@ -44,7 +44,7 @@ export interface EmailCodeResponse {
 export function login(data: LoginPayload) {
   return request.post('/auth/login', data).then((res: any) => {
     if (res.token) {
-      setToken(res.token)
+      setToken(res.token, 'user')
     }
     return res
   })

@@ -9,7 +9,7 @@ const navItems = [
   {
     label: '我的作品',
     path: '/creator/works',
-    matches: (path: string) => path.startsWith('/creator/works'),
+    matches: (path: string) => path.startsWith('/creator/works') || path.startsWith('/creator/books/'),
   },
   {
     label: '稿件与章节',

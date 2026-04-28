@@ -7,7 +7,7 @@
       </div>
       <div class="actions">
         <el-button @click="reloadAll">刷新</el-button>
-        <el-button @click="router.push('/creator/manuscripts')">章节管理</el-button>
+        <el-button @click="router.push('/creator/manuscripts')">历史稿件</el-button>
         <el-button type="primary" :disabled="!hasPenName()" @click="openCreateDrawer">新建作品</el-button>
       </div>
     </div>
@@ -59,6 +59,7 @@
           <el-option label="暂停" value="paused" />
           <el-option label="已完结" value="completed" />
         </el-select>
+        <el-switch v-model="filters.recycle" active-text="回收站" inactive-text="作品列表" @change="loadWorks" />
         <el-button @click="loadWorks">查询</el-button>
       </div>
     </el-card>
@@ -107,34 +108,40 @@
         <el-table-column prop="updated_at" label="更新时间" width="180" />
         <el-table-column label="操作" width="320" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEditDrawer(row.id)">编辑</el-button>
-            <el-button
-              link
-              type="success"
-              :disabled="!['draft', 'rejected'].includes(row.audit_status || 'draft')"
-              @click="submitAudit(row)"
-            >
-              提审
-            </el-button>
-            <el-button
-              link
-              :type="row.shelf_status === 'up' ? 'warning' : 'success'"
-              :disabled="row.shelf_status === 'forced_down'"
-              @click="toggleShelf(row)"
-            >
-              {{ row.shelf_status === 'up' ? '下架' : '上架' }}
-            </el-button>
-            <el-dropdown @command="(command) => changeCompletionStatus(row, command)">
-              <el-button link>状态</el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="ongoing">设为连载中</el-dropdown-item>
-                  <el-dropdown-item command="paused">设为暂停</el-dropdown-item>
-                  <el-dropdown-item command="completed">设为完结</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-            <el-button link @click="goWriteChapters(row.id)">去写章节</el-button>
+            <template v-if="filters.recycle">
+              <el-button link type="success" @click="onRestoreWork(row)">恢复</el-button>
+            </template>
+            <template v-else>
+              <el-button link type="primary" @click="openEditDrawer(row.id)">编辑</el-button>
+              <el-button
+                link
+                type="success"
+                :disabled="!['draft', 'rejected'].includes(row.audit_status || 'draft')"
+                @click="submitAudit(row)"
+              >
+                提审
+              </el-button>
+              <el-button
+                link
+                :type="row.shelf_status === 'up' ? 'warning' : 'success'"
+                :disabled="row.shelf_status === 'forced_down'"
+                @click="toggleShelf(row)"
+              >
+                {{ row.shelf_status === 'up' ? '下架' : '上架' }}
+              </el-button>
+              <el-dropdown @command="(command) => changeCompletionStatus(row, command)">
+                <el-button link>状态</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="ongoing">设为连载中</el-dropdown-item>
+                    <el-dropdown-item command="paused">设为暂停</el-dropdown-item>
+                    <el-dropdown-item command="completed">设为完结</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-button link @click="goWriteChapters(row.id)">去写章节</el-button>
+              <el-button link type="danger" @click="onDeleteWork(row)">删除</el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -294,9 +301,11 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, FormInstance, FormRules } from 'element-plus'
 import {
   createCreatorWork,
+  deleteCreatorWork,
   getCreatorWorkDetail,
   getCreatorWorkOptions,
   getCreatorWorks,
+  restoreCreatorWork,
   submitCreatorWorkAudit,
   updateCreatorWork,
   updateCreatorWorkCompletionStatus,
@@ -344,6 +353,7 @@ const filters = reactive({
   audit_status: '',
   shelf_status: '',
   completion_status: '',
+  recycle: false,
 })
 
 const drawerVisible = ref(false)
@@ -453,6 +463,7 @@ const loadWorks = async () => {
       audit_status: filters.audit_status || undefined,
       shelf_status: filters.shelf_status || undefined,
       completion_status: filters.completion_status || undefined,
+      recycle: filters.recycle ? true : undefined,
     })
     works.value = res.items || []
     Object.assign(summary, res.summary || {})
@@ -677,6 +688,29 @@ const toggleShelf = async (row: CreatorWorkItem) => {
   }
 }
 
+const onDeleteWork = async (row: CreatorWorkItem) => {
+  try {
+    await ElMessageBox.confirm(`确认将《${row.title}》移入回收站吗？`, '删除作品', { type: 'warning' })
+    await deleteCreatorWork(row.id)
+    ElMessage.success('作品已移入回收站')
+    await loadWorks()
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.response?.data?.error || '删除作品失败')
+    }
+  }
+}
+
+const onRestoreWork = async (row: CreatorWorkItem) => {
+  try {
+    await restoreCreatorWork(row.id)
+    ElMessage.success('作品已恢复')
+    await loadWorks()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '恢复作品失败')
+  }
+}
+
 const changeCompletionStatus = async (row: CreatorWorkItem, nextStatus: 'ongoing' | 'paused' | 'completed') => {
   try {
     if (nextStatus === 'completed') {
@@ -698,7 +732,7 @@ const changeCompletionStatus = async (row: CreatorWorkItem, nextStatus: 'ongoing
 }
 
 const goWriteChapters = (bookId: number) => {
-  router.push({ path: '/creator/manuscripts', query: { bookId: String(bookId), create: '1' } })
+  router.push({ path: `/creator/books/${bookId}/chapters` })
 }
 
 const bootstrap = async () => {

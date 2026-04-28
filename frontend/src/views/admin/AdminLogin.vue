@@ -78,7 +78,7 @@ const onSubmit = () => {
     try {
       const res = await adminLogin(form)
       if (res.token) {
-        setToken(res.token)
+        setToken(res.token, 'admin')
       }
       ElMessage.success('管理员登录成功')
       const redirect = (route.query.redirect as string) || '/manage/dashboard'

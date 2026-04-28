@@ -48,7 +48,10 @@ const rankingTypes = ref<BookRankingTypeOption[]>(DEFAULT_RANKING_TYPES)
 const rankingMeta = ref<BookRankingMeta>(getRankingTypeMeta('hot'))
 
 const heroBook = computed(() => continueReading.value || rankingBooks.value[0] || books.value[0] || null)
-const canOpenCreator = computed(() => isCreatorToken())
+const canOpenCreator = computed(() => {
+  if (currentUser.value?.role) return currentUser.value.role === 'creator'
+  return isCreatorToken()
+})
 const rankingHero = computed(() => rankingBooks.value[0] || null)
 const rankingList = computed(() => rankingBooks.value.slice(1))
 

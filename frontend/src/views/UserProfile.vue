@@ -27,7 +27,10 @@ const form = reactive({
 const defaultAvatar =
   'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=240&q=80'
 
-const canOpenCreator = computed(() => isCreatorToken())
+const canOpenCreator = computed(() => {
+  if (profile.value?.role) return profile.value.role === 'creator'
+  return isCreatorToken()
+})
 const publishedBooks = computed(() => creatorBooks.value.filter((item) => item.status === 'published'))
 const creatorFeedbackSummary = computed(() =>
   creatorAnalytics.value.reduce(

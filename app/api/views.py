@@ -118,7 +118,7 @@ def _ranking_type_options():
 
 def _collect_ranking_stats():
     window_start = datetime.utcnow() - timedelta(days=RANKING_WINDOW_DAYS)
-    books = Book.query.filter_by(status='published').all()
+    books = _visible_books_query().all()
     categories = {item.id: item for item in Category.query.all()}
 
     shelf_counts = {
@@ -332,6 +332,10 @@ def _book_payload(book: Book, *, recommend_reason: str | None = None, extra: dic
     return payload
 
 
+def _visible_books_query():
+    return Book.query.filter(Book.status == 'published', Book.shelf_status == 'up')
+
+
 def _get_continue_reading(current_user):
     if not current_user:
         return None
@@ -342,6 +346,7 @@ def _get_continue_reading(current_user):
         .filter(
             UserReadingProgress.user_id == current_user.id,
             Book.status == 'published',
+            Book.shelf_status == 'up',
         )
         .order_by(UserReadingProgress.updated_at.desc(), UserReadingProgress.id.desc())
         .first()
@@ -447,6 +452,7 @@ def _books_search_query(q: str):
         .outerjoin(Tag, Tag.id == BookTag.tag_id)
         .filter(
             Book.status == 'published',
+            Book.shelf_status == 'up',
             or_(
                 Book.title.ilike(like),
                 Book.subtitle.ilike(like),
@@ -464,7 +470,7 @@ def _books_search_query(q: str):
 
 
 def _build_search_recommendations(limit: int = 4, exclude_ids: list[int] | None = None):
-    query = Book.query.filter_by(status='published')
+    query = _visible_books_query()
     if exclude_ids:
         query = query.filter(~Book.id.in_(exclude_ids))
 
@@ -673,7 +679,7 @@ def api_get_continue_reading(current_user):
 @bp.route('/books/featured', methods=['GET'])
 def api_get_featured_book():
     book = (
-        Book.query.filter_by(status='published')
+        _visible_books_query()
         .order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.asc())
         .first()
     )
@@ -695,7 +701,7 @@ def api_add_to_shelf(current_user):
         return jsonify({'error': 'invalid book_id'}), 400
 
     book = Book.query.get(book_id)
-    if not book or (book.status or 'published') != 'published':
+    if not book or (book.status or 'published') != 'published' or (book.shelf_status or 'down') != 'up':
         return jsonify({'error': 'book not found'}), 404
 
     existing = UserShelf.query.filter_by(user_id=current_user.id, book_id=book_id).first()
@@ -742,7 +748,7 @@ def api_get_moods():
 def api_get_recommendations_by_mood():
     mood_id = request.args.get('mood_id', 'healing')
     books = (
-        Book.query.filter_by(status='published')
+        _visible_books_query()
         .order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.asc())
         .limit(4)
         .all()
@@ -769,7 +775,7 @@ def api_get_personalized_recommendations(current_user):
     context = _build_recommendation_context(current_user)
     continue_item = _get_continue_reading(current_user)
 
-    query = Book.query.filter_by(status='published')
+    query = _visible_books_query()
     if continue_item:
         query = query.filter(Book.id != continue_item['id'])
 
@@ -797,7 +803,7 @@ def api_toggle_shelf(current_user):
     except (TypeError, ValueError):
         return jsonify({'error': 'invalid book_id'}), 400
     book = Book.query.get(book_id)
-    if not book or (book.status or 'published') != 'published':
+    if not book or (book.status or 'published') != 'published' or (book.shelf_status or 'down') != 'up':
         return jsonify({'error': 'book not found'}), 404
 
     existing = UserShelf.query.filter_by(user_id=current_user.id, book_id=book_id).first()
@@ -932,7 +938,7 @@ def api_get_highlighted_categories():
 def api_get_categories():
     rows = (
         db.session.query(Category, func.count(Book.id).label('book_count'))
-        .outerjoin(Book, db.and_(Book.category_id == Category.id, Book.status == 'published'))
+        .outerjoin(Book, db.and_(Book.category_id == Category.id, Book.status == 'published', Book.shelf_status == 'up'))
         .group_by(Category.id)
         .order_by(Category.is_highlighted.desc(), Category.name.asc(), Category.id.asc())
         .all()
@@ -971,7 +977,7 @@ def api_get_books_by_category_or_tag():
     if not category_id and not tag_id:
         return jsonify({'error': 'missing category_id or tag_id'}), 400
 
-    query = Book.query.filter_by(status='published')
+    query = _visible_books_query()
     category = None
     tag = None
 
@@ -1027,7 +1033,7 @@ def api_get_more_recommendations():
     completion_status = request.args.get('completion_status')
     keyword = _normalize_search_keyword(request.args.get('keyword', ''), max_len=40)
 
-    query = Book.query.filter_by(status='published')
+    query = _visible_books_query()
     if category_id not in (None, ''):
         try:
             query = query.filter(Book.category_id == int(category_id))

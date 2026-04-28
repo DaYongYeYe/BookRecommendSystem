@@ -177,6 +177,45 @@ export interface AdminWorkReviewItem {
   updated_at?: string | null
 }
 
+export interface AdminChapterReviewItem {
+  chapter: {
+    id: number
+    book_id: number
+    chapter_key: string
+    chapter_no: number
+    title: string
+    status: string
+    published_revision_id?: number | null
+    updated_at?: string | null
+  }
+  book: {
+    id: number
+    title: string
+    shelf_status?: string
+    audit_status?: string
+  }
+  latest_revision: {
+    id: number
+    chapter_id: number
+    version_no: number
+    title: string
+    content_text: string
+    status: 'pending' | 'rejected' | 'published' | string
+    review_comment?: string | null
+    submitted_at?: string | null
+    reviewed_at?: string | null
+    published_at?: string | null
+    updated_at?: string | null
+  }
+}
+
+export interface AdminChapterCompareResponse {
+  chapter: AdminChapterReviewItem['chapter']
+  book: AdminChapterReviewItem['book']
+  latest_revision: AdminChapterReviewItem['latest_revision'] | null
+  published_revision: AdminChapterReviewItem['latest_revision'] | null
+}
+
 export type AdminCommentType = 'book' | 'highlight'
 
 export interface AdminCommentItem {
@@ -220,6 +259,22 @@ export interface AdminDashboardOverviewResponse {
       new_users: number
     }>
   }
+}
+
+export interface AdminCreatorApplicationItem {
+  id: number
+  user_id: number
+  tenant_id: number
+  status: 'pending' | 'approved' | 'rejected' | string
+  apply_reason?: string | null
+  review_comment?: string | null
+  reviewed_by?: number | null
+  reviewed_by_name?: string | null
+  username?: string | null
+  email?: string | null
+  current_role?: string | null
+  created_at?: string | null
+  reviewed_at?: string | null
 }
 
 export function adminLogin(data: AdminLoginPayload) {
@@ -311,6 +366,39 @@ export function reviewAdminWork(bookId: number, data: { action: 'approve' | 'rej
   return request.post(`/admin/works/${bookId}/review`, data)
 }
 
+export function getAdminChapterReviews(params?: { status?: 'pending' | 'rejected'; keyword?: string }) {
+  return request.get<{ items: AdminChapterReviewItem[] }, { items: AdminChapterReviewItem[] }>('/admin/chapters/reviews', {
+    params,
+  })
+}
+
+export function reviewAdminChapter(chapterId: number, data: { action: 'approve' | 'reject'; review_comment?: string }) {
+  return request.post(`/admin/chapters/${chapterId}/review`, data)
+}
+
+export function batchReviewAdminChapters(data: { chapter_ids: number[]; action: 'approve' | 'reject'; review_comment?: string }) {
+  return request.post<
+    {
+      message: string
+      action: 'approve' | 'reject'
+      success_count: number
+      failed_count: number
+      failed_items: Array<{ chapter_id: number; error: string }>
+    },
+    {
+      message: string
+      action: 'approve' | 'reject'
+      success_count: number
+      failed_count: number
+      failed_items: Array<{ chapter_id: number; error: string }>
+    }
+  >('/admin/chapters/review/batch', data)
+}
+
+export function getAdminChapterCompare(chapterId: number) {
+  return request.get<AdminChapterCompareResponse, AdminChapterCompareResponse>(`/admin/chapters/${chapterId}/compare`)
+}
+
 export function getAdminComments(params: { page: number; page_size: number; keyword?: string; type?: string }) {
   return request.get<AdminCommentsResponse, AdminCommentsResponse>('/admin/comments', { params })
 }
@@ -329,4 +417,17 @@ export function setAdminCommentViolation(
 
 export function getAdminDashboardOverview() {
   return request.get<AdminDashboardOverviewResponse, AdminDashboardOverviewResponse>('/admin/dashboard/overview')
+}
+
+export function getAdminCreatorApplications(params?: { status?: string; keyword?: string }) {
+  return request.get<{ items: AdminCreatorApplicationItem[] }, { items: AdminCreatorApplicationItem[] }>('/admin/creator-applications', {
+    params,
+  })
+}
+
+export function reviewAdminCreatorApplication(
+  applicationId: number,
+  data: { action: 'approve' | 'reject'; review_comment?: string }
+) {
+  return request.post(`/admin/creator-applications/${applicationId}/review`, data)
 }

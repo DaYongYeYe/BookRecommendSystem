@@ -3,6 +3,8 @@ from datetime import datetime
 from app import db
 from app.models import (
     Book,
+    BookChapter,
+    BookChapterRevision,
     BookTag,
     Category,
     ReaderBookComment,
@@ -39,6 +41,8 @@ DEFAULT_BOOK = {
     'word_count': 8620,
     'completion_status': 'completed',
     'suitable_audience': '适合喜欢慢热、治愈、夜间阅读氛围的读者。',
+    'status': 'published',
+    'shelf_status': 'up',
 }
 
 DEFAULT_READER_SECTIONS = [
@@ -268,10 +272,50 @@ def ensure_seed(book_id: int):
 def build_reader_payload(book_id: int, current_user=None):
     ensure_seed(book_id)
     book = Book.query.get(book_id)
-    if not book or (book.status or 'published') != 'published':
+    if not book or (book.status or 'published') != 'published' or (book.shelf_status or 'down') != 'up':
         return None
 
-    sections = ReaderSection.query.filter_by(book_id=book_id).order_by(ReaderSection.order_no.asc()).all()
+    chapters = (
+        BookChapter.query.filter(
+            BookChapter.book_id == book_id,
+            BookChapter.published_revision_id.isnot(None),
+        )
+        .order_by(BookChapter.chapter_no.asc(), BookChapter.id.asc())
+        .all()
+    )
+    sections = []
+    payload_sections = []
+    payload_outline = []
+    if chapters:
+        revision_ids = [item.published_revision_id for item in chapters if item.published_revision_id]
+        revisions = (
+            BookChapterRevision.query.filter(BookChapterRevision.id.in_(revision_ids)).all()
+            if revision_ids
+            else []
+        )
+        revision_map = {item.id: item for item in revisions}
+        for chapter in chapters:
+            revision = revision_map.get(chapter.published_revision_id)
+            if not revision:
+                continue
+            section_key = chapter.chapter_key or f'chapter-{chapter.chapter_no}'
+            payload_outline.append({'id': section_key, 'title': revision.title, 'level': 1})
+            payload_sections.append(
+                {
+                    'id': section_key,
+                    'title': revision.title,
+                    'summary': revision.summary or '',
+                    'paragraphs': [
+                        {'id': f'{section_key}-p{idx}', 'text': text}
+                        for idx, text in enumerate(
+                            [part.strip() for part in (revision.content_text or '').split('\n\n') if part.strip()],
+                            start=1,
+                        )
+                    ],
+                }
+            )
+    else:
+        sections = ReaderSection.query.filter_by(book_id=book_id).order_by(ReaderSection.order_no.asc()).all()
     section_ids = [item.id for item in sections]
 
     paragraph_map = {}
@@ -303,16 +347,18 @@ def build_reader_payload(book_id: int, current_user=None):
                 }
             )
 
-    payload_outline = [{'id': s.section_key, 'title': s.title, 'level': s.level} for s in sections]
-    payload_sections = [
-        {
-            'id': s.section_key,
-            'title': s.title,
-            'summary': s.summary or '',
-            'paragraphs': paragraph_map.get(s.id, []),
-        }
-        for s in sections
-    ]
+    if not payload_outline:
+        payload_outline = [{'id': s.section_key, 'title': s.title, 'level': s.level} for s in sections]
+    if not payload_sections:
+        payload_sections = [
+            {
+                'id': s.section_key,
+                'title': s.title,
+                'summary': s.summary or '',
+                'paragraphs': paragraph_map.get(s.id, []),
+            }
+            for s in sections
+        ]
     payload_highlights = [
         {
             'id': h.id,
@@ -358,7 +404,7 @@ def build_reader_payload(book_id: int, current_user=None):
     if current_user:
         in_shelf = UserShelf.query.filter_by(user_id=current_user.id, book_id=book.id).first() is not None
 
-    related_query = Book.query.filter(Book.status == 'published', Book.id != book.id)
+    related_query = Book.query.filter(Book.status == 'published', Book.shelf_status == 'up', Book.id != book.id)
     if book.category_id:
         related_query = related_query.filter(Book.category_id == book.category_id)
     related_books = (
@@ -373,6 +419,7 @@ def build_reader_payload(book_id: int, current_user=None):
             Book.query.join(BookTag, BookTag.book_id == Book.id)
             .filter(
                 Book.status == 'published',
+                Book.shelf_status == 'up',
                 Book.id != book.id,
                 Book.id.notin_(existing_ids or {-1}),
                 BookTag.tag_id.in_([item['id'] for item in payload_tags]),

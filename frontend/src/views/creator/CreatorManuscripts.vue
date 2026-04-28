@@ -15,8 +15,9 @@
           <el-option label="已驳回" value="rejected" />
           <el-option label="已发布" value="published" />
         </el-select>
+        <el-switch v-model="recycleMode" active-text="回收站" inactive-text="稿件列表" @change="loadManuscripts" />
         <el-button @click="reloadAll">刷新</el-button>
-        <el-button type="primary" :disabled="!hasPenName()" @click="openCreateDialog">新建草稿</el-button>
+        <el-button type="primary" :disabled="!hasPenName() || recycleMode" @click="openCreateDialog">新建草稿</el-button>
       </div>
     </div>
 
@@ -49,15 +50,21 @@
         <el-table-column prop="updated_at" label="更新时间" width="200" />
         <el-table-column label="操作" width="240">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
-            <el-button
-              link
-              type="success"
-              :disabled="!hasPenName() || !['draft', 'rejected'].includes(row.status)"
-              @click="onSubmit(row)"
-            >
-              提交审核
-            </el-button>
+            <template v-if="recycleMode">
+              <el-button link type="success" @click="onRestoreManuscript(row)">恢复</el-button>
+            </template>
+            <template v-else>
+              <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
+              <el-button
+                link
+                type="success"
+                :disabled="!hasPenName() || !['draft', 'rejected'].includes(row.status)"
+                @click="onSubmit(row)"
+              >
+                提交审核
+              </el-button>
+              <el-button link type="danger" :disabled="row.status === 'published'" @click="onDeleteManuscript(row)">删除</el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -231,9 +238,11 @@ import {
   CreatorBookItem,
   CreatorManuscriptItem,
   createCreatorManuscript,
+  deleteCreatorManuscript,
   getCreatorBookChapters,
   getCreatorBooks,
   getCreatorManuscripts,
+  restoreCreatorManuscript,
   submitCreatorManuscript,
   updateCreatorManuscript,
 } from '@/api/creator'
@@ -253,6 +262,7 @@ const manuscripts = ref<CreatorManuscriptItem[]>([])
 const creatorBooks = ref<CreatorBookItem[]>([])
 const publishedChapters = ref<CreatorBookChapterItem[]>([])
 const statusFilter = ref('')
+const recycleMode = ref(false)
 const router = useRouter()
 const route = useRoute()
 
@@ -545,7 +555,7 @@ const loadBooks = async () => {
 const loadManuscripts = async () => {
   loading.value = true
   try {
-    const res = await getCreatorManuscripts({ status: statusFilter.value || undefined })
+    const res = await getCreatorManuscripts({ status: statusFilter.value || undefined, recycle: recycleMode.value || undefined })
     manuscripts.value = res.items || []
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载稿件失败')
@@ -601,6 +611,29 @@ const onSubmit = async (row: CreatorManuscriptItem) => {
     if (error !== 'cancel' && error !== 'close') {
       ElMessage.error(error?.response?.data?.error || '提交失败')
     }
+  }
+}
+
+const onDeleteManuscript = async (row: CreatorManuscriptItem) => {
+  try {
+    await ElMessageBox.confirm(`确认将《${row.title}》移入回收站吗？`, '删除稿件', { type: 'warning' })
+    await deleteCreatorManuscript(row.id)
+    ElMessage.success('稿件已移入回收站')
+    await loadManuscripts()
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.response?.data?.error || '删除稿件失败')
+    }
+  }
+}
+
+const onRestoreManuscript = async (row: CreatorManuscriptItem) => {
+  try {
+    await restoreCreatorManuscript(row.id)
+    ElMessage.success('稿件已恢复')
+    await loadManuscripts()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.error || '恢复稿件失败')
   }
 }
 

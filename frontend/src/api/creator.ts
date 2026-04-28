@@ -20,10 +20,34 @@ export interface CreatorManuscriptItem {
   updated_at?: string | null
 }
 
-export function getCreatorManuscripts(params?: { status?: string }) {
+export function getCreatorManuscripts(params?: { status?: string; recycle?: boolean }) {
   return request.get<{ items: CreatorManuscriptItem[] }, { items: CreatorManuscriptItem[] }>('/creator/manuscripts', {
     params,
   })
+}
+
+export interface CreatorApplicationItem {
+  id: number
+  user_id: number
+  tenant_id: number
+  status: 'pending' | 'approved' | 'rejected' | string
+  apply_reason?: string | null
+  review_comment?: string | null
+  reviewed_by?: number | null
+  reviewed_by_name?: string | null
+  created_at?: string | null
+  reviewed_at?: string | null
+}
+
+export function getCreatorApplication() {
+  return request.get<
+    { application: CreatorApplicationItem | null; can_apply: boolean; already_creator: boolean },
+    { application: CreatorApplicationItem | null; can_apply: boolean; already_creator: boolean }
+  >('/creator/application')
+}
+
+export function submitCreatorApplication(data: { apply_reason: string }) {
+  return request.post<{ application: CreatorApplicationItem }, { application: CreatorApplicationItem }>('/creator/application', data)
 }
 
 export interface CreatorBookItem {
@@ -115,6 +139,7 @@ export function getCreatorWorks(params?: {
   audit_status?: string
   shelf_status?: string
   completion_status?: string
+  recycle?: boolean
 }) {
   return request.get<{ items: CreatorWorkItem[]; summary: Record<string, number> }, { items: CreatorWorkItem[]; summary: Record<string, number> }>(
     '/creator/works',
@@ -152,17 +177,83 @@ export function updateCreatorWorkCompletionStatus(
   return request.post(`/creator/works/${bookId}/completion-status`, data)
 }
 
+export function deleteCreatorWork(bookId: number) {
+  return request.delete(`/creator/works/${bookId}`)
+}
+
+export function restoreCreatorWork(bookId: number) {
+  return request.post(`/creator/works/${bookId}/restore`)
+}
+
 export interface CreatorBookChapterItem {
+  id?: number
   section_key?: string | null
   title: string
   content_text: string
   paragraph_ids?: string[]
   order_no?: number
+  status?: string
+  latest_revision?: CreatorChapterRevisionItem | null
+  published_revision?: CreatorChapterRevisionItem | null
+  can_edit?: boolean
+  can_submit?: boolean
 }
 
 export function getCreatorBookChapters(bookId: number) {
   return request.get<{ items: CreatorBookChapterItem[] }, { items: CreatorBookChapterItem[] }>(
     `/creator/books/${bookId}/chapters`
+  )
+}
+
+export interface CreatorChapterRevisionItem {
+  id: number
+  chapter_id: number
+  version_no: number
+  title: string
+  content_text: string
+  summary?: string | null
+  status: string
+  review_comment?: string | null
+  submitted_at?: string | null
+  reviewed_at?: string | null
+  reviewed_by?: number | null
+  published_at?: string | null
+  created_by?: number | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export function createCreatorBookChapter(bookId: number, data: { title: string; content_text: string }) {
+  return request.post<
+    { message: string; chapter: CreatorBookChapterItem; revision: CreatorChapterRevisionItem },
+    { message: string; chapter: CreatorBookChapterItem; revision: CreatorChapterRevisionItem }
+  >(`/creator/books/${bookId}/chapters`, data)
+}
+
+export function updateCreatorBookChapter(bookId: number, chapterId: number, data: { title: string; content_text: string }) {
+  return request.put<
+    { message: string; chapter: CreatorBookChapterItem; revision: CreatorChapterRevisionItem },
+    { message: string; chapter: CreatorBookChapterItem; revision: CreatorChapterRevisionItem }
+  >(`/creator/books/${bookId}/chapters/${chapterId}`, data)
+}
+
+export function submitCreatorBookChapter(bookId: number, chapterId: number) {
+  return request.post<
+    { message: string; chapter: CreatorBookChapterItem; revision: CreatorChapterRevisionItem },
+    { message: string; chapter: CreatorBookChapterItem; revision: CreatorChapterRevisionItem }
+  >(`/creator/books/${bookId}/chapters/${chapterId}/submit`)
+}
+
+export function getCreatorBookChapterVersions(bookId: number, chapterId: number) {
+  return request.get<{ items: CreatorChapterRevisionItem[] }, { items: CreatorChapterRevisionItem[] }>(
+    `/creator/books/${bookId}/chapters/${chapterId}/versions`
+  )
+}
+
+export function reorderCreatorBookChapters(bookId: number, chapterIds: number[]) {
+  return request.post<{ message: string; items: CreatorBookChapterItem[] }, { message: string; items: CreatorBookChapterItem[] }>(
+    `/creator/books/${bookId}/chapters/reorder`,
+    { chapter_ids: chapterIds }
   )
 }
 
@@ -176,6 +267,14 @@ export function updateCreatorManuscript(manuscriptId: number, data: FormData | R
 
 export function submitCreatorManuscript(manuscriptId: number) {
   return request.post(`/creator/manuscripts/${manuscriptId}/submit`)
+}
+
+export function deleteCreatorManuscript(manuscriptId: number) {
+  return request.delete(`/creator/manuscripts/${manuscriptId}`)
+}
+
+export function restoreCreatorManuscript(manuscriptId: number) {
+  return request.post(`/creator/manuscripts/${manuscriptId}/restore`)
 }
 
 export interface CreatorBookDistributionItem {

@@ -10,6 +10,9 @@ from app.logging_utils import business_log_aspect
 from app.models import (
     Book,
     BookAnalyticsEvent,
+    BookChapter,
+    BookChapterRevision,
+    CreatorApplication,
     BookManuscript,
     BookVersion,
     BookTag,
@@ -17,6 +20,7 @@ from app.models import (
     ReaderParagraph,
     ReaderSection,
     Tag,
+    User,
     UserReadingProgress,
 )
 from app.rbac.decorators import login_required
@@ -27,6 +31,13 @@ from app.services.work_catalog import (
     get_subcategories,
 )
 from app.services.publishing_service import parse_content_sections
+from app.services.publishing_service import (
+    create_chapter_draft,
+    ensure_chapter_workflow_seed,
+    list_book_chapters,
+    submit_chapter_for_review,
+    update_chapter_draft,
+)
 from app.services.tencent_cos import upload_image
 
 ALLOWED_COVER_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
@@ -42,7 +53,7 @@ WORK_DESCRIPTION_MIN_LENGTH = 20
 
 
 def _is_creator(user):
-    return user and user.role in ('creator', 'admin')
+    return user and user.role == 'creator'
 
 
 def _tenant_id(user):
@@ -142,6 +153,28 @@ def _compile_chapters(chapters: list[dict]):
 
 
 def _serialize_published_book_chapters(book_id: int):
+    book = Book.query.get(book_id)
+    if not book:
+        return []
+
+    chapter_items = list_book_chapters(book)
+    if chapter_items:
+        return [
+            {
+                'id': item['id'],
+                'section_key': item.get('chapter_key'),
+                'title': item.get('title'),
+                'content_text': (item.get('published_revision') or item.get('latest_revision') or {}).get('content_text') or '',
+                'order_no': item.get('chapter_no'),
+                'status': item.get('status'),
+                'latest_revision': item.get('latest_revision'),
+                'published_revision': item.get('published_revision'),
+                'can_edit': item.get('can_edit'),
+                'can_submit': item.get('can_submit'),
+            }
+            for item in chapter_items
+        ]
+
     sections = ReaderSection.query.filter_by(book_id=book_id).order_by(ReaderSection.order_no.asc()).all()
     section_ids = [section.id for section in sections]
     paragraphs_map = {}
@@ -164,6 +197,7 @@ def _serialize_published_book_chapters(book_id: int):
                 'content_text': '\n\n'.join((text or '').strip() for _, text in paragraphs if (text or '').strip()),
                 'paragraph_ids': [paragraph_key for paragraph_key, _ in paragraphs],
                 'order_no': int(section.order_no or 0),
+                'status': 'published',
             }
         )
     return items
@@ -219,8 +253,22 @@ def _extract_payload():
     }, None
 
 
-def _creator_book_query(current_user):
-    return Book.query.filter_by(creator_id=current_user.id, tenant_id=_tenant_id(current_user))
+def _creator_book_query(current_user, *, include_deleted=False):
+    query = Book.query.filter_by(creator_id=current_user.id, tenant_id=_tenant_id(current_user))
+    if not include_deleted:
+        query = query.filter(Book.is_deleted.is_(False))
+    return query
+
+
+def _serialize_creator_application(item):
+    if not item:
+        return None
+    user = User.query.filter_by(id=item.user_id).first()
+    reviewer = User.query.filter_by(id=item.reviewed_by).first() if item.reviewed_by else None
+    payload = item.to_dict()
+    payload['username'] = user.username if user else None
+    payload['reviewed_by_name'] = reviewer.username if reviewer else None
+    return payload
 
 
 def _serialize_creator_book(book, *, section_count=0, version_count=0):
@@ -472,13 +520,22 @@ def _book_tag_payload_map(book_ids: list[int]):
 def _book_section_count_map(book_ids: list[int]):
     if not book_ids:
         return {}
-    rows = (
+    section_rows = (
         db.session.query(ReaderSection.book_id, func.count(ReaderSection.id).label('total'))
         .filter(ReaderSection.book_id.in_(book_ids))
         .group_by(ReaderSection.book_id)
         .all()
     )
-    return {row.book_id: int(row.total or 0) for row in rows}
+    chapter_rows = (
+        db.session.query(BookChapter.book_id, func.count(BookChapter.id).label('total'))
+        .filter(BookChapter.book_id.in_(book_ids), BookChapter.published_revision_id.isnot(None))
+        .group_by(BookChapter.book_id)
+        .all()
+    )
+    result = {row.book_id: int(row.total or 0) for row in section_rows}
+    for row in chapter_rows:
+        result[row.book_id] = max(int(row.total or 0), int(result.get(row.book_id, 0)))
+    return result
 
 
 def _serialize_creator_work(book, *, tag_items=None, section_count=0):
@@ -523,6 +580,11 @@ def _has_critical_work_changes(book, payload):
 
 def _work_publish_readiness(book):
     section_count = ReaderSection.query.filter_by(book_id=book.id).count()
+    chapter_count = BookChapter.query.filter(
+        BookChapter.book_id == book.id,
+        BookChapter.published_revision_id.isnot(None),
+    ).count()
+    published_section_count = max(int(section_count or 0), int(chapter_count or 0))
     tag_count = BookTag.query.filter_by(book_id=book.id).count()
     errors = []
     if not book.category_id:
@@ -533,13 +595,67 @@ def _work_publish_readiness(book):
         errors.append('请上传作品封面')
     if tag_count < WORK_REQUIRED_TAG_MIN or tag_count > WORK_REQUIRED_TAG_MAX:
         errors.append(f'标签数量需在 {WORK_REQUIRED_TAG_MIN}-{WORK_REQUIRED_TAG_MAX} 个之间')
-    if section_count <= 0:
+    if published_section_count <= 0:
         errors.append('请至少发布首章后再上架')
     if (book.audit_status or 'draft') != 'approved':
         errors.append('基础资料审核通过后才能上架')
     if (book.shelf_status or 'down') == 'forced_down':
         errors.append('该作品当前为平台强制下架状态，无法自行恢复')
     return errors
+
+
+@bp.route('/application', methods=['GET'])
+@login_required
+def get_creator_application(current_user):
+    tenant_id = _tenant_id(current_user)
+    latest = (
+        CreatorApplication.query.filter_by(user_id=current_user.id, tenant_id=tenant_id)
+        .order_by(CreatorApplication.id.desc())
+        .first()
+    )
+    return jsonify(
+        {
+            'application': _serialize_creator_application(latest),
+            'can_apply': bool(current_user.role == 'user' and (latest is None or latest.status in ('rejected', 'approved'))),
+            'already_creator': bool(current_user.role == 'creator'),
+        }
+    ), 200
+
+
+@bp.route('/application', methods=['POST'])
+@login_required
+@business_log_aspect('creator.application.submit', tags=['creator', 'application', 'business', 'aop'])
+def submit_creator_application(current_user):
+    tenant_id = _tenant_id(current_user)
+    if current_user.role == 'creator':
+        return jsonify({'error': 'current user is already creator'}), 400
+    if current_user.role != 'user':
+        return jsonify({'error': 'only normal users can apply'}), 400
+
+    latest = (
+        CreatorApplication.query.filter_by(user_id=current_user.id, tenant_id=tenant_id)
+        .order_by(CreatorApplication.id.desc())
+        .first()
+    )
+    if latest and latest.status == 'pending':
+        return jsonify({'error': 'application is pending'}), 400
+
+    payload = request.get_json() or {}
+    apply_reason = (payload.get('apply_reason') or '').strip()
+    if len(apply_reason) < 10:
+        return jsonify({'error': 'apply_reason must be at least 10 characters'}), 400
+    if len(apply_reason) > 1000:
+        return jsonify({'error': 'apply_reason cannot exceed 1000 characters'}), 400
+
+    application = CreatorApplication(
+        user_id=current_user.id,
+        tenant_id=tenant_id,
+        status='pending',
+        apply_reason=apply_reason,
+    )
+    db.session.add(application)
+    db.session.commit()
+    return jsonify({'message': 'creator application submitted', 'application': _serialize_creator_application(application)}), 201
 
 
 @bp.route('/books', methods=['GET'])
@@ -596,8 +712,11 @@ def list_creator_works(current_user):
     audit_status = (request.args.get('audit_status') or '').strip().lower()
     shelf_status = (request.args.get('shelf_status') or '').strip().lower()
     completion_status = (request.args.get('completion_status') or '').strip().lower()
+    recycle = (request.args.get('recycle') or '0').strip() in ('1', 'true')
 
-    query = _creator_book_query(current_user)
+    query = _creator_book_query(current_user, include_deleted=True if recycle else False)
+    if recycle:
+        query = query.filter(Book.is_deleted.is_(True))
     if keyword:
         query = query.filter(Book.title.like(f'%{keyword}%'))
     if audit_status:
@@ -638,6 +757,8 @@ def get_creator_work_detail(current_user, book_id: int):
     book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
     if not book:
         return jsonify({'error': 'work not found'}), 404
+    if book.is_deleted:
+        return jsonify({'error': 'work is in recycle bin'}), 400
 
     tag_map = _book_tag_payload_map([book.id])
     section_count = ReaderSection.query.filter_by(book_id=book.id).count()
@@ -706,6 +827,8 @@ def update_creator_work(current_user, book_id: int):
     book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
     if not book:
         return jsonify({'error': 'work not found'}), 404
+    if book.is_deleted:
+        return jsonify({'error': 'work is in recycle bin'}), 400
 
     payload, error = _extract_work_payload()
     if error:
@@ -762,6 +885,8 @@ def submit_creator_work_audit(current_user, book_id: int):
     book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
     if not book:
         return jsonify({'error': 'work not found'}), 404
+    if book.is_deleted:
+        return jsonify({'error': 'work is in recycle bin'}), 400
     if (book.shelf_status or 'down') == 'forced_down':
         return jsonify({'error': 'forced down work cannot submit audit'}), 400
 
@@ -798,6 +923,8 @@ def update_creator_work_shelf(current_user, book_id: int):
     book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
     if not book:
         return jsonify({'error': 'work not found'}), 404
+    if book.is_deleted:
+        return jsonify({'error': 'work is in recycle bin'}), 400
 
     payload = request.get_json() or {}
     action = (payload.get('action') or '').strip().lower()
@@ -834,6 +961,8 @@ def update_creator_work_completion_status(current_user, book_id: int):
     book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
     if not book:
         return jsonify({'error': 'work not found'}), 404
+    if book.is_deleted:
+        return jsonify({'error': 'work is in recycle bin'}), 400
 
     payload = request.get_json() or {}
     completion_status = (payload.get('completion_status') or '').strip().lower()
@@ -850,6 +979,62 @@ def update_creator_work_completion_status(current_user, book_id: int):
     return jsonify({'message': 'completion status updated', 'completion_status': book.completion_status}), 200
 
 
+@bp.route('/works/<int:book_id>', methods=['DELETE'])
+@login_required
+@business_log_aspect('creator.work.delete', tags=['creator', 'work', 'recycle', 'business', 'aop'])
+def delete_creator_work(current_user, book_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
+    if not book:
+        return jsonify({'error': 'work not found'}), 404
+    if book.is_deleted:
+        return jsonify({'error': 'work already deleted'}), 400
+
+    snapshot = {
+        'status': book.status,
+        'shelf_status': book.shelf_status,
+    }
+    book.delete_snapshot = json.dumps(snapshot, ensure_ascii=False)
+    book.is_deleted = True
+    book.deleted_at = datetime.utcnow()
+    book.deleted_by = current_user.id
+    book.shelf_status = 'down'
+    book.status = 'archived'
+    db.session.commit()
+    return jsonify({'message': 'work moved to recycle bin'}), 200
+
+
+@bp.route('/works/<int:book_id>/restore', methods=['POST'])
+@login_required
+@business_log_aspect('creator.work.restore', tags=['creator', 'work', 'recycle', 'business', 'aop'])
+def restore_creator_work(current_user, book_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user), creator_id=current_user.id).first()
+    if not book:
+        return jsonify({'error': 'work not found'}), 404
+    if not book.is_deleted:
+        return jsonify({'error': 'work is not deleted'}), 400
+
+    snapshot = {}
+    if book.delete_snapshot:
+        try:
+            snapshot = json.loads(book.delete_snapshot)
+        except (TypeError, ValueError):
+            snapshot = {}
+    book.is_deleted = False
+    book.deleted_at = None
+    book.deleted_by = None
+    book.status = snapshot.get('status') or 'draft'
+    book.shelf_status = snapshot.get('shelf_status') or 'down'
+    book.delete_snapshot = None
+    db.session.commit()
+    return jsonify({'message': 'work restored'}), 200
+
+
 @bp.route('/books/<int:book_id>/chapters', methods=['GET'])
 @login_required
 def get_creator_book_chapters(current_user, book_id: int):
@@ -859,10 +1044,166 @@ def get_creator_book_chapters(current_user, book_id: int):
     book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user)).first()
     if not book:
         return jsonify({'error': 'book not found'}), 404
-    if book.creator_id not in (None, current_user.id) and not current_user.is_admin():
+    if book.is_deleted:
+        return jsonify({'error': 'book is in recycle bin'}), 400
+    if book.creator_id not in (None, current_user.id):
         return jsonify({'error': 'cannot access this book'}), 403
 
+    ensure_chapter_workflow_seed(book)
     return jsonify({'items': _serialize_published_book_chapters(book.id)}), 200
+
+
+def _load_owned_book_for_chapter(current_user, book_id: int):
+    book = Book.query.filter_by(id=book_id, tenant_id=_tenant_id(current_user)).first()
+    if not book:
+        return None, jsonify({'error': 'book not found'}), 404
+    if book.is_deleted:
+        return None, jsonify({'error': 'book is in recycle bin'}), 400
+    if book.creator_id not in (None, current_user.id):
+        return None, jsonify({'error': 'cannot edit this book'}), 403
+    return book, None, None
+
+
+@bp.route('/books/<int:book_id>/chapters', methods=['POST'])
+@login_required
+@business_log_aspect('creator.chapter.create', tags=['creator', 'chapter', 'workflow', 'business', 'aop'])
+def create_creator_book_chapter(current_user, book_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    pen_name_error = _ensure_creator_pen_name(current_user)
+    if pen_name_error:
+        return pen_name_error
+
+    book, error_response, status_code = _load_owned_book_for_chapter(current_user, book_id)
+    if error_response:
+        return error_response, status_code
+
+    payload = request.get_json() or {}
+    title = (payload.get('title') or '').strip()
+    content_text = (payload.get('content_text') or '').strip()
+    if not title:
+        return jsonify({'error': 'title is required'}), 400
+    if not content_text:
+        return jsonify({'error': 'content_text is required'}), 400
+
+    chapter, revision = create_chapter_draft(book, title=title, content_text=content_text, creator=current_user)
+    return jsonify({'message': 'chapter draft created', 'chapter': chapter.to_dict(), 'revision': revision.to_dict()}), 201
+
+
+@bp.route('/books/<int:book_id>/chapters/<int:chapter_id>', methods=['PUT'])
+@login_required
+@business_log_aspect('creator.chapter.update', tags=['creator', 'chapter', 'workflow', 'business', 'aop'])
+def update_creator_book_chapter(current_user, book_id: int, chapter_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    pen_name_error = _ensure_creator_pen_name(current_user)
+    if pen_name_error:
+        return pen_name_error
+
+    book, error_response, status_code = _load_owned_book_for_chapter(current_user, book_id)
+    if error_response:
+        return error_response, status_code
+
+    chapter = BookChapter.query.filter_by(id=chapter_id, book_id=book.id).first()
+    if not chapter:
+        return jsonify({'error': 'chapter not found'}), 404
+
+    payload = request.get_json() or {}
+    title = (payload.get('title') or '').strip()
+    content_text = (payload.get('content_text') or '').strip()
+    if not title:
+        return jsonify({'error': 'title is required'}), 400
+    if not content_text:
+        return jsonify({'error': 'content_text is required'}), 400
+
+    revision = update_chapter_draft(chapter, title=title, content_text=content_text, creator=current_user)
+    return jsonify({'message': 'chapter draft updated', 'chapter': chapter.to_dict(), 'revision': revision.to_dict()}), 200
+
+
+@bp.route('/books/<int:book_id>/chapters/<int:chapter_id>/submit', methods=['POST'])
+@login_required
+@business_log_aspect('creator.chapter.submit', tags=['creator', 'chapter', 'workflow', 'business', 'aop'])
+def submit_creator_book_chapter(current_user, book_id: int, chapter_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    pen_name_error = _ensure_creator_pen_name(current_user)
+    if pen_name_error:
+        return pen_name_error
+
+    book, error_response, status_code = _load_owned_book_for_chapter(current_user, book_id)
+    if error_response:
+        return error_response, status_code
+
+    chapter = BookChapter.query.filter_by(id=chapter_id, book_id=book.id).first()
+    if not chapter:
+        return jsonify({'error': 'chapter not found'}), 404
+
+    revision, error = submit_chapter_for_review(chapter)
+    if error:
+        return jsonify({'error': error}), 400
+    return jsonify({'message': 'chapter submitted for review', 'chapter': chapter.to_dict(), 'revision': revision.to_dict()}), 200
+
+
+@bp.route('/books/<int:book_id>/chapters/<int:chapter_id>/versions', methods=['GET'])
+@login_required
+def get_creator_book_chapter_versions(current_user, book_id: int, chapter_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    book, error_response, status_code = _load_owned_book_for_chapter(current_user, book_id)
+    if error_response:
+        return error_response, status_code
+
+    chapter = BookChapter.query.filter_by(id=chapter_id, book_id=book.id).first()
+    if not chapter:
+        return jsonify({'error': 'chapter not found'}), 404
+    revisions = (
+        BookChapterRevision.query.filter_by(chapter_id=chapter.id)
+        .order_by(BookChapterRevision.version_no.desc(), BookChapterRevision.id.desc())
+        .all()
+    )
+    return jsonify({'items': [item.to_dict() for item in revisions]}), 200
+
+
+@bp.route('/books/<int:book_id>/chapters/reorder', methods=['POST'])
+@login_required
+@business_log_aspect('creator.chapter.reorder', tags=['creator', 'chapter', 'workflow', 'business', 'aop'])
+def reorder_creator_book_chapters(current_user, book_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    book, error_response, status_code = _load_owned_book_for_chapter(current_user, book_id)
+    if error_response:
+        return error_response, status_code
+
+    payload = request.get_json() or {}
+    chapter_ids = payload.get('chapter_ids') or []
+    if not isinstance(chapter_ids, list) or not chapter_ids:
+        return jsonify({'error': 'chapter_ids is required'}), 400
+
+    chapters = BookChapter.query.filter(BookChapter.book_id == book.id).order_by(BookChapter.chapter_no.asc()).all()
+    current_ids = [int(item.id) for item in chapters]
+    try:
+        requested_ids = [int(item) for item in chapter_ids]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'chapter_ids must be integers'}), 400
+
+    if sorted(current_ids) != sorted(requested_ids):
+        return jsonify({'error': 'chapter_ids does not match current chapter set'}), 400
+
+    chapter_map = {item.id: item for item in chapters}
+    for index, chapter_id in enumerate(requested_ids, start=1):
+        chapter = chapter_map[chapter_id]
+        chapter.chapter_no = index
+        section = ReaderSection.query.filter_by(book_id=book.id, section_key=chapter.chapter_key).first()
+        if section:
+            section.order_no = index
+
+    db.session.commit()
+    return jsonify({'message': 'chapter order updated', 'items': _serialize_published_book_chapters(book.id)}), 200
 
 
 @bp.route('/manuscripts', methods=['GET'])
@@ -872,7 +1213,9 @@ def list_creator_manuscripts(current_user):
         return jsonify({'error': 'creator role required'}), 403
 
     status = (request.args.get('status') or '').strip()
+    recycle = (request.args.get('recycle') or '0').strip() in ('1', 'true')
     query = BookManuscript.query.filter_by(creator_id=current_user.id, tenant_id=_tenant_id(current_user))
+    query = query.filter(BookManuscript.is_deleted.is_(True if recycle else False))
     if status:
         query = query.filter_by(status=status)
     rows = query.order_by(BookManuscript.updated_at.desc(), BookManuscript.id.desc()).all()
@@ -910,7 +1253,9 @@ def create_creator_manuscript(current_user):
         book = Book.query.filter_by(id=book_id, tenant_id=tenant_id).first()
         if not book:
             return jsonify({'error': 'book not found'}), 404
-        if book.creator_id not in (None, current_user.id) and not current_user.is_admin():
+        if book.is_deleted:
+            return jsonify({'error': 'book is in recycle bin'}), 400
+        if book.creator_id not in (None, current_user.id):
             return jsonify({'error': 'cannot edit this book'}), 403
     else:
         title = payload.get('title')
@@ -967,7 +1312,9 @@ def update_creator_manuscript(current_user, manuscript_id: int):
     manuscript = BookManuscript.query.filter_by(id=manuscript_id, tenant_id=_tenant_id(current_user)).first()
     if not manuscript:
         return jsonify({'error': 'manuscript not found'}), 404
-    if manuscript.creator_id != current_user.id and not current_user.is_admin():
+    if manuscript.is_deleted:
+        return jsonify({'error': 'manuscript is in recycle bin'}), 400
+    if manuscript.creator_id != current_user.id:
         return jsonify({'error': 'cannot edit this manuscript'}), 403
     if manuscript.status not in ('draft', 'rejected'):
         return jsonify({'error': 'only draft/rejected manuscript can be edited'}), 400
@@ -1016,7 +1363,9 @@ def submit_creator_manuscript(current_user, manuscript_id: int):
     manuscript = BookManuscript.query.filter_by(id=manuscript_id, tenant_id=_tenant_id(current_user)).first()
     if not manuscript:
         return jsonify({'error': 'manuscript not found'}), 404
-    if manuscript.creator_id != current_user.id and not current_user.is_admin():
+    if manuscript.is_deleted:
+        return jsonify({'error': 'manuscript is in recycle bin'}), 400
+    if manuscript.creator_id != current_user.id:
         return jsonify({'error': 'cannot submit this manuscript'}), 403
     if manuscript.status not in ('draft', 'rejected'):
         return jsonify({'error': 'manuscript status cannot submit'}), 400
@@ -1030,6 +1379,54 @@ def submit_creator_manuscript(current_user, manuscript_id: int):
     manuscript.review_comment = None
     db.session.commit()
     return jsonify({'message': 'manuscript submitted', 'manuscript': manuscript.to_dict()}), 200
+
+
+@bp.route('/manuscripts/<int:manuscript_id>', methods=['DELETE'])
+@login_required
+@business_log_aspect('creator.manuscript.delete', tags=['creator', 'manuscript', 'recycle', 'business', 'aop'])
+def delete_creator_manuscript(current_user, manuscript_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    manuscript = BookManuscript.query.filter_by(id=manuscript_id, tenant_id=_tenant_id(current_user)).first()
+    if not manuscript:
+        return jsonify({'error': 'manuscript not found'}), 404
+    if manuscript.creator_id != current_user.id:
+        return jsonify({'error': 'cannot delete this manuscript'}), 403
+    if manuscript.is_deleted:
+        return jsonify({'error': 'manuscript already deleted'}), 400
+    if manuscript.status == 'published':
+        return jsonify({'error': 'published manuscript cannot be deleted'}), 400
+
+    manuscript.is_deleted = True
+    manuscript.deleted_at = datetime.utcnow()
+    manuscript.deleted_by = current_user.id
+    db.session.commit()
+    return jsonify({'message': 'manuscript moved to recycle bin'}), 200
+
+
+@bp.route('/manuscripts/<int:manuscript_id>/restore', methods=['POST'])
+@login_required
+@business_log_aspect('creator.manuscript.restore', tags=['creator', 'manuscript', 'recycle', 'business', 'aop'])
+def restore_creator_manuscript(current_user, manuscript_id: int):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    manuscript = BookManuscript.query.filter_by(id=manuscript_id, tenant_id=_tenant_id(current_user)).first()
+    if not manuscript:
+        return jsonify({'error': 'manuscript not found'}), 404
+    if manuscript.creator_id != current_user.id:
+        return jsonify({'error': 'cannot restore this manuscript'}), 403
+    if not manuscript.is_deleted:
+        return jsonify({'error': 'manuscript is not deleted'}), 400
+
+    manuscript.is_deleted = False
+    manuscript.deleted_at = None
+    manuscript.deleted_by = None
+    if manuscript.status not in ('draft', 'rejected'):
+        manuscript.status = 'draft'
+    db.session.commit()
+    return jsonify({'message': 'manuscript restored', 'manuscript': manuscript.to_dict()}), 200
 
 
 def _seconds_to_label(seconds: float):

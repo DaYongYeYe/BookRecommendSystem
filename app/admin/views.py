@@ -9,7 +9,10 @@ from app import db
 from app.models import (
     User,
     Book,
+    BookChapter,
+    BookChapterRevision,
     BookManuscript,
+    CreatorApplication,
     ReaderBookComment,
     ReaderHighlightComment,
     ReaderHighlight,
@@ -19,7 +22,7 @@ from app.models import (
 )
 from app.logging_utils import business_log_aspect
 from app.rbac.decorators import admin_required
-from app.services.publishing_service import publish_manuscript
+from app.services.publishing_service import publish_manuscript, review_chapter_revision
 from app.services.tencent_cos import upload_image
 from app.services.captcha import generate_captcha, verify_captcha
 
@@ -102,7 +105,7 @@ def get_dashboard_overview(current_user):
         User.created_at < tomorrow_start,
     ).count()
 
-    pending_manuscripts = BookManuscript.query.filter_by(status='submitted', tenant_id=tenant_id).count()
+    pending_manuscripts = BookManuscript.query.filter_by(status='submitted', tenant_id=tenant_id, is_deleted=False).count()
 
     violated_book_comments = ReaderBookComment.query.filter_by(is_violation=True, tenant_id=tenant_id).count()
     violated_highlight_comments = ReaderHighlightComment.query.filter_by(is_violation=True, tenant_id=tenant_id).count()
@@ -435,6 +438,76 @@ def reset_user_password(current_user, user_id):
     return jsonify({'message': '用户密码重置成功'}), 200
 
 
+@bp.route('/creator-applications', methods=['GET'])
+@admin_required
+def get_creator_applications(current_user):
+    tenant_id = _tenant_id(current_user)
+    status = (request.args.get('status') or '').strip().lower()
+    keyword = (request.args.get('keyword') or '').strip()
+
+    query = CreatorApplication.query.filter_by(tenant_id=tenant_id)
+    if status:
+        query = query.filter(CreatorApplication.status == status)
+    if keyword:
+        query = query.join(User, User.id == CreatorApplication.user_id).filter(
+            (User.username.like(f'%{keyword}%')) | (User.email.like(f'%{keyword}%'))
+        )
+
+    rows = query.order_by(CreatorApplication.created_at.desc(), CreatorApplication.id.desc()).all()
+    if not rows:
+        return jsonify({'items': []}), 200
+
+    user_ids = list({row.user_id for row in rows})
+    reviewer_ids = list({row.reviewed_by for row in rows if row.reviewed_by})
+    users = User.query.filter(User.id.in_(user_ids + reviewer_ids)).all()
+    user_map = {item.id: item for item in users}
+
+    items = []
+    for row in rows:
+        item = row.to_dict()
+        applicant = user_map.get(row.user_id)
+        reviewer = user_map.get(row.reviewed_by) if row.reviewed_by else None
+        item['username'] = applicant.username if applicant else None
+        item['email'] = applicant.email if applicant else None
+        item['current_role'] = applicant.role if applicant else None
+        item['reviewed_by_name'] = reviewer.username if reviewer else None
+        items.append(item)
+    return jsonify({'items': items}), 200
+
+
+@bp.route('/creator-applications/<int:application_id>/review', methods=['POST'])
+@admin_required
+@business_log_aspect('admin.creator_application.review', tags=['admin', 'creator', 'application', 'business', 'aop'])
+def review_creator_application(current_user, application_id):
+    tenant_id = _tenant_id(current_user)
+    application = CreatorApplication.query.filter_by(id=application_id, tenant_id=tenant_id).first()
+    if not application:
+        return jsonify({'error': 'application not found'}), 404
+    if application.status != 'pending':
+        return jsonify({'error': 'application is not pending'}), 400
+
+    payload = request.get_json() or {}
+    action = (payload.get('action') or '').strip().lower()
+    review_comment = (payload.get('review_comment') or '').strip() or None
+    if action not in ('approve', 'reject'):
+        return jsonify({'error': 'action must be approve or reject'}), 400
+
+    user = User.query.filter_by(id=application.user_id, tenant_id=tenant_id).first()
+    if not user:
+        return jsonify({'error': 'applicant not found'}), 404
+
+    application.status = 'approved' if action == 'approve' else 'rejected'
+    application.review_comment = review_comment
+    application.reviewed_by = current_user.id
+    application.reviewed_at = datetime.utcnow()
+
+    if action == 'approve':
+        user.role = 'creator'
+
+    db.session.commit()
+    return jsonify({'message': 'application reviewed', 'application': application.to_dict(), 'user': user.to_dict()}), 200
+
+
 @bp.route('/books', methods=['GET'])
 @admin_required
 def get_books(current_user):
@@ -450,7 +523,7 @@ def get_books(current_user):
         page_size = 10
     page_size = min(max(page_size, 1), 100)
 
-    query = Book.query.filter_by(tenant_id=tenant_id)
+    query = Book.query.filter_by(tenant_id=tenant_id, is_deleted=False)
     if keyword:
         query = query.filter(
             (Book.title.like(f'%{keyword}%')) |
@@ -830,7 +903,7 @@ def get_work_reviews(current_user):
     shelf_status = (request.args.get('shelf_status') or '').strip().lower()
     keyword = (request.args.get('keyword') or '').strip()
 
-    query = Book.query.filter_by(tenant_id=tenant_id)
+    query = Book.query.filter_by(tenant_id=tenant_id, is_deleted=False)
     if audit_status:
         query = query.filter(Book.audit_status == audit_status)
     if shelf_status:
@@ -890,7 +963,7 @@ def get_manuscripts(current_user):
     status = (request.args.get('status') or '').strip()
     creator_id = request.args.get('creator_id')
 
-    query = BookManuscript.query.filter_by(tenant_id=tenant_id)
+    query = BookManuscript.query.filter_by(tenant_id=tenant_id, is_deleted=False)
     if status:
         query = query.filter_by(status=status)
     if creator_id not in (None, ''):
@@ -944,6 +1017,173 @@ def publish_reviewed_manuscript(current_user, manuscript_id):
         'book_id': manuscript.book_id,
         'manuscript': manuscript.to_dict(),
         'version': version.to_dict(),
+    }), 200
+
+
+@bp.route('/chapters/<int:chapter_id>/review', methods=['POST'])
+@admin_required
+@business_log_aspect('admin.chapter.review', tags=['admin', 'chapter', 'review', 'business', 'aop'])
+def review_chapter(current_user, chapter_id: int):
+    chapter = BookChapter.query.get(chapter_id)
+    if not chapter:
+        return jsonify({'error': 'chapter not found'}), 404
+
+    book = Book.query.filter_by(id=chapter.book_id, tenant_id=_tenant_id(current_user)).first()
+    if not book:
+        return jsonify({'error': 'book not found'}), 404
+
+    payload = request.get_json() or {}
+    action = (payload.get('action') or '').strip().lower()
+    review_comment = (payload.get('review_comment') or '').strip() or None
+    revision, error = review_chapter_revision(chapter, action=action, review_comment=review_comment, reviewer=current_user)
+    if error:
+        return jsonify({'error': error}), 400
+
+    return jsonify({
+        'message': 'chapter review updated',
+        'chapter': chapter.to_dict(),
+        'revision': revision.to_dict(),
+    }), 200
+
+
+@bp.route('/chapters/reviews', methods=['GET'])
+@admin_required
+def get_chapter_reviews(current_user):
+    tenant_id = _tenant_id(current_user)
+    status = (request.args.get('status') or 'pending').strip().lower()
+    keyword = (request.args.get('keyword') or '').strip()
+
+    if status and status not in ('pending', 'rejected'):
+        return jsonify({'error': 'status must be pending or rejected'}), 400
+
+    chapter_query = (
+        db.session.query(
+            BookChapter,
+            Book,
+        )
+        .join(Book, Book.id == BookChapter.book_id)
+        .filter(Book.tenant_id == tenant_id)
+    )
+    if keyword:
+        chapter_query = chapter_query.filter(
+            (Book.title.like(f'%{keyword}%')) |
+            (BookChapter.title.like(f'%{keyword}%'))
+        )
+
+    chapter_rows = chapter_query.order_by(BookChapter.updated_at.desc(), BookChapter.id.desc()).all()
+    chapter_ids = [row[0].id for row in chapter_rows]
+    latest_revision_map = {}
+    if chapter_ids:
+        revision_rows = (
+            BookChapterRevision.query.filter(BookChapterRevision.chapter_id.in_(chapter_ids))
+            .order_by(BookChapterRevision.chapter_id.asc(), BookChapterRevision.version_no.desc(), BookChapterRevision.id.desc())
+            .all()
+        )
+        for revision in revision_rows:
+            latest_revision_map.setdefault(revision.chapter_id, revision)
+
+    items = []
+    for chapter, book in chapter_rows:
+        latest = latest_revision_map.get(chapter.id)
+        if not latest:
+            continue
+        if status and (latest.status or '').strip().lower() != status:
+            continue
+        items.append({
+            'chapter': chapter.to_dict(),
+            'book': {
+                'id': book.id,
+                'title': book.title,
+                'shelf_status': book.shelf_status,
+                'audit_status': book.audit_status,
+            },
+            'latest_revision': latest.to_dict(),
+        })
+
+    return jsonify({'items': items}), 200
+
+
+@bp.route('/chapters/review/batch', methods=['POST'])
+@admin_required
+@business_log_aspect('admin.chapter.review.batch', tags=['admin', 'chapter', 'review', 'batch', 'business', 'aop'])
+def batch_review_chapters(current_user):
+    payload = request.get_json() or {}
+    action = (payload.get('action') or '').strip().lower()
+    review_comment = (payload.get('review_comment') or '').strip() or None
+    chapter_ids = payload.get('chapter_ids') or []
+
+    if action not in ('approve', 'reject'):
+        return jsonify({'error': 'action must be approve or reject'}), 400
+    if not isinstance(chapter_ids, list) or not chapter_ids:
+        return jsonify({'error': 'chapter_ids is required'}), 400
+
+    try:
+        target_ids = [int(item) for item in chapter_ids]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'chapter_ids must be integer array'}), 400
+
+    success_items = []
+    failed_items = []
+
+    for chapter_id in target_ids:
+        chapter = BookChapter.query.get(chapter_id)
+        if not chapter:
+            failed_items.append({'chapter_id': chapter_id, 'error': 'chapter not found'})
+            continue
+
+        book = Book.query.filter_by(id=chapter.book_id, tenant_id=_tenant_id(current_user)).first()
+        if not book:
+            failed_items.append({'chapter_id': chapter_id, 'error': 'book not found'})
+            continue
+
+        revision, error = review_chapter_revision(chapter, action=action, review_comment=review_comment, reviewer=current_user)
+        if error:
+            failed_items.append({'chapter_id': chapter_id, 'error': error})
+            continue
+        success_items.append({
+            'chapter_id': chapter_id,
+            'chapter': chapter.to_dict(),
+            'revision': revision.to_dict(),
+        })
+
+    return jsonify({
+        'message': 'batch review completed',
+        'action': action,
+        'success_count': len(success_items),
+        'failed_count': len(failed_items),
+        'success_items': success_items,
+        'failed_items': failed_items,
+    }), 200
+
+
+@bp.route('/chapters/<int:chapter_id>/compare', methods=['GET'])
+@admin_required
+def get_chapter_compare(current_user, chapter_id: int):
+    chapter = BookChapter.query.get(chapter_id)
+    if not chapter:
+        return jsonify({'error': 'chapter not found'}), 404
+
+    book = Book.query.filter_by(id=chapter.book_id, tenant_id=_tenant_id(current_user)).first()
+    if not book:
+        return jsonify({'error': 'book not found'}), 404
+
+    latest_revision = (
+        BookChapterRevision.query.filter_by(chapter_id=chapter.id)
+        .order_by(BookChapterRevision.version_no.desc(), BookChapterRevision.id.desc())
+        .first()
+    )
+    published_revision = BookChapterRevision.query.get(chapter.published_revision_id) if chapter.published_revision_id else None
+
+    return jsonify({
+        'chapter': chapter.to_dict(),
+        'book': {
+            'id': book.id,
+            'title': book.title,
+            'shelf_status': book.shelf_status,
+            'audit_status': book.audit_status,
+        },
+        'latest_revision': latest_revision.to_dict() if latest_revision else None,
+        'published_revision': published_revision.to_dict() if published_revision else None,
     }), 200
 
 

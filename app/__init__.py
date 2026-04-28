@@ -165,6 +165,14 @@ def _apply_schema_compatibility_patches(app: Flask):
                 )
             if 'tenant_id' not in book_columns:
                 patches.append("ALTER TABLE books ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
+            if 'is_deleted' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN is_deleted TINYINT(1) NOT NULL DEFAULT 0")
+            if 'deleted_at' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN deleted_at DATETIME NULL")
+            if 'deleted_by' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN deleted_by BIGINT NULL")
+            if 'delete_snapshot' not in book_columns:
+                patches.append("ALTER TABLE books ADD COLUMN delete_snapshot LONGTEXT NULL")
 
         if 'reader_book_comments' in table_names:
             rbc_columns = {col['name'] for col in inspector.get_columns('reader_book_comments')}
@@ -230,6 +238,9 @@ def _apply_schema_compatibility_patches(app: Flask):
                     reviewed_at DATETIME NULL,
                     reviewed_by {users_id_type} NULL,
                     published_at DATETIME NULL,
+                    is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+                    deleted_at DATETIME NULL,
+                    deleted_by {users_id_type} NULL,
                     tenant_id INT NOT NULL DEFAULT 1,
                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -246,6 +257,33 @@ def _apply_schema_compatibility_patches(app: Flask):
                 patches.append("ALTER TABLE book_manuscripts ADD COLUMN chapter_payload LONGTEXT NULL")
             if 'update_mode' not in manuscript_columns:
                 patches.append("ALTER TABLE book_manuscripts ADD COLUMN update_mode VARCHAR(20) NOT NULL DEFAULT 'create'")
+            if 'is_deleted' not in manuscript_columns:
+                patches.append("ALTER TABLE book_manuscripts ADD COLUMN is_deleted TINYINT(1) NOT NULL DEFAULT 0")
+            if 'deleted_at' not in manuscript_columns:
+                patches.append("ALTER TABLE book_manuscripts ADD COLUMN deleted_at DATETIME NULL")
+            if 'deleted_by' not in manuscript_columns:
+                patches.append("ALTER TABLE book_manuscripts ADD COLUMN deleted_by BIGINT NULL")
+
+        if 'creator_applications' not in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE creator_applications (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id {users_id_type} NOT NULL,
+                    tenant_id INT NOT NULL DEFAULT 1,
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    apply_reason TEXT NULL,
+                    review_comment TEXT NULL,
+                    reviewed_by {users_id_type} NULL,
+                    reviewed_at DATETIME NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    KEY idx_creator_app_user (user_id),
+                    KEY idx_creator_app_status (status),
+                    KEY idx_creator_app_tenant (tenant_id)
+                )
+                """
+            )
 
         if 'book_versions' not in table_names:
             patches.append(
@@ -266,6 +304,74 @@ def _apply_schema_compatibility_patches(app: Flask):
                 )
                 """
             )
+
+        if 'book_chapters' not in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE book_chapters (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    book_id {books_id_type} NOT NULL,
+                    chapter_key VARCHAR(64) NOT NULL,
+                    chapter_no INT NOT NULL DEFAULT 1,
+                    title VARCHAR(255) NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+                    published_revision_id BIGINT UNSIGNED NULL,
+                    tenant_id INT NOT NULL DEFAULT 1,
+                    created_by {users_id_type} NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_book_chapter_key (book_id, chapter_key),
+                    UNIQUE KEY uniq_book_chapter_no (book_id, chapter_no),
+                    KEY idx_book_chapters_tenant (tenant_id)
+                )
+                """
+            )
+        else:
+            chapter_columns = {col['name'] for col in inspector.get_columns('book_chapters')}
+            if 'published_revision_id' not in chapter_columns:
+                patches.append("ALTER TABLE book_chapters ADD COLUMN published_revision_id BIGINT UNSIGNED NULL")
+            if 'tenant_id' not in chapter_columns:
+                patches.append("ALTER TABLE book_chapters ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
+            if 'created_by' not in chapter_columns:
+                patches.append("ALTER TABLE book_chapters ADD COLUMN created_by BIGINT NULL")
+            if 'status' not in chapter_columns:
+                patches.append("ALTER TABLE book_chapters ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft'")
+
+        if 'book_chapter_revisions' not in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE book_chapter_revisions (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    chapter_id BIGINT UNSIGNED NOT NULL,
+                    version_no INT NOT NULL DEFAULT 1,
+                    title VARCHAR(255) NOT NULL,
+                    content_text LONGTEXT NOT NULL,
+                    summary TEXT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+                    review_comment TEXT NULL,
+                    submitted_at DATETIME NULL,
+                    reviewed_at DATETIME NULL,
+                    reviewed_by {users_id_type} NULL,
+                    published_at DATETIME NULL,
+                    created_by {users_id_type} NULL,
+                    tenant_id INT NOT NULL DEFAULT 1,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_chapter_revision_no (chapter_id, version_no),
+                    KEY idx_chapter_revisions_tenant (tenant_id)
+                )
+                """
+            )
+        else:
+            revision_columns = {col['name'] for col in inspector.get_columns('book_chapter_revisions')}
+            if 'tenant_id' not in revision_columns:
+                patches.append("ALTER TABLE book_chapter_revisions ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
+            if 'created_by' not in revision_columns:
+                patches.append("ALTER TABLE book_chapter_revisions ADD COLUMN created_by BIGINT NULL")
+            if 'status' not in revision_columns:
+                patches.append("ALTER TABLE book_chapter_revisions ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft'")
+            if 'review_comment' not in revision_columns:
+                patches.append("ALTER TABLE book_chapter_revisions ADD COLUMN review_comment TEXT NULL")
 
         if 'categories' not in table_names:
             patches.append(
@@ -469,5 +575,23 @@ def create_app(config_class=Config):
         with app.app_context():
             db.create_all()
         print('Database tables initialized.')
+
+    @app.cli.command('migrate-chapters')
+    def migrate_chapters_command():
+        """Backfill chapter workflow tables from reader sections."""
+        from app.services.chapter_migration import migrate_reader_sections_to_chapter_revisions
+
+        with app.app_context():
+            result = migrate_reader_sections_to_chapter_revisions()
+        print(f"Chapter migration finished: {result}")
+
+    @app.cli.command('rollback-chapter-migration')
+    def rollback_chapter_migration_command():
+        """Rollback chapter workflow records (keeps reader content)."""
+        from app.services.chapter_migration import rollback_chapter_migration
+
+        with app.app_context():
+            result = rollback_chapter_migration()
+        print(f"Chapter migration rollback finished: {result}")
     
     return app

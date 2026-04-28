@@ -119,7 +119,11 @@ def get_favorites(current_user):
         .all()
     )
     book_ids = [record.book_id for record in records]
-    books = Book.query.filter(Book.id.in_(book_ids), Book.status == 'published').all() if book_ids else []
+    books = (
+        Book.query.filter(Book.id.in_(book_ids), Book.status == 'published', Book.shelf_status == 'up').all()
+        if book_ids
+        else []
+    )
     books_map = {book.id: book for book in books}
 
     items = []
@@ -143,7 +147,11 @@ def get_history(current_user):
         .all()
     )
     book_ids = [item.book_id for item in progress_items]
-    books = Book.query.filter(Book.id.in_(book_ids), Book.status == 'published').all() if book_ids else []
+    books = (
+        Book.query.filter(Book.id.in_(book_ids), Book.status == 'published', Book.shelf_status == 'up').all()
+        if book_ids
+        else []
+    )
     books_map = {book.id: book for book in books}
 
     items = []

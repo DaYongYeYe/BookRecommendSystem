@@ -19,6 +19,7 @@ import AdminDashboard from '@/views/admin/AdminDashboard.vue'
 import AdminComments from '@/views/admin/AdminComments.vue'
 import AdminBooks from '@/views/admin/AdminBooks.vue'
 import AdminWorksReview from '@/views/admin/AdminWorksReview.vue'
+import AdminChaptersReview from '@/views/admin/AdminChaptersReview.vue'
 import AdminUsers from '@/views/admin/AdminUsers.vue'
 import AdminManuscriptsReview from '@/views/admin/AdminManuscriptsReview.vue'
 import AdminRoles from '@/views/admin/AdminRoles.vue'
@@ -28,9 +29,10 @@ import AdminUserRoles from '@/views/admin/AdminUserRoles.vue'
 import CreatorLayout from '@/views/creator/CreatorLayout.vue'
 import CreatorDashboard from '@/views/creator/CreatorDashboard.vue'
 import CreatorManuscripts from '@/views/creator/CreatorManuscripts.vue'
+import CreatorBookChapters from '@/views/creator/CreatorBookChapters.vue'
 import CreatorWorks from '@/views/creator/CreatorWorks.vue'
 import Forbidden from '@/views/Forbidden.vue'
-import { getToken } from '@/api/request'
+import { clearToken, getToken } from '@/api/request'
 import { isAdminToken, isCreatorToken, isSuperAdminToken } from '@/utils/auth'
 
 const routes: RouteRecordRaw[] = [
@@ -176,6 +178,11 @@ const routes: RouteRecordRaw[] = [
         component: AdminManuscriptsReview,
       },
       {
+        path: 'chapters/review',
+        name: 'AdminChaptersReview',
+        component: AdminChaptersReview,
+      },
+      {
         path: 'rbac/roles',
         name: 'AdminRoles',
         component: AdminRoles,
@@ -225,6 +232,11 @@ const routes: RouteRecordRaw[] = [
         name: 'CreatorManuscripts',
         component: CreatorManuscripts,
       },
+      {
+        path: 'books/:bookId/chapters',
+        name: 'CreatorBookChapters',
+        component: CreatorBookChapters,
+      },
     ],
   },
 ]
@@ -234,7 +246,45 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, _from, next) => {
+const AUTH_CHECK_TTL_MS = 30 * 1000
+let cachedAuthCheck:
+  | {
+      token: string
+      checkedAt: number
+      isAuthenticated: boolean
+      role: string | null
+    }
+  | null = null
+
+async function checkAuthRoleWithServer(token: string): Promise<{ isAuthenticated: boolean; role: string | null } | null> {
+  const now = Date.now()
+  if (cachedAuthCheck && cachedAuthCheck.token === token && now - cachedAuthCheck.checkedAt <= AUTH_CHECK_TTL_MS) {
+    return { isAuthenticated: cachedAuthCheck.isAuthenticated, role: cachedAuthCheck.role }
+  }
+
+  try {
+    const response = await fetch('/auth/check', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+    const payload = await response.json().catch(() => null)
+    const isAuthenticated = Boolean(response.ok && payload?.is_authenticated && payload?.user)
+    const role = (payload?.user?.role as string | undefined) ?? null
+    cachedAuthCheck = {
+      token,
+      checkedAt: now,
+      isAuthenticated,
+      role,
+    }
+    return { isAuthenticated, role }
+  } catch {
+    return null
+  }
+}
+
+router.beforeEach(async (to, _from, next) => {
   if (to.meta.requiresAuth) {
     const token = getToken()
     if (!token) {
@@ -293,9 +343,38 @@ router.beforeEach((to, _from, next) => {
       })
       return
     }
-    if (!isCreatorToken()) {
-      next({ path: '/' })
+    const serverAuth = await checkAuthRoleWithServer(token)
+    if (serverAuth && !serverAuth.isAuthenticated) {
+      clearToken()
+      next({
+        path: '/login',
+        query: { redirect: to.fullPath },
+      })
       return
+    }
+    if (serverAuth && serverAuth.role !== 'creator') {
+      next({
+        path: '/403',
+        query: { redirect: to.fullPath },
+      })
+      return
+    }
+    if (!serverAuth && !isCreatorToken()) {
+      next({
+        path: '/403',
+        query: { redirect: to.fullPath },
+      })
+      return
+    }
+  }
+
+  if (to.path === '/creator-center') {
+    const token = getToken()
+    if (token) {
+      const serverAuth = await checkAuthRoleWithServer(token)
+      if (serverAuth && !serverAuth.isAuthenticated) {
+        clearToken()
+      }
     }
   }
   next()

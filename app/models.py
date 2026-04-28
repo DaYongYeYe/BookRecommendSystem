@@ -54,6 +54,35 @@ class User(db.Model):
             'tenant_id': int(self.tenant_id or 1),
         }
 
+
+class CreatorApplication(db.Model):
+    __tablename__ = 'creator_applications'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
+    status = db.Column(db.String(20), nullable=False, default='pending')
+    apply_reason = db.Column(db.Text)
+    review_comment = db.Column(db.Text)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    reviewed_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'tenant_id': int(self.tenant_id or 1),
+            'status': self.status or 'pending',
+            'apply_reason': self.apply_reason,
+            'review_comment': self.review_comment,
+            'reviewed_by': self.reviewed_by,
+            'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
 class Role(db.Model):
     __tablename__ = 'roles'
     
@@ -155,6 +184,10 @@ class Book(db.Model):
     creator_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     published_at = db.Column(db.DateTime)
+    is_deleted = db.Column(db.Boolean, nullable=False, default=False)
+    deleted_at = db.Column(db.DateTime)
+    deleted_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    delete_snapshot = db.Column(db.Text)
     created_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
@@ -195,6 +228,9 @@ class Book(db.Model):
             'tenant_id': int(self.tenant_id or 1),
             'audit_submitted_at': self.audit_submitted_at.isoformat() if self.audit_submitted_at else None,
             'published_at': self.published_at.isoformat() if self.published_at else None,
+            'is_deleted': bool(self.is_deleted),
+            'deleted_at': self.deleted_at.isoformat() if self.deleted_at else None,
+            'deleted_by': self.deleted_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -376,6 +412,85 @@ class ReaderParagraph(db.Model):
     __table_args__ = (db.UniqueConstraint('section_id', 'paragraph_key', name='uniq_reader_paragraph_key'),)
 
 
+class BookChapter(db.Model):
+    __tablename__ = 'book_chapters'
+
+    id = db.Column(db.Integer, primary_key=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    chapter_key = db.Column(db.String(64), nullable=False)
+    chapter_no = db.Column(db.Integer, nullable=False, default=1)
+    title = db.Column(db.String(255), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='draft')
+    published_revision_id = db.Column(db.Integer, db.ForeignKey('book_chapter_revisions.id'))
+    tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    __table_args__ = (
+        db.UniqueConstraint('book_id', 'chapter_key', name='uniq_book_chapter_key'),
+        db.UniqueConstraint('book_id', 'chapter_no', name='uniq_book_chapter_no'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'book_id': self.book_id,
+            'chapter_key': self.chapter_key,
+            'chapter_no': int(self.chapter_no or 0),
+            'title': self.title,
+            'status': self.status or 'draft',
+            'published_revision_id': self.published_revision_id,
+            'tenant_id': int(self.tenant_id or 1),
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class BookChapterRevision(db.Model):
+    __tablename__ = 'book_chapter_revisions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    chapter_id = db.Column(db.Integer, db.ForeignKey('book_chapters.id'), nullable=False, index=True)
+    version_no = db.Column(db.Integer, nullable=False, default=1)
+    title = db.Column(db.String(255), nullable=False)
+    content_text = db.Column(db.Text, nullable=False)
+    summary = db.Column(db.Text)
+    status = db.Column(db.String(20), nullable=False, default='draft')
+    review_comment = db.Column(db.Text)
+    submitted_at = db.Column(db.DateTime)
+    reviewed_at = db.Column(db.DateTime)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    published_at = db.Column(db.DateTime)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('chapter_id', 'version_no', name='uniq_chapter_revision_no'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'chapter_id': self.chapter_id,
+            'version_no': int(self.version_no or 1),
+            'title': self.title,
+            'content_text': self.content_text,
+            'summary': self.summary,
+            'status': self.status or 'draft',
+            'review_comment': self.review_comment,
+            'submitted_at': self.submitted_at.isoformat() if self.submitted_at else None,
+            'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None,
+            'reviewed_by': self.reviewed_by,
+            'published_at': self.published_at.isoformat() if self.published_at else None,
+            'created_by': self.created_by,
+            'tenant_id': int(self.tenant_id or 1),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class ReaderHighlight(db.Model):
     __tablename__ = 'reader_highlights'
 
@@ -439,6 +554,9 @@ class BookManuscript(db.Model):
     reviewed_at = db.Column(db.DateTime)
     reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     published_at = db.Column(db.DateTime)
+    is_deleted = db.Column(db.Boolean, nullable=False, default=False)
+    deleted_at = db.Column(db.DateTime)
+    deleted_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
@@ -466,6 +584,9 @@ class BookManuscript(db.Model):
             'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None,
             'reviewed_by': self.reviewed_by,
             'published_at': self.published_at.isoformat() if self.published_at else None,
+            'is_deleted': bool(self.is_deleted),
+            'deleted_at': self.deleted_at.isoformat() if self.deleted_at else None,
+            'deleted_by': self.deleted_by,
             'tenant_id': int(self.tenant_id or 1),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,

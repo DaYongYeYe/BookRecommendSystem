@@ -38,7 +38,7 @@ export function isCreatorToken(): boolean {
   if (!token) return false
   const payload = decodeJwtPayload(token)
   if (!payload) return false
-  return payload.role === 'creator' || payload.role === 'admin'
+  return payload.role === 'creator'
 }
 
 export function isSuperAdminToken(): boolean {
