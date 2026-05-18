@@ -63,14 +63,19 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="editorVisible" :title="editingChapterId ? '编辑章节' : '新建章节'" width="860px">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
+    <el-dialog v-model="editorVisible" :title="editingChapterId ? '编辑章节' : '新建章节'" width="900px" top="4vh" :close-on-click-modal="false">
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
         <el-form-item label="章节标题" prop="title">
           <el-input v-model="form.title" maxlength="255" show-word-limit />
         </el-form-item>
         <el-form-item label="正文" prop="content_text">
-          <el-input v-model="form.content_text" type="textarea" :rows="18" />
-          <div class="hint">若该章节已发布，审核通过后会替换线上内容，旧版本保留在版本记录中。</div>
+          <ChapterEditor
+            ref="chapterEditorRef"
+            v-model="form.content_text"
+            placeholder="请输入章节正文内容..."
+            @save="onAutoSave"
+          />
+          <div class="hint">若该章节已发布，审核通过后会替换线上内容，旧版本保留在版本记录中。支持 Ctrl+S 快捷保存，每 30 秒自动保存。</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -172,6 +177,7 @@ import {
 } from '@/api/creator'
 import { useCreatorPenName } from '@/composables/useCreatorPenName'
 import { USER_PROFILE_HUB_ROUTE_NAME } from '@/constants/routes'
+import ChapterEditor from '@/components/creator/ChapterEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -184,6 +190,7 @@ const bookShelfStatus = ref('')
 const editorVisible = ref(false)
 const editingChapterId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
+const chapterEditorRef = ref<InstanceType<typeof ChapterEditor> | null>(null)
 const form = reactive({
   title: '',
   content_text: '',
@@ -295,6 +302,24 @@ const saveChapter = async () => {
   }
 }
 
+const onAutoSave = async () => {
+  if (!form.title.trim() || !form.content_text.trim()) {
+    chapterEditorRef.value?.setSaveStatus('idle')
+    return
+  }
+  try {
+    if (editingChapterId.value) {
+      await updateCreatorBookChapter(bookId.value, editingChapterId.value, { title: form.title, content_text: form.content_text })
+    } else {
+      const res = await createCreatorBookChapter(bookId.value, { title: form.title, content_text: form.content_text })
+      if (res.chapter?.id) editingChapterId.value = Number(res.chapter.id)
+    }
+    chapterEditorRef.value?.setSaveStatus('saved')
+  } catch {
+    chapterEditorRef.value?.setSaveStatus('error')
+  }
+}
+
 const submitChapter = async (row: CreatorBookChapterItem) => {
   try {
     await ElMessageBox.confirm(`确认提交《${row.title}》进入审核吗？`, '提交章节审核', { type: 'warning' })
@@ -344,7 +369,7 @@ const openTimeline = async (row: CreatorBookChapterItem) => {
           title: `版本 v${item.version_no}`,
           status: item.status,
           content,
-          type,
+          type: type as 'success' | 'warning' | 'danger' | 'info' | 'primary',
         }
       })
       .sort((a, b) => String(b.time || '').localeCompare(String(a.time || '')))

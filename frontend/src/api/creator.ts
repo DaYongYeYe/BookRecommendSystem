@@ -304,3 +304,22 @@ export function getCreatorBookAnalytics(params?: { limit?: number }) {
     { params }
   )
 }
+
+export interface CreatorNotificationItem {
+  id: number
+  type: string
+  message: string
+  read: boolean
+  created_at: string
+}
+
+export function getCreatorNotifications(params?: { limit?: number }) {
+  return request.get<{ items: CreatorNotificationItem[] }, { items: CreatorNotificationItem[] }>(
+    '/creator/notifications',
+    { params }
+  )
+}
+
+export function markCreatorNotificationRead(id: number) {
+  return request.post(`/creator/notifications/${id}/read`)
+}

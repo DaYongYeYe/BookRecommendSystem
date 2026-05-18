@@ -61,6 +61,14 @@
         </el-select>
         <el-switch v-model="filters.recycle" active-text="回收站" inactive-text="作品列表" @change="loadWorks" />
         <el-button @click="loadWorks">查询</el-button>
+        <div class="view-toggle">
+          <button :class="['toggle-btn', { active: viewMode === 'card' }]" @click="viewMode = 'card'" title="卡片视图">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+          </button>
+          <button :class="['toggle-btn', { active: viewMode === 'table' }]" @click="viewMode = 'table'" title="列表视图">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="1" y="6" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>
+          </button>
+        </div>
       </div>
     </el-card>
 
@@ -129,7 +137,7 @@
               >
                 {{ row.shelf_status === 'up' ? '下架' : '上架' }}
               </el-button>
-              <el-dropdown @command="(command) => changeCompletionStatus(row, command)">
+              <el-dropdown @command="(command: string) => changeCompletionStatus(row, command as 'ongoing' | 'paused' | 'completed')">
                 <el-button link>状态</el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
@@ -147,129 +155,190 @@
       </el-table>
     </el-card>
 
-    <el-drawer v-model="drawerVisible" :title="editingId ? '编辑作品' : '新建作品'" size="720px">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
-        <el-form-item label="书名" prop="title">
-          <el-input v-model="form.title" maxlength="255" show-word-limit />
-        </el-form-item>
-        <el-form-item label="副标题">
-          <el-input v-model="form.subtitle" maxlength="255" show-word-limit />
-        </el-form-item>
-        <el-form-item label="作品简介">
-          <el-input v-model="form.description" type="textarea" :rows="4" maxlength="2000" show-word-limit />
-          <div class="hint">提审时简介不少于 {{ options.rules.description_min_length }} 字。</div>
-        </el-form-item>
-        <el-form-item label="主分类">
-          <el-select v-model="form.category_id" placeholder="请选择主分类" style="width: 100%" @change="onCategoryChange">
-            <el-option v-for="item in options.categories" :key="item.id" :label="item.name" :value="item.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="子分类">
-          <el-select v-model="form.subcategory_code" clearable placeholder="可选" style="width: 100%">
-            <el-option v-for="item in currentSubcategories" :key="item.code" :label="item.name" :value="item.code" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="标签">
-          <el-select
-            v-model="form.tag_ids"
-            multiple
-            filterable
-            clearable
-            :multiple-limit="options.rules.tag_max_count"
-            placeholder="请选择标签"
-            style="width: 100%"
-          >
-            <el-option v-for="item in currentTagCandidates" :key="item.id" :label="item.label" :value="item.id" />
-          </el-select>
-          <div class="hint">建议选择 {{ options.rules.tag_min_count }}-{{ options.rules.tag_max_count }} 个标签。</div>
-          <div class="recommended-tags" v-if="currentTagCandidates.length">
-            <el-tag
-              v-for="item in currentTagCandidates"
-              :key="item.id"
-              class="recommended-tag"
-              :type="form.tag_ids.includes(item.id) ? 'success' : 'info'"
-              @click="toggleRecommendedTag(item.id)"
-            >
-              {{ item.label }}
-            </el-tag>
-          </div>
-        </el-form-item>
-        <el-form-item label="封面">
-          <input ref="coverInputRef" class="file-input" type="file" accept=".jpg,.jpeg,.png,.webp" @change="onCoverFileChange" />
-          <div class="cover-row">
-            <el-button @click="coverInputRef?.click()">选择文件</el-button>
-            <span class="hint">支持 {{ options.rules.cover_formats.join(' / ').toUpperCase() }}，建议比例 {{ options.rules.cover_ratio_hint }}</span>
-          </div>
-          <div v-if="coverPreview" class="cover-preview-wrap">
-            <el-image :src="coverPreview" fit="cover" class="cover-preview" />
-            <el-button link type="danger" @click="clearCover">移除封面</el-button>
-          </div>
-        </el-form-item>
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="连载状态">
-              <el-select v-model="form.completion_status" style="width: 100%">
-                <el-option label="连载中" value="ongoing" />
-                <el-option label="暂停" value="paused" />
-                <el-option label="已完结" value="completed" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="收费模式">
-              <el-select v-model="form.price_type" style="width: 100%">
-                <el-option label="免费" value="free" />
-                <el-option label="付费" value="paid" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="作品属性">
-          <el-radio-group v-model="form.creation_type">
-            <el-radio value="original">原创</el-radio>
-            <el-radio value="fanfic">同人</el-radio>
-            <el-radio value="derivative">衍生</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="主角设定">
-          <el-input v-model="form.protagonist" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="世界观设定">
-          <el-input v-model="form.worldview" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="作者寄语">
-          <el-input v-model="form.author_message" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="作者公告">
-          <el-input v-model="form.author_notice" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="版权声明">
-          <el-input v-model="form.copyright_notice" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="更新说明">
-          <el-input v-model="form.update_note" type="textarea" :rows="2" />
-        </el-form-item>
-      </el-form>
-
-      <el-card shadow="never" class="check-card">
-        <template #header>
-          <div class="panel-header">上架检查项</div>
-        </template>
-        <div class="check-grid">
-          <div :class="['check-item', form.category_id ? 'ok' : 'todo']">主分类</div>
-          <div :class="['check-item', (form.description || '').trim().length >= options.rules.description_min_length ? 'ok' : 'todo']">
-            简介
-          </div>
-          <div :class="['check-item', !!coverPreview ? 'ok' : 'todo']">封面</div>
-          <div :class="['check-item', form.tag_ids.length >= options.rules.tag_min_count ? 'ok' : 'todo']">标签</div>
+    <!-- Card view -->
+    <div v-if="viewMode === 'card'" class="card-grid" v-loading="loading">
+      <div v-for="row in works" :key="row.id" class="work-card" @click="openEditDrawer(row.id)">
+        <div class="work-card-cover">
+          <el-image v-if="row.cover" :src="row.cover" fit="cover" />
+          <div v-else class="cover-placeholder">{{ (row.title || '?').charAt(0) }}</div>
+          <el-tag class="card-status-tag" :type="auditStatusTagType(row.audit_status)" size="small">
+            {{ auditStatusLabel(row.audit_status) }}
+          </el-tag>
         </div>
-      </el-card>
+        <div class="work-card-body">
+          <div class="work-card-title">{{ row.title }}</div>
+          <div class="work-card-meta">
+            {{ row.category_name || '未分类' }} / {{ completionStatusLabel(row.completion_status) }}
+            <span v-if="row.section_count"> · {{ row.section_count }} 章</span>
+          </div>
+          <div class="work-card-tags">
+            <el-tag v-for="tag in (row.tags || []).slice(0, 3)" :key="tag.id" size="small" type="info">{{ tag.label }}</el-tag>
+          </div>
+          <div class="work-card-actions" @click.stop>
+            <el-button size="small" @click="openEditDrawer(row.id)">编辑</el-button>
+            <el-button size="small" @click="goWriteChapters(row.id)">写章节</el-button>
+            <el-button
+              size="small"
+              :type="row.shelf_status === 'up' ? 'warning' : 'success'"
+              :disabled="row.shelf_status === 'forced_down'"
+              @click="toggleShelf(row)"
+            >
+              {{ row.shelf_status === 'up' ? '下架' : '上架' }}
+            </el-button>
+          </div>
+        </div>
+      </div>
+      <div v-if="!works.length && !loading" class="empty-card">
+        <p>暂无作品</p>
+        <el-button type="primary" :disabled="!hasPenName()" @click="openCreateDrawer">新建作品</el-button>
+      </div>
+    </div>
+
+    <el-drawer v-model="drawerVisible" :title="editingId ? '编辑作品' : '新建作品'" size="720px" :close-on-click-modal="false">
+      <!-- Stepper indicator -->
+      <div class="stepper">
+        <div v-for="(step, i) in stepperSteps" :key="i" :class="['step-item', { active: currentStep === i, done: currentStep > i }]">
+          <div class="step-num">{{ currentStep > i ? '&#10003;' : i + 1 }}</div>
+          <div class="step-label">{{ step.label }}</div>
+        </div>
+      </div>
+
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
+        <!-- Step 1: Basic info -->
+        <template v-if="currentStep === 0">
+          <el-form-item label="书名" prop="title">
+            <el-input v-model="form.title" maxlength="255" show-word-limit placeholder="请输入作品名称" />
+          </el-form-item>
+          <el-form-item label="作品简介">
+            <el-input v-model="form.description" type="textarea" :rows="4" maxlength="2000" show-word-limit placeholder="简要描述作品内容和亮点..." />
+            <div class="hint">提审时简介不少于 {{ options.rules.description_min_length }} 字。</div>
+          </el-form-item>
+          <el-form-item label="主分类">
+            <el-select v-model="form.category_id" placeholder="请选择主分类" style="width: 100%" @change="onCategoryChange">
+              <el-option v-for="item in options.categories" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="子分类">
+            <el-select v-model="form.subcategory_code" clearable placeholder="可选" style="width: 100%">
+              <el-option v-for="item in currentSubcategories" :key="item.code" :label="item.name" :value="item.code" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="标签">
+            <el-select
+              v-model="form.tag_ids"
+              multiple
+              filterable
+              clearable
+              :multiple-limit="options.rules.tag_max_count"
+              placeholder="请选择标签"
+              style="width: 100%"
+            >
+              <el-option v-for="item in currentTagCandidates" :key="item.id" :label="item.label" :value="item.id" />
+            </el-select>
+            <div class="hint">建议选择 {{ options.rules.tag_min_count }}-{{ options.rules.tag_max_count }} 个标签。</div>
+            <div class="recommended-tags" v-if="currentTagCandidates.length">
+              <el-tag
+                v-for="item in currentTagCandidates"
+                :key="item.id"
+                class="recommended-tag"
+                :type="form.tag_ids.includes(item.id) ? 'success' : 'info'"
+                @click="toggleRecommendedTag(item.id)"
+              >
+                {{ item.label }}
+              </el-tag>
+            </div>
+          </el-form-item>
+          <el-form-item label="封面">
+            <input ref="coverInputRef" class="file-input" type="file" accept=".jpg,.jpeg,.png,.webp" @change="onCoverFileChange" />
+            <div class="cover-row">
+              <el-button @click="coverInputRef?.click()">选择文件</el-button>
+              <span class="hint">支持 {{ options.rules.cover_formats.join(' / ').toUpperCase() }}，建议比例 {{ options.rules.cover_ratio_hint }}</span>
+            </div>
+            <div v-if="coverPreview" class="cover-preview-wrap">
+              <el-image :src="coverPreview" fit="cover" class="cover-preview" />
+              <el-button link type="danger" @click="clearCover">移除封面</el-button>
+            </div>
+          </el-form-item>
+        </template>
+
+        <!-- Step 2: Detailed settings -->
+        <template v-if="currentStep === 1">
+          <el-form-item label="副标题">
+            <el-input v-model="form.subtitle" maxlength="255" show-word-limit placeholder="可选，补充说明作品" />
+          </el-form-item>
+          <el-form-item label="作品属性">
+            <el-radio-group v-model="form.creation_type">
+              <el-radio value="original">原创</el-radio>
+              <el-radio value="fanfic">同人</el-radio>
+              <el-radio value="derivative">衍生</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="主角设定">
+            <el-input v-model="form.protagonist" type="textarea" :rows="2" placeholder="简要描述主角设定（可选）" />
+          </el-form-item>
+          <el-form-item label="世界观设定">
+            <el-input v-model="form.worldview" type="textarea" :rows="2" placeholder="简要描述世界观设定（可选）" />
+          </el-form-item>
+        </template>
+
+        <!-- Step 3: Publish settings -->
+        <template v-if="currentStep === 2">
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="连载状态">
+                <el-select v-model="form.completion_status" style="width: 100%">
+                  <el-option label="连载中" value="ongoing" />
+                  <el-option label="暂停" value="paused" />
+                  <el-option label="已完结" value="completed" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="收费模式">
+                <el-select v-model="form.price_type" style="width: 100%">
+                  <el-option label="免费" value="free" />
+                  <el-option label="付费" value="paid" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="作者寄语">
+            <el-input v-model="form.author_message" type="textarea" :rows="2" placeholder="写给读者的话（可选）" />
+          </el-form-item>
+          <el-form-item label="作者公告">
+            <el-input v-model="form.author_notice" type="textarea" :rows="2" placeholder="关于更新安排等公告（可选）" />
+          </el-form-item>
+          <el-form-item label="版权声明">
+            <el-input v-model="form.copyright_notice" type="textarea" :rows="2" placeholder="版权声明（可选）" />
+          </el-form-item>
+          <el-form-item label="更新说明">
+            <el-input v-model="form.update_note" type="textarea" :rows="2" placeholder="本次更新说明（可选）" />
+          </el-form-item>
+
+          <!-- Readiness check -->
+          <div class="check-card">
+            <div class="check-title">上架检查项</div>
+            <div class="check-grid">
+              <div :class="['check-item', form.category_id ? 'ok' : 'todo']">主分类</div>
+              <div :class="['check-item', (form.description || '').trim().length >= options.rules.description_min_length ? 'ok' : 'todo']">简介</div>
+              <div :class="['check-item', !!coverPreview ? 'ok' : 'todo']">封面</div>
+              <div :class="['check-item', form.tag_ids.length >= options.rules.tag_min_count ? 'ok' : 'todo']">标签</div>
+            </div>
+          </div>
+        </template>
+      </el-form>
 
       <template #footer>
         <div class="drawer-footer">
           <el-button @click="drawerVisible = false">取消</el-button>
-          <el-button :loading="submitLoading" @click="saveWork(false)">保存草稿</el-button>
-          <el-button type="primary" :loading="submitLoading" @click="saveWork(true)">保存并提审</el-button>
+          <div class="footer-right">
+            <el-button v-if="currentStep > 0" @click="currentStep--">上一步</el-button>
+            <el-button v-if="currentStep < 2" type="primary" @click="nextStep">下一步</el-button>
+            <template v-if="currentStep === 2">
+              <el-button :loading="submitLoading" @click="saveWork(false)">保存草稿</el-button>
+              <el-button type="primary" :loading="submitLoading" @click="saveWork(true)">保存并提审</el-button>
+            </template>
+          </div>
         </div>
       </template>
     </el-drawer>
@@ -357,9 +426,17 @@ const filters = reactive({
   recycle: false,
 })
 
+const viewMode = ref<'card' | 'table'>('card')
 const drawerVisible = ref(false)
 const editingId = ref<number | null>(null)
+const currentStep = ref(0)
 const formRef = ref<FormInstance>()
+
+const stepperSteps = [
+  { label: '基础信息' },
+  { label: '详细设定' },
+  { label: '发布设置' },
+]
 const coverInputRef = ref<HTMLInputElement | null>(null)
 const coverFile = ref<File | null>(null)
 const coverPreview = ref('')
@@ -504,12 +581,24 @@ const fillForm = (item: CreatorWorkItem) => {
   }
 }
 
+const nextStep = async () => {
+  if (currentStep.value === 0) {
+    try {
+      await formRef.value?.validateField('title')
+    } catch {
+      return
+    }
+  }
+  currentStep.value++
+}
+
 const openCreateDrawer = () => {
   if (!hasPenName()) {
     penNameDialogVisible.value = true
     return
   }
   resetForm()
+  currentStep.value = 0
   drawerVisible.value = true
 }
 
@@ -522,6 +611,7 @@ const openEditDrawer = async (bookId: number) => {
     const res = await getCreatorWorkDetail(bookId)
     editingId.value = bookId
     fillForm(res.item)
+    currentStep.value = 0
     drawerVisible.value = true
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载作品详情失败')
@@ -887,11 +977,222 @@ onMounted(bootstrap)
   color: #92400e;
 }
 
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 28px;
+  padding: 0 20px;
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #e7e5e4;
+  color: #78716c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.step-item.active .step-num {
+  background: #1c1917;
+  color: #fff;
+}
+
+.step-item.done .step-num {
+  background: #059669;
+  color: #fff;
+}
+
+.step-label {
+  font-size: 13px;
+  color: #a8a29e;
+  transition: color 0.2s;
+}
+
+.step-item.active .step-label {
+  color: #1c1917;
+  font-weight: 600;
+}
+
+.step-item.done .step-label {
+  color: #059669;
+}
+
+.step-item:not(:last-child)::after {
+  content: '';
+  display: block;
+  width: 40px;
+  height: 1px;
+  background: #d6d3d1;
+  margin: 0 12px;
+}
+
+.step-item.done:not(:last-child)::after {
+  background: #059669;
+}
+
+.check-card {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 12px;
+  background: #fafaf9;
+  border: 1px solid #e7e5e4;
+}
+
+.check-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1c1917;
+  margin-bottom: 12px;
+}
+
 .drawer-footer {
   display: flex;
-  justify-content: flex-end;
-  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
   width: 100%;
+}
+
+.footer-right {
+  display: flex;
+  gap: 8px;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  background: #f5f5f4;
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #78716c;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toggle-btn.active {
+  background: #fff;
+  color: #1c1917;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.work-card {
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e7e5e4;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.work-card:hover {
+  border-color: #d6d3d1;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  transform: translateY(-2px);
+}
+
+.work-card-cover {
+  position: relative;
+  height: 160px;
+  background: #f5f5f4;
+  overflow: hidden;
+}
+
+.work-card-cover .el-image {
+  width: 100%;
+  height: 100%;
+}
+
+.cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  font-weight: 700;
+  color: #d6d3d1;
+  background: linear-gradient(135deg, #f5f5f4 0%, #e7e5e4 100%);
+}
+
+.card-status-tag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.work-card-body {
+  padding: 14px;
+}
+
+.work-card-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: #1c1917;
+  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-card-meta {
+  font-size: 12px;
+  color: #78716c;
+  margin-bottom: 8px;
+}
+
+.work-card-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.work-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.empty-card {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 48px 20px;
+  color: #a8a29e;
+}
+
+.empty-card p {
+  margin-bottom: 16px;
 }
 
 @media (max-width: 960px) {
@@ -899,11 +1200,17 @@ onMounted(bootstrap)
   .check-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
   .summary-grid,
   .check-grid {
+    grid-template-columns: 1fr;
+  }
+  .card-grid {
     grid-template-columns: 1fr;
   }
 }

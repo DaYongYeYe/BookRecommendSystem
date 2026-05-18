@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { USER_PROFILE_HUB_ROUTE_NAME } from '@/constants/routes'
+import NotificationBell from '@/components/creator/NotificationBell.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -57,6 +58,10 @@ const activePath = computed(() => {
         <p class="boundary-label">创作者工作台</p>
         <p class="boundary-title">作品基础资料、章节草稿、审核流转和创作分析都在这里独立承载，不打断读者端浏览路径。</p>
       </section>
+
+      <div class="notification-area">
+        <NotificationBell />
+      </div>
 
       <div class="utility-actions">
         <button class="utility-button" @click="router.push({ name: USER_PROFILE_HUB_ROUTE_NAME })">账号资料</button>
@@ -171,6 +176,11 @@ const activePath = computed(() => {
   margin: 0;
   line-height: 1.7;
   font-size: 13px;
+}
+
+.notification-area {
+  display: flex;
+  justify-content: center;
 }
 
 .utility-actions {

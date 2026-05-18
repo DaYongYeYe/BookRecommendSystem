@@ -644,3 +644,24 @@ class BookAnalyticsEvent(db.Model):
     geo_label = db.Column(db.String(100))
     age_group = db.Column(db.String(32))
     created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
+
+
+class CreatorNotification(db.Model):
+    __tablename__ = 'creator_notifications'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
+    type = db.Column(db.String(32), nullable=False, default='system')
+    message = db.Column(db.Text, nullable=False)
+    is_read = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'type': self.type,
+            'message': self.message,
+            'read': self.is_read,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }

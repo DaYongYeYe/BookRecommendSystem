@@ -13,6 +13,7 @@ from app.models import (
     BookChapter,
     BookChapterRevision,
     CreatorApplication,
+    CreatorNotification,
     BookManuscript,
     BookVersion,
     BookTag,
@@ -1580,3 +1581,39 @@ def get_creator_books_analytics(current_user):
         )
 
     return jsonify({'items': items}), 200
+
+
+@bp.route('/notifications', methods=['GET'])
+@login_required
+def get_notifications():
+    user = request.current_user
+    if not _is_creator(user):
+        return jsonify({'error': '无权限'}), 403
+
+    limit = request.args.get('limit', 20, type=int)
+    notifications = (
+        CreatorNotification.query
+        .filter_by(user_id=user.id, tenant_id=_tenant_id(user))
+        .order_by(CreatorNotification.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return jsonify({'items': [n.to_dict() for n in notifications]}), 200
+
+
+@bp.route('/notifications/<int:notification_id>/read', methods=['POST'])
+@login_required
+def mark_notification_read(notification_id):
+    user = request.current_user
+    if not _is_creator(user):
+        return jsonify({'error': '无权限'}), 403
+
+    notification = CreatorNotification.query.filter_by(
+        id=notification_id, user_id=user.id, tenant_id=_tenant_id(user)
+    ).first()
+    if not notification:
+        return jsonify({'error': '通知不存在'}), 404
+
+    notification.is_read = True
+    db.session.commit()
+    return jsonify({'ok': True}), 200
