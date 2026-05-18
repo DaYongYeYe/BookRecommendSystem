@@ -58,27 +58,34 @@
 
 ### 创作者端
 
-- 创作者入口页，和阅读端做角色分流
+- 创作者入口页：
+  - 和阅读端做角色分流
+  - "3 步成为创作者"引导流程（登录 → 申请 → 开始创作）
+  - 创作者申请与审核状态展示
 - 创作数据看板：
-  - 总曝光量
-  - 总阅读量
-  - 阅读用户数
-  - 每本作品的阅读表现
-  - 地域 / 年龄分布摘要
+  - 总曝光量、总阅读量、阅读用户数、点击转化率
+  - 时间范围筛选（近 7 天 / 近 30 天 / 全部）
+  - 作品阅读排行柱状图（ECharts）
+  - 读者地域分布饼图
+  - 读者年龄分布柱状图
+  - 根据数据动态生成的创作优化建议
 - 作品管理：
-  - 新建作品
-  - 编辑作品基础资料
-  - 设置分类、子分类、标签
-  - 上传封面
-  - 设置连载状态、收费模式、创作属性
-  - 提交作品资料审核
-  - 上下架操作
+  - 分步表单创建 / 编辑作品（基础信息 → 详细设定 → 发布设置）
+  - 设置分类、子分类、标签，上传封面
+  - 卡片视图与列表视图切换
+  - 上架准备度实时检查
+  - 提交作品资料审核、上下架操作
+- 章节工作台：
+  - 章节新增、编辑、排序、提审
+  - 增强编辑器：实时字数统计、30 秒自动保存、Ctrl+S 快捷键、全屏编辑模式
+  - 版本历史记录与审核时间线
 - 稿件管理：
-  - 新建新书稿件
-  - 维护已有书籍稿件
+  - 新建新书稿件、维护已有书籍稿件
   - 章节新增、排序、覆盖更新
-  - 保存草稿
-  - 提交审核
+  - 保存草稿、提交审核
+- 消息通知：
+  - 侧边栏通知铃铛与未读角标
+  - 审核结果、系统消息实时推送
 - 创作者前置约束：
   - 进入创作者后台前需要先设置笔名
   - 需要账号具备 `creator` 角色
@@ -139,6 +146,7 @@ RBAC 页面仅允许超级管理员访问，当前已实现：
 - Element Plus
 - Axios
 - Tailwind CSS 4
+- ECharts + vue-echarts
 
 ### 后端
 
@@ -157,7 +165,7 @@ RBAC 页面仅允许超级管理员访问，当前已实现：
 BookRecommendSystem/
 ├─ app/
 │  ├─ __init__.py              # create_app、蓝图注册、兼容性补丁、分类/标签初始化
-│  ├─ models.py                # 用户、图书、稿件、阅读器、RBAC 等模型
+│  ├─ models.py                # 用户、图书、稿件、阅读器、通知、RBAC 等模型
 │  ├─ auth/                    # /auth 普通用户认证
 │  ├─ user/                    # /user 用户中心
 │  ├─ api/                     # /api 阅读端接口与阅读器接口
@@ -170,7 +178,7 @@ BookRecommendSystem/
 │  │  ├─ api/                  # 前端接口封装
 │  │  ├─ router/               # 路由与守卫
 │  │  ├─ views/                # 读者端 / 管理端 / 创作者端页面
-│  │  ├─ components/           # 组件
+│  │  ├─ components/           # 组件（含 creator/ChapterEditor、creator/NotificationBell）
 │  │  ├─ composables/          # 阅读偏好、阅读进度、创作者资料等
 │  │  └─ constants/            # 榜单、分类导航等常量
 │  ├─ package.json
@@ -407,9 +415,10 @@ REDIS_URL=redis://127.0.0.1:6379/0
 ### 创作者端
 
 - `/creator-center`
-- `/creator/dashboard`
 - `/creator/works`
+- `/creator/dashboard`
 - `/creator/manuscripts`
+- `/creator/books/:bookId/chapters`
 
 ### 管理端
 
@@ -505,6 +514,11 @@ REDIS_URL=redis://127.0.0.1:6379/0
 - `POST /creator/manuscripts`
 - `PUT /creator/manuscripts/:manuscriptId`
 - `POST /creator/manuscripts/:manuscriptId/submit`
+- `POST /creator/manuscripts/:manuscriptId/restore`
+- `DELETE /creator/works/:bookId`
+- `POST /creator/works/:bookId/restore`
+- `GET /creator/notifications`
+- `POST /creator/notifications/:notificationId/read`
 
 ### `/admin`
 
