@@ -110,6 +110,10 @@ function handlePrimaryAction() {
 
 onMounted(async () => {
   await loadProfile()
+  if (canOpenCreator.value) {
+    router.replace('/creator/works')
+    return
+  }
   await loadApplication()
 })
 </script>

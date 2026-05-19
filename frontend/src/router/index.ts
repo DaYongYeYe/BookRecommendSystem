@@ -382,6 +382,9 @@ router.beforeEach(async (to, _from, next) => {
       const serverAuth = await checkAuthRoleWithServer(token)
       if (serverAuth && !serverAuth.isAuthenticated) {
         clearToken()
+      } else if (serverAuth && serverAuth.role === 'creator') {
+        next({ path: '/creator/works' })
+        return
       }
     }
   }
