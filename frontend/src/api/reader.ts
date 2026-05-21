@@ -106,8 +106,10 @@ export interface ReadingProgress {
 }
 
 export interface ReaderPreferences {
-  theme: 'light' | 'dark'
+  theme: 'light' | 'dark' | 'green' | 'parchment'
   font_size: number
+  line_height: number
+  margin: 'narrow' | 'medium' | 'wide'
   show_highlights: boolean
   show_comments: boolean
   updated_at?: string | null

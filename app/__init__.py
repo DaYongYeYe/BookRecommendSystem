@@ -25,6 +25,14 @@ def _apply_schema_compatibility_patches(app: Flask):
             return
 
         user_columns = {col['name'] for col in inspector.get_columns('users')}
+        users_id_column = next((col for col in inspector.get_columns('users') if col.get('name') == 'id'), None)
+        users_id_type = 'INT'
+        if users_id_column:
+            raw_type = str(users_id_column.get('type', '')).upper()
+            if 'BIGINT' in raw_type:
+                users_id_type = 'BIGINT'
+            if 'UNSIGNED' in raw_type:
+                users_id_type = f'{users_id_type} UNSIGNED'
         patches = []
 
         if 'name' not in user_columns:
@@ -50,6 +58,27 @@ def _apply_schema_compatibility_patches(app: Flask):
                 "ALTER TABLE users ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
             )
 
+        if 'creator_profiles' not in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE creator_profiles (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id {users_id_type} NOT NULL,
+                    tenant_id INT NOT NULL DEFAULT 1,
+                    status VARCHAR(20) NOT NULL DEFAULT 'active',
+                    activated_by {users_id_type} NULL,
+                    activated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    deactivated_at DATETIME NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_creator_profile_user_tenant (user_id, tenant_id),
+                    KEY idx_creator_profiles_user (user_id),
+                    KEY idx_creator_profiles_tenant (tenant_id),
+                    KEY idx_creator_profiles_status (status)
+                )
+                """
+            )
+
         if 'reader_user_preferences' not in table_names:
             user_id_type = 'INT'
             users_id_column = next((col for col in inspector.get_columns('users') if col.get('name') == 'id'), None)
@@ -66,6 +95,8 @@ def _apply_schema_compatibility_patches(app: Flask):
                     user_id {user_id_type} NOT NULL UNIQUE,
                     theme VARCHAR(16) NOT NULL DEFAULT 'light',
                     font_size INT NOT NULL DEFAULT 20,
+                    line_height FLOAT NOT NULL DEFAULT 2.0,
+                    margin VARCHAR(16) NOT NULL DEFAULT 'medium',
                     show_highlights TINYINT(1) NOT NULL DEFAULT 1,
                     show_comments TINYINT(1) NOT NULL DEFAULT 1,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -73,6 +104,12 @@ def _apply_schema_compatibility_patches(app: Flask):
                 """
                 .replace('{user_id_type}', user_id_type)
             )
+        else:
+            rup_columns = {col['name'] for col in inspector.get_columns('reader_user_preferences')}
+            if 'line_height' not in rup_columns:
+                patches.append("ALTER TABLE reader_user_preferences ADD COLUMN line_height FLOAT NOT NULL DEFAULT 2.0")
+            if 'margin' not in rup_columns:
+                patches.append("ALTER TABLE reader_user_preferences ADD COLUMN margin VARCHAR(16) NOT NULL DEFAULT 'medium'")
 
         if 'user_search_history' not in table_names:
             user_id_type = 'INT'
@@ -449,20 +486,39 @@ def _apply_schema_compatibility_patches(app: Flask):
                 """
             )
 
-        if not patches:
-            return
+        if patches:
+            applied = []
+            for sql in patches:
+                try:
+                    db.session.execute(text(sql))
+                    applied.append(sql.strip().split('\n')[0][:80])
+                except Exception as exc:
+                    db.session.rollback()
+                    app.logger.warning("Skip compatibility patch due to error: %s", exc)
+            if applied:
+                db.session.commit()
+                app.logger.info("Applied schema compatibility patches: %s", ", ".join(applied))
 
-        applied = []
-        for sql in patches:
-            try:
-                db.session.execute(text(sql))
-                applied.append(sql.strip().split('\n')[0][:80])
-            except Exception as exc:
-                db.session.rollback()
-                app.logger.warning("Skip compatibility patch due to error: %s", exc)
-        if applied:
-            db.session.commit()
-            app.logger.info("Applied schema compatibility patches: %s", ", ".join(applied))
+        try:
+            refreshed_table_names = set(inspect(db.engine).get_table_names())
+            if 'creator_profiles' in refreshed_table_names:
+                db.session.execute(
+                    text(
+                        """
+                        INSERT INTO creator_profiles (user_id, tenant_id, status, activated_at, created_at, updated_at)
+                        SELECT u.id, COALESCE(u.tenant_id, 1), 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                        FROM users u
+                        LEFT JOIN creator_profiles cp
+                            ON cp.user_id = u.id AND cp.tenant_id = COALESCE(u.tenant_id, 1)
+                        WHERE u.role = 'creator' AND cp.id IS NULL
+                        """
+                    )
+                )
+                db.session.execute(text("UPDATE users SET role='user' WHERE role='creator'"))
+                db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            app.logger.warning("Skip creator profile migration due to error: %s", exc)
 
         # Safety bootstrap: ensure at least one super admin exists for default tenant.
         try:

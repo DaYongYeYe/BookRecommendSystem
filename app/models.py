@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -18,7 +19,7 @@ class User(db.Model):
     city = db.Column(db.String(64))
     # Werkzeug scrypt hashes are longer than legacy pbkdf2 hashes.
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='user')  # user or admin
+    role = db.Column(db.String(20), nullable=False, default='user')  # user, admin or editor
     is_super_admin = db.Column(db.Boolean, nullable=False, default=False)
     tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
@@ -37,9 +38,41 @@ class User(db.Model):
     
     def is_admin(self):
         return self.role == 'admin' or bool(self.is_super_admin)
+
+    def get_creator_profile(self):
+        if not self.id:
+            return None
+        return CreatorProfile.query.filter_by(
+            user_id=self.id,
+            tenant_id=int(self.tenant_id or 1),
+        ).first()
+
+    def is_creator(self):
+        profile = self.get_creator_profile()
+        return bool(profile and profile.status == 'active')
+
+    def set_creator_enabled(self, enabled: bool, actor_id: int | None = None):
+        profile = self.get_creator_profile()
+        now = datetime.utcnow()
+        if enabled:
+            if not profile:
+                profile = CreatorProfile(
+                    user_id=self.id,
+                    tenant_id=int(self.tenant_id or 1),
+                )
+                db.session.add(profile)
+            profile.status = 'active'
+            profile.activated_by = actor_id
+            profile.activated_at = profile.activated_at or now
+            profile.deactivated_at = None
+            return profile
+        if profile:
+            profile.status = 'disabled'
+            profile.deactivated_at = now
+        return profile
     
     def to_public_dict(self):
-        return {
+        payload = {
             'id': self.id,
             'username': self.username,
             'name': self.name,
@@ -52,6 +85,10 @@ class User(db.Model):
             'is_super_admin': bool(self.is_super_admin),
             'tenant_id': int(self.tenant_id or 1),
         }
+        profile = self.get_creator_profile()
+        payload['is_creator'] = bool(profile and profile.status == 'active')
+        payload['creator_profile'] = profile.to_dict() if profile else None
+        return payload
 
     def to_self_dict(self):
         payload = self.to_public_dict()
@@ -90,6 +127,36 @@ class CreatorApplication(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class CreatorProfile(db.Model):
+    __tablename__ = 'creator_profiles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
+    status = db.Column(db.String(20), nullable=False, default='active')
+    activated_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    activated_at = db.Column(db.DateTime, server_default=db.func.now())
+    deactivated_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'tenant_id', name='uniq_creator_profile_user_tenant'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'tenant_id': int(self.tenant_id or 1),
+            'status': self.status or 'active',
+            'activated_by': self.activated_by,
+            'activated_at': self.activated_at.isoformat() if self.activated_at else None,
+            'deactivated_at': self.deactivated_at.isoformat() if self.deactivated_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
 
 class Role(db.Model):
     __tablename__ = 'roles'
@@ -378,6 +445,8 @@ class ReaderUserPreference(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True, index=True)
     theme = db.Column(db.String(16), nullable=False, default='light')
     font_size = db.Column(db.Integer, nullable=False, default=20)
+    line_height = db.Column(db.Float, nullable=False, default=2.0)
+    margin = db.Column(db.String(16), nullable=False, default='medium')
     show_highlights = db.Column(db.Boolean, nullable=False, default=True)
     show_comments = db.Column(db.Boolean, nullable=False, default=True)
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
@@ -386,6 +455,8 @@ class ReaderUserPreference(db.Model):
         return {
             'theme': self.theme or 'light',
             'font_size': int(self.font_size or 20),
+            'line_height': float(self.line_height or 2.0),
+            'margin': self.margin or 'medium',
             'show_highlights': bool(self.show_highlights),
             'show_comments': bool(self.show_comments),
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,

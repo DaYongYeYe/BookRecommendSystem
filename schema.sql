@@ -95,6 +95,25 @@ CREATE TABLE `user_roles` (
   CONSTRAINT `fk_ur_role` FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE `creator_profiles` (
+  `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`        BIGINT UNSIGNED NOT NULL,
+  `tenant_id`      INT NOT NULL DEFAULT 1,
+  `status`         VARCHAR(20) NOT NULL DEFAULT 'active',
+  `activated_by`   BIGINT UNSIGNED DEFAULT NULL,
+  `activated_at`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `deactivated_at` DATETIME DEFAULT NULL,
+  `created_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_creator_profile_user_tenant` (`user_id`, `tenant_id`),
+  KEY `idx_creator_profiles_user` (`user_id`),
+  KEY `idx_creator_profiles_tenant` (`tenant_id`),
+  KEY `idx_creator_profiles_status` (`status`),
+  CONSTRAINT `fk_creator_profiles_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_creator_profiles_activated_by` FOREIGN KEY (`activated_by`) REFERENCES `users`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ======================
 -- 通知（未读数量）
 -- ======================
@@ -293,6 +312,8 @@ CREATE TABLE `reader_user_preferences` (
   `user_id`          BIGINT UNSIGNED NOT NULL,
   `theme`            VARCHAR(16) NOT NULL DEFAULT 'light',
   `font_size`        INT NOT NULL DEFAULT 20,
+  `line_height`      FLOAT NOT NULL DEFAULT 2.0,
+  `margin`           VARCHAR(16) NOT NULL DEFAULT 'medium',
   `show_highlights`  TINYINT(1) NOT NULL DEFAULT 1,
   `show_comments`    TINYINT(1) NOT NULL DEFAULT 1,
   `updated_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

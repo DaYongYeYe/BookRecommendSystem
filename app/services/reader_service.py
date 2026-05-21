@@ -571,6 +571,8 @@ def get_reader_preferences(user):
     defaults = {
         'theme': 'light',
         'font_size': 20,
+        'line_height': 2.0,
+        'margin': 'medium',
         'show_highlights': True,
         'show_comments': True,
     }
@@ -590,7 +592,7 @@ def save_reader_preferences(user, payload: dict):
         db.session.add(preference)
 
     theme = (payload.get('theme') or '').strip().lower()
-    if theme in ('light', 'dark'):
+    if theme in ('light', 'dark', 'green', 'parchment'):
         preference.theme = theme
 
     if payload.get('font_size') is not None:
@@ -599,6 +601,18 @@ def save_reader_preferences(user, payload: dict):
         except (TypeError, ValueError):
             return None, 'invalid font_size'
         preference.font_size = max(16, min(30, value))
+
+    if payload.get('line_height') is not None:
+        try:
+            lh = float(payload.get('line_height'))
+        except (TypeError, ValueError):
+            return None, 'invalid line_height'
+        preference.line_height = max(1.2, min(3.0, lh))
+
+    if payload.get('margin') is not None:
+        margin = (payload.get('margin') or '').strip().lower()
+        if margin in ('narrow', 'medium', 'wide'):
+            preference.margin = margin
 
     if 'show_highlights' in payload:
         preference.show_highlights = bool(payload.get('show_highlights'))
