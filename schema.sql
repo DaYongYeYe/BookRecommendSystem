@@ -257,13 +257,21 @@ CREATE TABLE `book_tags` (
 -- ======================
 
 CREATE TABLE `book_chapters` (
-  `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `book_id`     BIGINT UNSIGNED NOT NULL,
-  `title`       VARCHAR(255) NOT NULL,
-  `order_no`    INT NOT NULL DEFAULT 1,
-  `preview_url` VARCHAR(500) DEFAULT NULL,
+  `id`                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `book_id`               BIGINT UNSIGNED NOT NULL,
+  `chapter_key`           VARCHAR(64) NOT NULL,
+  `chapter_no`            INT NOT NULL DEFAULT 1,
+  `title`                 VARCHAR(255) NOT NULL,
+  `status`                VARCHAR(20) NOT NULL DEFAULT 'draft',
+  `published_revision_id` BIGINT UNSIGNED DEFAULT NULL,
+  `tenant_id`             INT NOT NULL DEFAULT 1,
+  `created_by`            BIGINT UNSIGNED DEFAULT NULL,
+  `created_at`            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_chapters_book` (`book_id`, `order_no`),
+  UNIQUE KEY `uniq_book_chapter_key` (`book_id`, `chapter_key`),
+  UNIQUE KEY `uniq_book_chapter_no` (`book_id`, `chapter_no`),
+  KEY `idx_book_chapters_tenant` (`tenant_id`),
   CONSTRAINT `fk_chapters_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

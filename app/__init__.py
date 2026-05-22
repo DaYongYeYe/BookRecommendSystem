@@ -365,6 +365,12 @@ def _apply_schema_compatibility_patches(app: Flask):
             )
         else:
             chapter_columns = {col['name'] for col in inspector.get_columns('book_chapters')}
+            needs_chapter_key_backfill = 'chapter_key' not in chapter_columns
+            needs_chapter_no_backfill = 'chapter_no' not in chapter_columns
+            if 'chapter_key' not in chapter_columns:
+                patches.append("ALTER TABLE book_chapters ADD COLUMN chapter_key VARCHAR(64) NULL")
+            if 'chapter_no' not in chapter_columns:
+                patches.append("ALTER TABLE book_chapters ADD COLUMN chapter_no INT NOT NULL DEFAULT 1")
             if 'published_revision_id' not in chapter_columns:
                 patches.append("ALTER TABLE book_chapters ADD COLUMN published_revision_id BIGINT UNSIGNED NULL")
             if 'tenant_id' not in chapter_columns:
@@ -373,6 +379,30 @@ def _apply_schema_compatibility_patches(app: Flask):
                 patches.append("ALTER TABLE book_chapters ADD COLUMN created_by BIGINT NULL")
             if 'status' not in chapter_columns:
                 patches.append("ALTER TABLE book_chapters ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft'")
+            if 'created_at' not in chapter_columns:
+                patches.append("ALTER TABLE book_chapters ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP")
+            if 'updated_at' not in chapter_columns:
+                patches.append(
+                    "ALTER TABLE book_chapters ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+                )
+            if (needs_chapter_key_backfill or needs_chapter_no_backfill) and 'order_no' in chapter_columns:
+                patches.append(
+                    """
+                    UPDATE book_chapters
+                    SET chapter_key = CONCAT('chapter-', COALESCE(order_no, id))
+                    WHERE chapter_key IS NULL OR chapter_key = ''
+                    """
+                )
+                patches.append("UPDATE book_chapters SET chapter_no = COALESCE(order_no, chapter_no, id, 1)")
+            elif needs_chapter_key_backfill or needs_chapter_no_backfill:
+                patches.append(
+                    """
+                    UPDATE book_chapters
+                    SET chapter_key = CONCAT('chapter-', id)
+                    WHERE chapter_key IS NULL OR chapter_key = ''
+                    """
+                )
+                patches.append("UPDATE book_chapters SET chapter_no = COALESCE(chapter_no, id, 1)")
 
         if 'book_chapter_revisions' not in table_names:
             patches.append(

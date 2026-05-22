@@ -502,35 +502,34 @@ def upsert_reader_content(books: list[dict]):
             execute(
                 """
                 INSERT INTO book_chapters (
-                  id, book_id, title, order_no, preview_url, chapter_key, chapter_no,
-                  published_revision_id, tenant_id, created_by, status
+                  id, book_id, chapter_key, chapter_no, title, status,
+                  published_revision_id, tenant_id, created_by, created_at, updated_at
                 )
                 VALUES (
-                  :id, :book_id, :title, :order_no, :preview_url, :chapter_key, :chapter_no,
-                  :published_revision_id, :tenant_id, :created_by, 'published'
+                  :id, :book_id, :chapter_key, :chapter_no, :title, 'published',
+                  :published_revision_id, :tenant_id, :created_by, :created_at, :updated_at
                 )
                 ON DUPLICATE KEY UPDATE
-                  title = VALUES(title),
-                  order_no = VALUES(order_no),
-                  preview_url = VALUES(preview_url),
                   chapter_key = VALUES(chapter_key),
                   chapter_no = VALUES(chapter_no),
+                  title = VALUES(title),
+                  status = VALUES(status),
                   published_revision_id = VALUES(published_revision_id),
                   tenant_id = VALUES(tenant_id),
                   created_by = VALUES(created_by),
-                  status = VALUES(status)
+                  updated_at = VALUES(updated_at)
                 """,
                 {
                     "id": chapter_id,
                     "book_id": book["id"],
-                    "title": chapter_title,
-                    "order_no": chapter_no,
-                    "preview_url": f"/reader/{book['id']}",
                     "chapter_key": section_key,
                     "chapter_no": chapter_no,
+                    "title": chapter_title,
                     "published_revision_id": revision_id,
                     "tenant_id": TENANT_ID,
                     "created_by": book["creator_id"],
+                    "created_at": now - timedelta(days=chapter_no + 3),
+                    "updated_at": now,
                 },
             )
             execute(
