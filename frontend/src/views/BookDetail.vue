@@ -22,6 +22,20 @@ const progress = ref<ReadingProgress | null>(null)
 
 const isLoggedIn = computed(() => Boolean(getToken()))
 const book = computed(() => landing.value?.book)
+const relatedSections = computed(() => {
+  if (landing.value?.related_sections?.length) {
+    return landing.value.related_sections.filter((section) => section.items.length > 0)
+  }
+  return [
+    {
+      key: 'related',
+      title: '相关推荐',
+      description: '如果这本的题材和阅读负担对味，这几本也值得顺手放进候选。',
+      items: landing.value?.related_books || [],
+    },
+  ]
+})
+const highlightedComments = computed(() => (landing.value?.book_comments || []).slice(0, 3))
 
 const startButtonText = computed(() => (progress.value?.section_id ? '继续阅读' : '开始阅读'))
 const shelfButtonText = computed(() => (book.value?.in_shelf ? '已在书架' : '加入书架'))
@@ -271,8 +285,8 @@ watch(bookId, () => {
             <section class="rounded-[2rem] bg-[#122620] p-6 text-stone-100 shadow-lg shadow-stone-200/40 md:p-8">
               <div class="flex items-center justify-between">
                 <div>
-                  <h2 class="text-2xl font-semibold">读者评论</h2>
-                  <p class="mt-1 text-sm text-stone-300">看看别人为什么开始，也看看他们为什么停留。</p>
+                  <h2 class="text-2xl font-semibold">读者评论与想法</h2>
+                  <p class="mt-1 text-sm text-stone-300">先看高质量短评，再决定要不要立刻开读。</p>
                 </div>
                 <span class="rounded-full bg-white/10 px-3 py-2 text-xs">
                   {{ landing.book_comments.length }} 条
@@ -281,7 +295,7 @@ watch(bookId, () => {
 
               <div class="mt-6 space-y-3">
                 <div
-                  v-for="comment in landing.book_comments"
+                  v-for="comment in highlightedComments"
                   :key="comment.id"
                   class="rounded-3xl bg-white/10 px-4 py-4"
                 >
@@ -292,43 +306,49 @@ watch(bookId, () => {
                   <p class="mt-2 text-sm leading-7 text-stone-100">{{ comment.content }}</p>
                 </div>
                 <div v-if="landing.book_comments.length === 0" class="rounded-3xl bg-white/5 px-4 py-6 text-sm text-stone-300">
-                  还没有评论，欢迎成为第一个留下读后感的人。
+                  还没有评论。开始阅读后，你的书评和划线想法会成为后来读者的判断信号。
                 </div>
               </div>
             </section>
           </div>
 
-          <section class="rounded-[2rem] bg-white p-6 shadow-sm md:p-8">
-            <div>
-              <h2 class="text-2xl font-semibold">相关推荐</h2>
-              <p class="mt-1 text-sm text-stone-500">如果这本的题材和阅读负担对味，这几本也值得顺手放进候选。</p>
-            </div>
-
-            <div class="mt-6 space-y-4">
-              <button
-                v-for="item in landing.related_books"
-                :key="item.id"
-                class="flex w-full items-start gap-4 rounded-3xl border border-stone-200 p-3 text-left transition hover:border-stone-400 hover:bg-stone-50"
-                @click="goBook(item.id)"
-              >
-                <img :src="item.cover" :alt="item.title" class="h-24 w-16 rounded-2xl object-cover" />
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-semibold text-stone-900">{{ item.title }}</p>
-                  <p class="mt-1 text-xs text-stone-500">{{ item.author || '作者待补充' }}</p>
-                  <p class="mt-2 text-xs text-stone-500">
-                    {{ item.category_name || '同类推荐' }} · {{ formatWordCount(item.word_count) }}
-                  </p>
-                  <p class="mt-2 text-xs text-stone-600">
-                    评分 {{ item.rating || '-' }} · {{ formatCount(item.recent_reads) }} 人在读
-                  </p>
-                </div>
-              </button>
-
-              <div v-if="landing.related_books.length === 0" class="rounded-3xl bg-stone-50 px-4 py-6 text-sm text-stone-500">
-                暂时还没有相关推荐。
+          <aside class="space-y-6">
+            <section
+              v-for="section in relatedSections"
+              :key="section.key"
+              class="rounded-[2rem] bg-white p-6 shadow-sm md:p-8"
+            >
+              <div>
+                <h2 class="text-2xl font-semibold">{{ section.title }}</h2>
+                <p class="mt-1 text-sm text-stone-500">{{ section.description }}</p>
               </div>
-            </div>
-          </section>
+
+              <div class="mt-6 space-y-4">
+                <button
+                  v-for="item in section.items"
+                  :key="`${section.key}-${item.id}`"
+                  class="flex w-full items-start gap-4 rounded-3xl border border-stone-200 p-3 text-left transition hover:border-stone-400 hover:bg-stone-50"
+                  @click="goBook(item.id)"
+                >
+                  <img :src="item.cover || ''" :alt="item.title" class="h-24 w-16 rounded-2xl object-cover" />
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-semibold text-stone-900">{{ item.title }}</p>
+                    <p class="mt-1 text-xs text-stone-500">{{ item.author || '作者待补充' }}</p>
+                    <p class="mt-2 text-xs text-stone-500">
+                      {{ item.category_name || item.reason || '同类推荐' }} · {{ formatWordCount(item.word_count) }}
+                    </p>
+                    <p class="mt-2 text-xs text-stone-600">
+                      评分 {{ item.rating || '-' }} · {{ formatCount(item.recent_reads) }} 人在读
+                    </p>
+                  </div>
+                </button>
+              </div>
+            </section>
+
+            <section v-if="relatedSections.length === 0" class="rounded-[2rem] bg-white p-6 text-sm text-stone-500 shadow-sm">
+              暂时还没有相关推荐。
+            </section>
+          </aside>
         </section>
       </template>
     </div>

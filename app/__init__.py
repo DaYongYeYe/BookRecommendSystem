@@ -486,6 +486,45 @@ def _apply_schema_compatibility_patches(app: Flask):
                 """
             )
 
+        if 'recommendation_feedback' not in table_names and 'books' in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE recommendation_feedback (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id {users_id_type} NOT NULL,
+                    book_id {books_id_type} NOT NULL,
+                    action VARCHAR(32) NOT NULL,
+                    source_section VARCHAR(64) NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    KEY idx_rf_user_book (user_id, book_id),
+                    KEY idx_rf_action (action),
+                    KEY idx_rf_created_at (created_at)
+                )
+                """
+            )
+        else:
+            feedback_columns = {col['name'] for col in inspector.get_columns('recommendation_feedback')} if 'recommendation_feedback' in table_names else set()
+            if feedback_columns and 'source_section' not in feedback_columns:
+                patches.append("ALTER TABLE recommendation_feedback ADD COLUMN source_section VARCHAR(64) NULL")
+
+        if 'reader_bookmarks' not in table_names and 'books' in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE reader_bookmarks (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id {users_id_type} NOT NULL,
+                    book_id {books_id_type} NOT NULL,
+                    section_id VARCHAR(64) NOT NULL,
+                    paragraph_id VARCHAR(64) NULL,
+                    note VARCHAR(255) NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_reader_bookmark_position (user_id, book_id, section_id, paragraph_id),
+                    KEY idx_rb_user_book (user_id, book_id),
+                    KEY idx_rb_created_at (created_at)
+                )
+                """
+            )
+
         if patches:
             applied = []
             for sql in patches:

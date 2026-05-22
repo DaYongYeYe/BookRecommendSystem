@@ -3,10 +3,12 @@ from datetime import datetime
 from app import db
 from app.models import (
     Book,
+    BookAnalyticsEvent,
     BookChapter,
     BookChapterRevision,
     BookTag,
     Category,
+    ReaderBookmark,
     ReaderBookComment,
     ReaderHighlight,
     ReaderHighlightComment,
@@ -149,6 +151,10 @@ def _fmt(dt):
     if not dt:
         return None
     return dt.strftime('%Y-%m-%d %H:%M')
+
+
+def _iso(dt):
+    return dt.isoformat() if dt else None
 
 
 def _display_name(user):
@@ -437,6 +443,87 @@ def build_reader_payload(book_id: int, current_user=None):
         payload['category_name'] = related_category.name if related_category else None
         payload_related_books.append(payload)
 
+    same_tag_books = []
+    if payload_tags:
+        same_tag_ids = [item['id'] for item in payload_tags]
+        same_tag_books = (
+            Book.query.join(BookTag, BookTag.book_id == Book.id)
+            .filter(
+                Book.status == 'published',
+                Book.shelf_status == 'up',
+                Book.id != book.id,
+                BookTag.tag_id.in_(same_tag_ids),
+            )
+            .order_by(Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
+            .limit(4)
+            .all()
+        )
+
+    popular_books = (
+        Book.query.filter(Book.status == 'published', Book.shelf_status == 'up', Book.id != book.id)
+        .order_by(Book.recent_reads.desc(), Book.rating.desc(), Book.id.desc())
+        .limit(4)
+        .all()
+    )
+
+    def related_payload(related_book: Book, reason: str):
+        related_category = Category.query.get(related_book.category_id) if related_book.category_id else None
+        payload = related_book.to_dict()
+        payload['category_name'] = related_category.name if related_category else None
+        payload['reason'] = reason
+        return payload
+
+    related_sections = [
+        {
+            'key': 'same_category',
+            'title': '同分类作品',
+            'description': '题材接近，阅读负担和期待更容易判断。',
+            'items': [related_payload(item, f'同属“{category.name if category else "当前"}”分类') for item in related_books[:4]],
+        },
+        {
+            'key': 'same_tags',
+            'title': '同主题作品',
+            'description': '从标签和关键词继续延展。',
+            'items': [related_payload(item, '命中相近标签') for item in same_tag_books[:4]],
+        },
+        {
+            'key': 'also_read',
+            'title': '大家也在读',
+            'description': '最近阅读热度较高的候选书。',
+            'items': [related_payload(item, '近期在读热度靠前') for item in popular_books[:4]],
+        },
+    ]
+
+    bookmarks = []
+    reading_stats = {
+        'last_read_at': None,
+        'total_read_minutes': 0,
+        'bookmark_count': 0,
+        'highlight_count': len(payload_highlights),
+        'comment_count': len(payload_book_comments),
+    }
+    if current_user:
+        bookmarks = [
+            item.to_dict()
+            for item in ReaderBookmark.query.filter_by(user_id=current_user.id, book_id=book.id)
+            .order_by(ReaderBookmark.created_at.desc(), ReaderBookmark.id.desc())
+            .all()
+        ]
+        progress = UserReadingProgress.query.filter_by(user_id=current_user.id, book_id=book.id).first()
+        total_seconds = (
+            db.session.query(db.func.coalesce(db.func.sum(BookAnalyticsEvent.read_duration_seconds), 0))
+            .filter(BookAnalyticsEvent.user_id == current_user.id, BookAnalyticsEvent.book_id == book.id)
+            .scalar()
+            or 0
+        )
+        reading_stats.update(
+            {
+                'last_read_at': _iso(progress.updated_at) if progress else None,
+                'total_read_minutes': int(total_seconds / 60),
+                'bookmark_count': len(bookmarks),
+            }
+        )
+
     return {
         'book': {
             'id': book.id,
@@ -466,7 +553,67 @@ def build_reader_payload(book_id: int, current_user=None):
         'highlights': payload_highlights,
         'book_comments': payload_book_comments,
         'related_books': payload_related_books,
+        'related_sections': related_sections,
+        'bookmarks': bookmarks,
+        'reading_stats': reading_stats,
     }
+
+
+def get_bookmarks(book_id: int, user):
+    if not user:
+        return []
+    return [
+        item.to_dict()
+        for item in ReaderBookmark.query.filter_by(user_id=user.id, book_id=book_id)
+        .order_by(ReaderBookmark.created_at.desc(), ReaderBookmark.id.desc())
+        .all()
+    ]
+
+
+def create_bookmark(book_id: int, payload: dict, user):
+    if not user:
+        return None, 'login required'
+    ensure_seed(book_id)
+    book = Book.query.get(book_id)
+    if not book or (book.status or 'published') != 'published' or (book.shelf_status or 'down') != 'up':
+        return None, 'book not found'
+
+    section_id = (payload.get('section_id') or '').strip()
+    paragraph_id = (payload.get('paragraph_id') or '').strip() or None
+    note = (payload.get('note') or '').strip()[:255]
+    if not section_id:
+        return None, 'section_id is required'
+
+    bookmark = ReaderBookmark.query.filter_by(
+        user_id=user.id,
+        book_id=book_id,
+        section_id=section_id,
+        paragraph_id=paragraph_id,
+    ).first()
+    if bookmark:
+        bookmark.note = note
+    else:
+        bookmark = ReaderBookmark(
+            user_id=user.id,
+            book_id=book_id,
+            section_id=section_id,
+            paragraph_id=paragraph_id,
+            note=note,
+        )
+        db.session.add(bookmark)
+    db.session.commit()
+    return bookmark.to_dict(), None
+
+
+def delete_bookmark(book_id: int, bookmark_id: int, user):
+    if not user:
+        return 'login required'
+    bookmark = ReaderBookmark.query.filter_by(id=bookmark_id, user_id=user.id, book_id=book_id).first()
+    if not bookmark:
+        return 'bookmark not found'
+    db.session.delete(bookmark)
+    db.session.commit()
+    return None
 
 
 def create_highlight(book_id: int, payload: dict, user=None):

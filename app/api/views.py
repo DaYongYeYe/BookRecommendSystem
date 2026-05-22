@@ -12,6 +12,7 @@ from app.models import (
     BookTag,
     Category,
     ReaderSection,
+    RecommendationFeedback,
     Tag,
     UserReadingProgress,
     UserSearchHistory,
@@ -31,6 +32,7 @@ DEFAULT_HOT_SEARCH_TERMS = [
 ]
 DEFAULT_SEARCH_HISTORY_LIMIT = 8
 VALID_COMPLETION_STATUSES = {'ongoing', 'completed', 'paused'}
+VALID_RECOMMENDATION_ACTIONS = {'hide', 'more_like_this', 'read_later', 'add_to_shelf'}
 RANKING_WINDOW_DAYS = 7
 RANKING_TYPE_ORDER = ['hot', 'new_book', 'surging', 'completed', 'collection', 'following']
 RANKING_TYPE_CONFIG = {
@@ -439,6 +441,204 @@ def _build_recommend_reason(book: Book, current_user=None, context: dict | None 
     return book.home_recommendation_reason or '为你挑出的高分好书'
 
 
+def _feedback_state_for_user(current_user):
+    if not current_user:
+        return {}
+
+    rows = (
+        RecommendationFeedback.query.filter_by(user_id=current_user.id)
+        .order_by(RecommendationFeedback.created_at.desc(), RecommendationFeedback.id.desc())
+        .all()
+    )
+    states = {}
+    for row in rows:
+        states.setdefault(row.book_id, row.action)
+    return states
+
+
+def _shelf_ids_for_user(current_user):
+    if not current_user:
+        return set()
+    return {int(row.book_id) for row in UserShelf.query.filter_by(user_id=current_user.id).all()}
+
+
+def _category_name_map():
+    return {item.id: item.name for item in Category.query.all()}
+
+
+def _feed_item(book: Book, *, reason: str, reason_type: str, source_section: str, current_user=None, category_names=None, shelf_ids=None, feedback_states=None):
+    category_names = category_names or {}
+    shelf_ids = shelf_ids or set()
+    feedback_states = feedback_states or {}
+    payload = _book_payload(book, recommend_reason=reason)
+    payload.update(
+        {
+            'reason': reason,
+            'reason_type': reason_type,
+            'source_section': source_section,
+            'category_name': category_names.get(book.category_id),
+            'in_shelf': book.id in shelf_ids,
+            'feedback_state': feedback_states.get(book.id),
+            'metrics': {
+                'rating': float(book.rating or book.score or 0),
+                'rating_count': int(book.rating_count or 0),
+                'recent_reads': int(book.recent_reads or 0),
+                'word_count': int(book.word_count or 0),
+                'completion_status': book.completion_status or 'ongoing',
+            },
+        }
+    )
+    return payload
+
+
+def _choose_books(query, *, limit: int, hidden_ids: set[int], used_ids: set[int], boost_ids: set[int] | None = None):
+    books = query.limit(max(limit * 4, limit)).all()
+    boost_ids = boost_ids or set()
+    boosted = []
+    regular = []
+    for book in books:
+        if book.id in hidden_ids or book.id in used_ids:
+            continue
+        if book.id in boost_ids:
+            boosted.append(book)
+        else:
+            regular.append(book)
+    picked = boosted + regular
+    result = picked[:limit]
+    used_ids.update(book.id for book in result)
+    return result
+
+
+def _build_recommendation_feed(current_user, limit_per_section: int = 6):
+    context = _build_recommendation_context(current_user)
+    feedback_states = _feedback_state_for_user(current_user)
+    hidden_ids = {book_id for book_id, action in feedback_states.items() if action == 'hide'}
+    boost_ids = {book_id for book_id, action in feedback_states.items() if action == 'more_like_this'}
+    shelf_ids = _shelf_ids_for_user(current_user)
+    category_names = _category_name_map()
+    used_ids = set()
+
+    continue_item = _get_continue_reading(current_user)
+    if continue_item:
+        used_ids.add(continue_item['id'])
+        continue_item.update(
+            {
+                'reason': '继续上次的阅读进度',
+                'reason_type': 'continue_reading',
+                'source_section': 'continue_reading',
+                'category_name': category_names.get(continue_item.get('category_id')),
+                'in_shelf': continue_item['id'] in shelf_ids,
+                'feedback_state': feedback_states.get(continue_item['id']),
+                'metrics': {
+                    'rating': float(continue_item.get('rating') or continue_item.get('score') or 0),
+                    'recent_reads': int(continue_item.get('recent_reads') or 0),
+                    'completion_status': continue_item.get('completion_status') or 'ongoing',
+                },
+            }
+        )
+
+    base_query = _visible_books_query()
+    picked_books = _choose_books(
+        base_query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc()),
+        limit=limit_per_section,
+        hidden_ids=hidden_ids,
+        used_ids=used_ids,
+        boost_ids=boost_ids,
+    )
+    popular_books = _choose_books(
+        base_query.order_by(Book.recent_reads.desc(), Book.rating.desc(), Book.id.desc()),
+        limit=limit_per_section,
+        hidden_ids=hidden_ids,
+        used_ids=used_ids,
+    )
+
+    same_category_books = []
+    preferred_category_id = context.get('preferred_category_id')
+    if preferred_category_id:
+        same_category_books = _choose_books(
+            base_query.filter(Book.category_id == preferred_category_id).order_by(Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc()),
+            limit=limit_per_section,
+            hidden_ids=hidden_ids,
+            used_ids=used_ids,
+            boost_ids=boost_ids,
+        )
+    if not same_category_books:
+        same_category_books = _choose_books(
+            base_query.order_by(Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc()),
+            limit=limit_per_section,
+            hidden_ids=hidden_ids,
+            used_ids=used_ids,
+        )
+
+    new_books = _choose_books(
+        base_query.order_by(Book.published_at.desc(), Book.recent_reads.desc(), Book.id.desc()),
+        limit=limit_per_section,
+        hidden_ids=hidden_ids,
+        used_ids=used_ids,
+    )
+    completed_books = _choose_books(
+        base_query.filter(Book.completion_status == 'completed').order_by(Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc()),
+        limit=limit_per_section,
+        hidden_ids=hidden_ids,
+        used_ids=used_ids,
+    )
+
+    def items(books, source, reason_type, fallback_reason):
+        return [
+            _feed_item(
+                book,
+                reason=_build_recommend_reason(book, current_user, context) if source == 'picked_for_you' else fallback_reason,
+                reason_type=reason_type,
+                source_section=source,
+                current_user=current_user,
+                category_names=category_names,
+                shelf_ids=shelf_ids,
+                feedback_states=feedback_states,
+            )
+            for book in books
+        ]
+
+    sections = [
+        {
+            'key': 'continue_reading',
+            'title': '继续阅读',
+            'description': '把上次停下的位置接回来。',
+            'items': [continue_item] if continue_item else [],
+        },
+        {
+            'key': 'picked_for_you',
+            'title': '今日推荐',
+            'description': '结合你的书架、阅读进度和近期偏好。',
+            'items': items(picked_books, 'picked_for_you', 'personalized', '为你挑出的高分好书'),
+        },
+        {
+            'key': 'popular_now',
+            'title': '大家都在读',
+            'description': '近期热度更高，适合快速判断是否跟读。',
+            'items': items(popular_books, 'popular_now', 'popular', '最近很多人在读'),
+        },
+        {
+            'key': 'same_category',
+            'title': '延续你的口味',
+            'description': '从最近阅读题材和书架标签继续扩展。',
+            'items': items(same_category_books, 'same_category', 'same_category', '与你最近关注的题材接近'),
+        },
+        {
+            'key': 'new_or_surging',
+            'title': '新书与上升作品',
+            'description': '近期上架或热度开始起势的作品。',
+            'items': items(new_books, 'new_or_surging', 'surging', '近期热度起势快'),
+        },
+        {
+            'key': 'completed_good_reads',
+            'title': '完结好书',
+            'description': '可以放心一口气读完的高口碑作品。',
+            'items': items(completed_books, 'completed_good_reads', 'completed', '已完结，适合完整阅读'),
+        },
+    ]
+    return {'sections': sections}
+
+
 def _normalize_search_keyword(value, max_len: int = 100):
     keyword = ' '.join((value or '').split())
     return keyword[:max_len]
@@ -786,6 +986,16 @@ def api_get_personalized_recommendations(current_user):
     return jsonify({'items': items}), 200
 
 
+@bp.route('/recommendations/feed', methods=['GET'])
+@login_optional
+def api_get_recommendation_feed(current_user):
+    try:
+        limit = max(1, min(int(request.args.get('limit', 6)), 12))
+    except ValueError:
+        limit = 6
+    return jsonify(_build_recommendation_feed(current_user, limit_per_section=limit)), 200
+
+
 @bp.route('/shelf/toggle', methods=['POST'])
 @login_required
 def api_toggle_shelf(current_user):
@@ -829,10 +1039,36 @@ def api_toggle_shelf(current_user):
 def api_recommendation_feedback(current_user):
     data = request.get_json() or {}
     book_id = data.get('book_id')
-    action = data.get('action')
+    action = (data.get('action') or '').strip()
+    source_section = (data.get('source_section') or '').strip()[:64] or None
     if not book_id or not action:
         return jsonify({'error': 'missing book_id or action'}), 400
-    return jsonify(_message('feedback saved', book_id=book_id, action=action)), 200
+    if action not in VALID_RECOMMENDATION_ACTIONS:
+        return jsonify({'error': 'invalid action', 'available_actions': sorted(VALID_RECOMMENDATION_ACTIONS)}), 400
+    try:
+        book_id = int(book_id)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid book_id'}), 400
+
+    book = Book.query.get(book_id)
+    if not book or (book.status or 'published') != 'published' or (book.shelf_status or 'down') != 'up':
+        return jsonify({'error': 'book not found'}), 404
+
+    feedback = RecommendationFeedback(
+        user_id=current_user.id,
+        book_id=book_id,
+        action=action,
+        source_section=source_section,
+    )
+    db.session.add(feedback)
+
+    if action == 'add_to_shelf':
+        existing = UserShelf.query.filter_by(user_id=current_user.id, book_id=book_id).first()
+        if not existing:
+            db.session.add(UserShelf(user_id=current_user.id, book_id=book_id))
+
+    db.session.commit()
+    return jsonify(_message('feedback saved', feedback=feedback.to_dict())), 200
 
 
 @bp.route('/books/rankings', methods=['GET'])

@@ -19,6 +19,18 @@ export interface HomeBookItem {
   recommend_reason?: string | null
   home_recommendation_reason?: string | null
   search_keywords?: string | null
+  reason?: string | null
+  reason_type?: string | null
+  source_section?: string | null
+  in_shelf?: boolean
+  feedback_state?: string | null
+  metrics?: {
+    rating?: number
+    rating_count?: number
+    recent_reads?: number
+    word_count?: number
+    completion_status?: string
+  }
 }
 
 export interface BookRankingMeta {
@@ -71,6 +83,19 @@ export interface HomeContinueReadingItem extends HomeBookItem {
   resume_url?: string | null
 }
 
+export interface RecommendationFeedSection {
+  key: 'continue_reading' | 'picked_for_you' | 'popular_now' | 'same_category' | 'new_or_surging' | 'completed_good_reads' | string
+  title: string
+  description: string
+  items: HomeBookItem[]
+}
+
+export interface RecommendationFeedbackPayload {
+  book_id: number
+  action: 'hide' | 'more_like_this' | 'read_later' | 'add_to_shelf'
+  source_section?: string | null
+}
+
 export function getHotTags() {
   return request.get<any, { items: HomeTagItem[] }>('/api/tags/hot')
 }
@@ -87,6 +112,16 @@ export function getHomeRecommendations(limit = 8) {
   return request.get<any, { items: HomeBookItem[] }>('/api/recommendations/personalized', {
     params: { limit },
   })
+}
+
+export function getRecommendationFeed(limit = 6) {
+  return request.get<any, { sections: RecommendationFeedSection[] }>('/api/recommendations/feed', {
+    params: { limit },
+  })
+}
+
+export function submitRecommendationFeedback(payload: RecommendationFeedbackPayload) {
+  return request.post<any, { message: string; feedback: any }>('/api/recommendations/feedback', payload)
 }
 
 export function getContinueReading() {

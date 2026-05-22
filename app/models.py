@@ -438,6 +438,27 @@ class UserSearchHistory(db.Model):
         }
 
 
+class RecommendationFeedback(db.Model):
+    __tablename__ = 'recommendation_feedback'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    action = db.Column(db.String(32), nullable=False, index=True)
+    source_section = db.Column(db.String(64))
+    created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'book_id': self.book_id,
+            'action': self.action,
+            'source_section': self.source_section,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class ReaderUserPreference(db.Model):
     __tablename__ = 'reader_user_preferences'
 
@@ -489,6 +510,33 @@ class ReaderParagraph(db.Model):
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
     __table_args__ = (db.UniqueConstraint('section_id', 'paragraph_key', name='uniq_reader_paragraph_key'),)
+
+
+class ReaderBookmark(db.Model):
+    __tablename__ = 'reader_bookmarks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    section_id = db.Column(db.String(64), nullable=False)
+    paragraph_id = db.Column(db.String(64))
+    note = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'book_id', 'section_id', 'paragraph_id', name='uniq_reader_bookmark_position'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'book_id': self.book_id,
+            'section_id': self.section_id,
+            'paragraph_id': self.paragraph_id,
+            'note': self.note or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 class BookChapter(db.Model):

@@ -8,9 +8,12 @@ from app.models import BookAnalyticsEvent, UserReadingProgress
 from app.rbac.decorators import login_optional, login_required
 from app.services.reader_service import (
     build_reader_payload,
+    create_bookmark,
     create_book_comment,
     create_highlight,
     create_highlight_comment,
+    delete_bookmark,
+    get_bookmarks,
     get_reader_preferences,
     save_reader_preferences,
 )
@@ -94,6 +97,7 @@ def api_get_book_landing(current_user, book_id: int):
             'book_comments': payload['book_comments'],
             'outline': payload['outline'],
             'related_books': payload.get('related_books', []),
+            'related_sections': payload.get('related_sections', []),
         }
     ), 200
 
@@ -125,6 +129,34 @@ def api_create_book_comment(current_user, book_id: int):
     if error:
         return jsonify({'error': error}), 400
     return jsonify({'message': 'book comment created', 'comment': comment}), 201
+
+
+@bp.route('/books/<int:book_id>/bookmarks', methods=['GET'])
+@login_required
+def api_get_bookmarks(current_user, book_id: int):
+    return jsonify({'items': get_bookmarks(book_id, current_user)}), 200
+
+
+@bp.route('/books/<int:book_id>/bookmarks', methods=['POST'])
+@login_required
+def api_create_bookmark(current_user, book_id: int):
+    bookmark, error = create_bookmark(book_id, request.get_json() or {}, current_user)
+    if error == 'book not found':
+        return jsonify({'error': error}), 404
+    if error:
+        return jsonify({'error': error}), 400
+    return jsonify({'message': 'bookmark saved', 'bookmark': bookmark}), 201
+
+
+@bp.route('/books/<int:book_id>/bookmarks/<int:bookmark_id>', methods=['DELETE'])
+@login_required
+def api_delete_bookmark(current_user, book_id: int, bookmark_id: int):
+    error = delete_bookmark(book_id, bookmark_id, current_user)
+    if error == 'bookmark not found':
+        return jsonify({'error': error}), 404
+    if error:
+        return jsonify({'error': error}), 400
+    return jsonify({'message': 'bookmark deleted'}), 200
 
 
 @bp.route('/books/<int:book_id>/progress', methods=['GET'])

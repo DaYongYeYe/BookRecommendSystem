@@ -63,6 +63,21 @@ CREATE TABLE user_roles (
     UNIQUE KEY unique_user_role (user_id, role_id)
 );
 
+CREATE TABLE creator_profiles (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    tenant_id INT NOT NULL DEFAULT 1,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    activated_by INT DEFAULT NULL,
+    activated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deactivated_at DATETIME DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (activated_by) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE KEY uniq_creator_profile_user_tenant (user_id, tenant_id)
+);
+
 -- 图书表（预留）
 CREATE TABLE books (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -142,6 +157,8 @@ CREATE TABLE reader_user_preferences (
     user_id INT NOT NULL UNIQUE,
     theme VARCHAR(16) NOT NULL DEFAULT 'light',
     font_size INT NOT NULL DEFAULT 20,
+    line_height FLOAT NOT NULL DEFAULT 2.0,
+    margin VARCHAR(16) NOT NULL DEFAULT 'medium',
     show_highlights TINYINT(1) NOT NULL DEFAULT 1,
     show_comments TINYINT(1) NOT NULL DEFAULT 1,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -216,6 +233,30 @@ CREATE TABLE reader_book_comments (
     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
 );
 
+CREATE TABLE reader_bookmarks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    book_id INT NOT NULL,
+    section_id VARCHAR(64) NOT NULL,
+    paragraph_id VARCHAR(64),
+    note VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
+    UNIQUE KEY uniq_reader_bookmark_position (user_id, book_id, section_id, paragraph_id)
+);
+
+CREATE TABLE recommendation_feedback (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    book_id INT NOT NULL,
+    action VARCHAR(32) NOT NULL,
+    source_section VARCHAR(64),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
+);
+
 -- 创建索引以提升查询性能
 CREATE INDEX idx_books_title ON books(title);
 CREATE INDEX idx_books_author ON books(author);
@@ -232,6 +273,9 @@ CREATE INDEX idx_reader_paragraphs_section ON reader_paragraphs(section_id, orde
 CREATE INDEX idx_reader_highlights_book ON reader_highlights(book_id, paragraph_key);
 CREATE INDEX idx_reader_hc_highlight ON reader_highlight_comments(highlight_id);
 CREATE INDEX idx_reader_book_comments_book ON reader_book_comments(book_id);
+CREATE INDEX idx_reader_bookmarks_user_book ON reader_bookmarks(user_id, book_id);
+CREATE INDEX idx_recommendation_feedback_user_book ON recommendation_feedback(user_id, book_id);
+CREATE INDEX idx_recommendation_feedback_action ON recommendation_feedback(action);
 
 -- 插入默认角色
 INSERT INTO roles (name, description) VALUES

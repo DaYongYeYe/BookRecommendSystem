@@ -7,9 +7,12 @@ import {
   createBookComment,
   createHighlight,
   createHighlightComment,
+  createReaderBookmark,
+  deleteReaderBookmark,
   getReader,
   getReaderPreferences,
   saveReaderPreferences,
+  type ReaderBookmark,
   type ReaderPayload,
 } from '@/api/reader'
 import { getToken } from '@/api/request'
@@ -24,7 +27,7 @@ type SelectionDraft = {
   selectedText: string
 }
 
-type PanelType = 'none' | 'outline' | 'settings' | 'highlight' | 'book-comments'
+type PanelType = 'none' | 'outline' | 'settings' | 'notes' | 'bookmarks' | 'stats'
 
 const route = useRoute()
 const router = useRouter()
@@ -42,11 +45,14 @@ const activeHighlightId = ref<number | null>(null)
 const highlightCommentDraft = ref('')
 const bookCommentDraft = ref('')
 const activeSectionId = ref<string>('')
+const bookmarks = ref<ReaderBookmark[]>([])
+const bookmarkNoteDraft = ref('')
 
 const activePanel = ref<PanelType>('none')
 const highlightModeEnabled = ref(false)
 const showComments = ref(true)
 const preferenceLoaded = ref(false)
+const immersiveMode = ref(false)
 
 const { readerTheme, readerFontSize, readerLineHeight, readerMargin, setTheme, setFontSize, setLineHeight, setMargin } = useReaderPreferences()
 const { resumeIfNeeded, syncReadingProgress, getAnalyticsContext } = useReadingProgress(bookId, activeSectionId)
@@ -141,6 +147,29 @@ const currentSectionTitle = computed(() => {
   return reader.value.sections[currentSectionIndex.value]?.title || ''
 })
 
+const sectionTitleById = computed(() => {
+  const map: Record<string, string> = {}
+  reader.value?.sections.forEach((section) => {
+    map[section.id] = section.title
+  })
+  return map
+})
+
+const currentBookmark = computed(() => {
+  return bookmarks.value.find((item) => item.section_id === activeSectionId.value) || null
+})
+
+const readingStats = computed(() => {
+  const stats = reader.value?.reading_stats || {}
+  return {
+    last_read_at: stats.last_read_at || '暂无记录',
+    total_read_minutes: Number(stats.total_read_minutes || 0),
+    bookmark_count: bookmarks.value.length,
+    highlight_count: reader.value?.highlights.length || 0,
+    comment_count: reader.value?.book_comments.length || 0,
+  }
+})
+
 const estimatedMinutesLeft = computed(() => {
   if (!reader.value) return 0
   const totalWords = reader.value.book.total_words || reader.value.book.word_count || 0
@@ -161,11 +190,17 @@ const toolbarStickyTop = computed(() => {
   return 'bg-white/92 border-white/70'
 })
 
+const topBarClass = computed(() => [
+  toolbarStickyTop.value,
+  immersiveMode.value ? 'opacity-50 hover:opacity-100' : 'opacity-100',
+])
+
 async function loadReader() {
   loading.value = true
   try {
     const payload = await getReader(bookId.value, getAnalyticsContext())
     reader.value = payload
+    bookmarks.value = payload.bookmarks || []
     activeSectionId.value = payload.sections[0]?.id || ''
     activeHighlightId.value = payload.highlights[0]?.id ?? null
     await resumeIfNeeded(route.query.resume === '1')
@@ -246,7 +281,7 @@ function toggleHighlightMode() {
 
 function toggleCommentVisibility() {
   showComments.value = !showComments.value
-  if (!showComments.value && (activePanel.value === 'highlight' || activePanel.value === 'book-comments')) {
+  if (!showComments.value && activePanel.value === 'notes') {
     activePanel.value = 'none'
   }
 }
@@ -332,12 +367,43 @@ async function submitHighlight() {
     })
     reader.value?.highlights.push(response.highlight)
     activeHighlightId.value = response.highlight.id
-    activePanel.value = 'highlight'
+    activePanel.value = 'notes'
     clearSelectionDraft()
     ElMessage.success('划线已保存')
   } catch (_error) {
     ElMessage.error('划线保存失败，请先登录后重试')
   }
+}
+
+async function saveBookmark() {
+  if (!reader.value || !activeSectionId.value) return
+  try {
+    const response = await createReaderBookmark(bookId.value, {
+      section_id: activeSectionId.value,
+      note: bookmarkNoteDraft.value || currentSectionTitle.value,
+    })
+    const next = response.bookmark
+    bookmarks.value = [next, ...bookmarks.value.filter((item) => item.id !== next.id)]
+    bookmarkNoteDraft.value = ''
+    activePanel.value = 'bookmarks'
+    ElMessage.success('书签已保存')
+  } catch (_error) {
+    ElMessage.error('书签保存失败，请先登录后重试')
+  }
+}
+
+async function removeBookmark(bookmarkId: number) {
+  try {
+    await deleteReaderBookmark(bookId.value, bookmarkId)
+    bookmarks.value = bookmarks.value.filter((item) => item.id !== bookmarkId)
+    ElMessage.success('书签已删除')
+  } catch (_error) {
+    ElMessage.error('书签删除失败')
+  }
+}
+
+function toggleImmersiveMode() {
+  immersiveMode.value = !immersiveMode.value
 }
 
 async function submitHighlightComment() {
@@ -437,6 +503,7 @@ watch(
   async () => {
     clearSelectionDraft()
     activePanel.value = 'none'
+    bookmarks.value = []
     await nextTick()
     await loadShelfState()
     await loadReader()
@@ -457,7 +524,7 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
         <!-- Top info bar -->
         <section
           class="sticky top-3 z-30 mb-6 overflow-hidden rounded-[1.25rem] border px-5 py-4 shadow-lg backdrop-blur-xl md:top-4 md:px-6"
-          :class="toolbarStickyTop"
+          :class="topBarClass"
         >
           <div class="min-w-0">
             <h1 class="truncate text-xl font-semibold">{{ reader.book.title }}</h1>
@@ -471,6 +538,9 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
           <div class="flex flex-wrap items-center gap-2 lg:justify-end">
             <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="router.push('/')">回到首页</button>
             <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="router.push(`/books/${bookId}`)">返回详情</button>
+            <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="saveBookmark">
+              {{ currentBookmark ? '更新书签' : '加书签' }}
+            </button>
             <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="router.push('/user/library')">我的书架</button>
             <button
               class="rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
@@ -619,27 +689,35 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
           </button>
           <button
             class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="showComments ? 'bg-[#101319] text-stone-200' : 'bg-rose-500 text-white'"
-            :title="showComments ? '隐藏评论' : '显示评论'"
-            @click="toggleCommentVisibility"
+            :class="activePanel === 'notes' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
+            title="笔记"
+            @click="togglePanel('notes')"
           >
-            {{ showComments ? '隐评' : '显评' }}
+            笔记
           </button>
           <button
             class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="activePanel === 'highlight' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
-            title="批注"
-            @click="togglePanel('highlight')"
+            :class="activePanel === 'bookmarks' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
+            title="书签"
+            @click="togglePanel('bookmarks')"
           >
-            批注
+            书签
           </button>
           <button
             class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="activePanel === 'book-comments' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
-            title="书评"
-            @click="togglePanel('book-comments')"
+            :class="activePanel === 'stats' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
+            title="统计"
+            @click="togglePanel('stats')"
           >
-            书评
+            统计
+          </button>
+          <button
+            class="h-11 w-11 rounded-full text-xs font-medium"
+            :class="immersiveMode ? 'bg-sky-500 text-white' : 'bg-[#101319] text-stone-200'"
+            title="沉浸"
+            @click="toggleImmersiveMode"
+          >
+            沉浸
           </button>
         </div>
       </div>
@@ -760,11 +838,16 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
         </div>
       </template>
 
-      <!-- Highlight panel -->
-      <template v-else-if="activePanel === 'highlight'">
-        <h3 class="mb-3 text-lg font-semibold">划线批注</h3>
-        <div v-if="!showComments" class="text-sm" :class="ts.textMuted">评论已隐藏，请先打开"显评"。</div>
-        <div v-else-if="activeHighlight">
+      <!-- Notes panel -->
+      <template v-else-if="activePanel === 'notes'">
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <h3 class="text-lg font-semibold">笔记与想法</h3>
+          <button class="rounded-full border px-3 py-1.5 text-xs" :class="ts.border" @click="toggleCommentVisibility">
+            {{ showComments ? '隐藏讨论' : '显示讨论' }}
+          </button>
+        </div>
+
+        <div v-if="activeHighlight" class="rounded-2xl bg-black/10 p-3">
           <p
             :class="[
               'rounded-2xl px-3 py-3 text-base leading-7 underline decoration-2 underline-offset-4',
@@ -774,53 +857,44 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
             {{ activeHighlight.selected_text }}
           </p>
           <p class="mt-3 text-sm leading-7">{{ activeHighlight.note || '这条划线还没有补充批注。' }}</p>
-
-          <div class="mt-4 max-h-[28vh] space-y-2 overflow-y-auto pr-1">
-            <div
-              v-for="comment in activeHighlight.comments"
-              :key="comment.id"
-              class="rounded-2xl bg-black/10 px-3 py-3 text-sm"
-            >
-              <div class="flex items-center justify-between text-xs opacity-70">
-                <span>{{ comment.author }}</span>
-                <span>{{ comment.created_at }}</span>
-              </div>
-              <p class="mt-1 leading-6">{{ comment.content }}</p>
-            </div>
-          </div>
-
           <textarea
+            v-if="showComments"
             v-model="highlightCommentDraft"
             class="mt-4 min-h-20 w-full rounded-2xl border border-stone-300 bg-transparent px-3 py-2 text-sm outline-none"
             placeholder="补充一点你的理解..."
           />
-          <button class="mt-3 rounded-full bg-stone-900 px-4 py-2 text-sm text-white" @click="submitHighlightComment">
-            发布评论
+          <button v-if="showComments" class="mt-3 rounded-full bg-stone-900 px-4 py-2 text-sm text-white" @click="submitHighlightComment">
+            发布想法
           </button>
         </div>
-        <div v-else class="text-sm" :class="ts.textMuted">先在正文中划线，保存后就会显示在这里。</div>
-      </template>
 
-      <!-- Book comments panel -->
-      <template v-else-if="activePanel === 'book-comments'">
-        <h3 class="mb-3 text-lg font-semibold">本书评论</h3>
-        <div v-if="!showComments" class="text-sm" :class="ts.textMuted">评论已隐藏，请先打开"显评"。</div>
-        <template v-else>
+        <div class="mt-4 max-h-[30vh] space-y-2 overflow-y-auto pr-1">
+          <button
+            v-for="item in reader.highlights"
+            :key="item.id"
+            class="block w-full rounded-2xl bg-black/10 px-3 py-3 text-left text-sm transition hover:bg-black/20"
+            @click="activeHighlightId = item.id"
+          >
+            <span class="line-clamp-2 leading-6">{{ item.selected_text }}</span>
+            <span class="mt-1 block text-xs opacity-70">{{ item.note || '无批注' }}</span>
+          </button>
+          <div v-if="reader.highlights.length === 0" class="rounded-2xl bg-black/10 px-3 py-6 text-sm" :class="ts.textMuted">
+            开启划线模式后选中正文，就能在这里沉淀笔记。
+          </div>
+        </div>
+
+        <div class="mt-4 border-t pt-4" :class="ts.border">
+          <h4 class="text-sm font-semibold">本书评论</h4>
           <textarea
             v-model="bookCommentDraft"
-            class="min-h-24 w-full rounded-2xl border border-stone-300 bg-transparent px-3 py-2 text-sm outline-none"
+            class="mt-3 min-h-20 w-full rounded-2xl border border-stone-300 bg-transparent px-3 py-2 text-sm outline-none"
             placeholder="写下你对这本书的看法..."
           />
           <button class="mt-3 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white" @click="submitBookComment">
             发表书评
           </button>
-
-          <div class="mt-4 max-h-[35vh] space-y-2 overflow-y-auto pr-1">
-            <div
-              v-for="comment in reader.book_comments"
-              :key="comment.id"
-              class="rounded-2xl bg-black/10 px-3 py-3 text-sm"
-            >
+          <div class="mt-4 max-h-[20vh] space-y-2 overflow-y-auto pr-1">
+            <div v-for="comment in reader.book_comments" :key="comment.id" class="rounded-2xl bg-black/10 px-3 py-3 text-sm">
               <div class="flex items-center justify-between text-xs opacity-70">
                 <span>{{ comment.author }}</span>
                 <span>{{ comment.created_at }}</span>
@@ -828,7 +902,63 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
               <p class="mt-1 leading-6">{{ comment.content }}</p>
             </div>
           </div>
-        </template>
+        </div>
+      </template>
+
+      <!-- Bookmark panel -->
+      <template v-else-if="activePanel === 'bookmarks'">
+        <h3 class="mb-3 text-lg font-semibold">书签</h3>
+        <div class="rounded-2xl bg-black/10 p-3">
+          <p class="text-sm">当前位置：{{ currentSectionTitle || '正文起始' }}</p>
+          <textarea
+            v-model="bookmarkNoteDraft"
+            class="mt-3 min-h-16 w-full rounded-2xl border border-stone-300 bg-transparent px-3 py-2 text-sm outline-none"
+            placeholder="给这个位置补一句备注..."
+          />
+          <button class="mt-3 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white" @click="saveBookmark">
+            {{ currentBookmark ? '更新当前位置' : '保存当前位置' }}
+          </button>
+        </div>
+        <div class="mt-4 max-h-[42vh] space-y-2 overflow-y-auto pr-1">
+          <div v-for="item in bookmarks" :key="item.id" class="rounded-2xl bg-black/10 px-3 py-3 text-sm">
+            <button class="block w-full text-left" @click="scrollToSection(item.section_id)">
+              <span class="font-medium">{{ sectionTitleById[item.section_id] || item.section_id }}</span>
+              <span class="mt-1 block text-xs opacity-70">{{ item.note || '书签位置' }}</span>
+            </button>
+            <button class="mt-2 text-xs opacity-70 hover:opacity-100" @click="removeBookmark(item.id)">删除</button>
+          </div>
+          <div v-if="bookmarks.length === 0" class="rounded-2xl bg-black/10 px-3 py-6 text-sm" :class="ts.textMuted">
+            还没有书签，保存当前位置后会出现在这里。
+          </div>
+        </div>
+      </template>
+
+      <!-- Stats panel -->
+      <template v-else-if="activePanel === 'stats'">
+        <h3 class="mb-3 text-lg font-semibold">阅读统计</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded-2xl bg-black/10 p-4">
+            <p class="text-xs opacity-70">当前进度</p>
+            <p class="mt-2 text-2xl font-semibold">{{ progressPercent }}%</p>
+          </div>
+          <div class="rounded-2xl bg-black/10 p-4">
+            <p class="text-xs opacity-70">预计剩余</p>
+            <p class="mt-2 text-2xl font-semibold">{{ estimatedMinutesLeft }} 分</p>
+          </div>
+          <div class="rounded-2xl bg-black/10 p-4">
+            <p class="text-xs opacity-70">累计阅读</p>
+            <p class="mt-2 text-2xl font-semibold">{{ readingStats.total_read_minutes }} 分</p>
+          </div>
+          <div class="rounded-2xl bg-black/10 p-4">
+            <p class="text-xs opacity-70">书签</p>
+            <p class="mt-2 text-2xl font-semibold">{{ readingStats.bookmark_count }}</p>
+          </div>
+        </div>
+        <div class="mt-4 rounded-2xl bg-black/10 p-4 text-sm leading-7">
+          <p>最近阅读：{{ readingStats.last_read_at }}</p>
+          <p>划线笔记：{{ readingStats.highlight_count }} 条</p>
+          <p>本书评论：{{ readingStats.comment_count }} 条</p>
+        </div>
       </template>
     </div>
   </div>

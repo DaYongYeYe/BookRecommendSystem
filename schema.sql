@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS `moods`;
 DROP TABLE IF EXISTS `notifications`;
 DROP TABLE IF EXISTS `permissions`;
 DROP TABLE IF EXISTS `reader_book_comments`;
+DROP TABLE IF EXISTS `reader_bookmarks`;
 DROP TABLE IF EXISTS `reader_highlight_comments`;
 DROP TABLE IF EXISTS `reader_highlights`;
 DROP TABLE IF EXISTS `reader_paragraphs`;
@@ -398,6 +399,22 @@ CREATE TABLE `reader_book_comments` (
   CONSTRAINT `fk_reader_book_comments_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE `reader_bookmarks` (
+  `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`      BIGINT UNSIGNED NOT NULL,
+  `book_id`      BIGINT UNSIGNED NOT NULL,
+  `section_id`   VARCHAR(64) NOT NULL,
+  `paragraph_id` VARCHAR(64) DEFAULT NULL,
+  `note`         VARCHAR(255) DEFAULT NULL,
+  `created_at`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_reader_bookmark_position` (`user_id`, `book_id`, `section_id`, `paragraph_id`),
+  KEY `idx_rb_user_book` (`user_id`, `book_id`),
+  KEY `idx_rb_created_at` (`created_at`),
+  CONSTRAINT `fk_rb_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_rb_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ======================
 -- 心境（moods） & 基于心境的推荐
 -- ======================
@@ -442,9 +459,11 @@ CREATE TABLE `recommendation_feedback` (
   `user_id`    BIGINT UNSIGNED NOT NULL,
   `book_id`    BIGINT UNSIGNED NOT NULL,
   `action`     VARCHAR(32) NOT NULL,
+  `source_section` VARCHAR(64) DEFAULT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_rf_user_book` (`user_id`, `book_id`),
+  KEY `idx_rf_action` (`action`),
   CONSTRAINT `fk_rf_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_rf_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

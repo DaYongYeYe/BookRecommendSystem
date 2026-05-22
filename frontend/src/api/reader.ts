@@ -20,6 +20,16 @@ export interface ReaderHighlight {
   comments: ReaderComment[]
 }
 
+export interface ReaderBookmark {
+  id: number
+  user_id: number
+  book_id: number
+  section_id: string
+  paragraph_id: string | null
+  note: string
+  created_at: string | null
+}
+
 export interface ReaderParagraph {
   id: string
   text: string
@@ -76,6 +86,33 @@ export interface ReaderPayload {
   sections: ReaderSection[]
   highlights: ReaderHighlight[]
   book_comments: ReaderComment[]
+  bookmarks?: ReaderBookmark[]
+  reading_stats?: {
+    last_read_at?: string | null
+    total_read_minutes?: number
+    bookmark_count?: number
+    highlight_count?: number
+    comment_count?: number
+  }
+}
+
+export interface RelatedBookSection {
+  key: string
+  title: string
+  description: string
+  items: Array<{
+    id: number
+    title: string
+    subtitle?: string | null
+    author?: string | null
+    cover?: string | null
+    rating?: number | null
+    recent_reads?: number
+    category_name?: string | null
+    completion_status?: string
+    word_count?: number
+    reason?: string
+  }>
 }
 
 export interface BookLandingPayload {
@@ -94,6 +131,7 @@ export interface BookLandingPayload {
     completion_status?: string
     word_count?: number
   }>
+  related_sections?: RelatedBookSection[]
 }
 
 export interface ReadingProgress {
@@ -174,6 +212,21 @@ export function saveReadingProgress(
   }
 ) {
   return request.post<any, { progress: ReadingProgress }>(`/api/books/${bookId}/progress`, payload)
+}
+
+export function getReaderBookmarks(bookId: string | number) {
+  return request.get<any, { items: ReaderBookmark[] }>(`/api/books/${bookId}/bookmarks`)
+}
+
+export function createReaderBookmark(
+  bookId: string | number,
+  payload: { section_id: string; paragraph_id?: string | null; note?: string }
+) {
+  return request.post<any, { message: string; bookmark: ReaderBookmark }>(`/api/books/${bookId}/bookmarks`, payload)
+}
+
+export function deleteReaderBookmark(bookId: string | number, bookmarkId: number) {
+  return request.delete<any, { message: string }>(`/api/books/${bookId}/bookmarks/${bookmarkId}`)
 }
 
 export function addBookToShelf(bookId: string | number) {
