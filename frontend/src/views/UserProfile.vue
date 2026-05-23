@@ -30,7 +30,7 @@ const form = reactive({
 const defaultAvatar = DEFAULT_AVATAR_URL
 
 const canOpenCreator = computed(() => {
-  if (profile.value?.role) return profile.value.role === 'creator'
+  if (profile.value) return profile.value.is_creator === true
   return isCreatorToken()
 })
 const publishedBooks = computed(() => creatorBooks.value.filter((item) => item.status === 'published'))

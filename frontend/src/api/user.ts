@@ -11,6 +11,12 @@ export interface UserProfile {
   province: string | null
   city: string | null
   role: string
+  is_creator: boolean
+  creator_profile?: {
+    status: string
+    activated_at?: string | null
+    deactivated_at?: string | null
+  } | null
 }
 
 export interface BookItem {

@@ -12,7 +12,7 @@ interface RegisterPayload {
   email: string
   password: string
   age: number
-  email_code: string
+  email_code?: string
 }
 
 export interface SendEmailCodePayload {

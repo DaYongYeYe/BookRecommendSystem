@@ -54,7 +54,7 @@ WORK_DESCRIPTION_MIN_LENGTH = 20
 
 
 def _is_creator(user):
-    return user and user.role == 'creator'
+    return bool(user and user.is_creator())
 
 
 def _tenant_id(user):
@@ -617,8 +617,8 @@ def get_creator_application(current_user):
     return jsonify(
         {
             'application': _serialize_creator_application(latest),
-            'can_apply': bool(current_user.role == 'user' and (latest is None or latest.status in ('rejected', 'approved'))),
-            'already_creator': bool(current_user.role == 'creator'),
+            'can_apply': bool(current_user.role == 'user' and not _is_creator(current_user) and (latest is None or latest.status in ('rejected', 'approved'))),
+            'already_creator': _is_creator(current_user),
         }
     ), 200
 
@@ -628,7 +628,7 @@ def get_creator_application(current_user):
 @business_log_aspect('creator.application.submit', tags=['creator', 'application', 'business', 'aop'])
 def submit_creator_application(current_user):
     tenant_id = _tenant_id(current_user)
-    if current_user.role == 'creator':
+    if _is_creator(current_user):
         return jsonify({'error': 'current user is already creator'}), 400
     if current_user.role != 'user':
         return jsonify({'error': 'only normal users can apply'}), 400

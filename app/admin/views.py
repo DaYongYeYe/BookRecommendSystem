@@ -29,6 +29,7 @@ from app.services.captcha import generate_captcha, verify_captcha
 BOOK_STATUSES = ['published', 'draft', 'archived']
 BOOK_COMPLETION_STATUSES = ['ongoing', 'completed', 'paused']
 ALLOWED_COVER_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
+ALLOWED_USER_ROLES = {'user', 'admin', 'editor'}
 
 
 def _tenant_id(user):
@@ -37,6 +38,15 @@ def _tenant_id(user):
 
 def _is_super_admin(user):
     return bool(getattr(user, 'is_super_admin', False))
+
+
+def _normalize_user_role_and_creator(data, default_role='user', default_is_creator=False):
+    role = (data.get('role') or default_role or 'user').strip()
+    is_creator = bool(data.get('is_creator', default_is_creator))
+    if role == 'creator':
+        role = 'user'
+        is_creator = True
+    return role, is_creator
 
 
 def _parse_category_id(raw_value):
@@ -256,6 +266,7 @@ def admin_login():
         'role': user.role,
         'is_admin': True,
         'is_super_admin': bool(user.is_super_admin),
+        'is_creator': user.is_creator(),
         'tenant_id': int(user.tenant_id or tenant_id),
         'exp': datetime.utcnow() + expires_delta
     }
@@ -317,13 +328,13 @@ def create_user(current_user):
     username = (data.get('username') or '').strip()
     email = (data.get('email') or '').strip()
     password = data.get('password') or ''
-    role = (data.get('role') or 'user').strip()
+    role, is_creator = _normalize_user_role_and_creator(data, default_role='user')
     is_super_admin = bool(data.get('is_super_admin', False))
 
     if not username or not email or not password:
         return jsonify({'error': '用户名、邮箱和密码是必需的'}), 400
-    if role not in ['user', 'admin', 'creator', 'editor']:
-        return jsonify({'error': '角色必须是"user"或"admin"'}), 400
+    if role not in ALLOWED_USER_ROLES:
+        return jsonify({'error': 'role must be user, admin or editor'}), 400
     if is_super_admin and not _is_super_admin(current_user):
         return jsonify({'error': '仅超级管理员可以创建超级管理员'}), 403
 
@@ -342,6 +353,8 @@ def create_user(current_user):
     )
     user.set_password(password)
     db.session.add(user)
+    db.session.flush()
+    user.set_creator_enabled(is_creator, current_user.id)
     db.session.commit()
 
     return jsonify({'message': '用户创建成功', 'user': user.to_dict()}), 201
@@ -384,12 +397,21 @@ def update_user(current_user, user_id):
         user.email = data['email']
     
     if 'role' in data:
-        if data['role'] in ['user', 'admin', 'creator', 'editor']:
-            user.role = data['role']
+        role, legacy_is_creator = _normalize_user_role_and_creator(
+            data,
+            default_role=user.role,
+            default_is_creator=user.is_creator(),
+        )
+        if role in ALLOWED_USER_ROLES:
+            user.role = role
             if user.role != 'admin':
                 user.is_super_admin = False
+            if legacy_is_creator:
+                user.set_creator_enabled(True, current_user.id)
         else:
-            return jsonify({'error': '角色必须是"user"或"admin"'}), 400
+            return jsonify({'error': 'role must be user, admin or editor'}), 400
+    if 'is_creator' in data:
+        user.set_creator_enabled(bool(data.get('is_creator')), current_user.id)
     if 'is_super_admin' in data:
         if not _is_super_admin(current_user):
             return jsonify({'error': '仅超级管理员可以修改超级管理员标记'}), 403
@@ -470,6 +492,7 @@ def get_creator_applications(current_user):
         item['username'] = applicant.username if applicant else None
         item['email'] = applicant.email if applicant else None
         item['current_role'] = applicant.role if applicant else None
+        item['is_creator'] = applicant.is_creator() if applicant else False
         item['reviewed_by_name'] = reviewer.username if reviewer else None
         items.append(item)
     return jsonify({'items': items}), 200
@@ -502,7 +525,7 @@ def review_creator_application(current_user, application_id):
     application.reviewed_at = datetime.utcnow()
 
     if action == 'approve':
-        user.role = 'creator'
+        user.set_creator_enabled(True, current_user.id)
 
     db.session.commit()
     return jsonify({'message': 'application reviewed', 'application': application.to_dict(), 'user': user.to_dict()}), 200

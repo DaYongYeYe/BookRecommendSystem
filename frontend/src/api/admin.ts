@@ -30,15 +30,17 @@ export interface AdminCreateUserPayload {
   username: string
   email: string
   password: string
-  role: 'user' | 'admin' | 'creator' | 'editor'
+  role: 'user' | 'admin' | 'editor'
   is_super_admin?: boolean
+  is_creator?: boolean
 }
 
 export interface AdminUpdateUserPayload {
   username?: string
   email?: string
-  role?: 'user' | 'admin' | 'creator' | 'editor'
+  role?: 'user' | 'admin' | 'editor'
   is_super_admin?: boolean
+  is_creator?: boolean
 }
 
 export interface AdminUsersResponse {
@@ -46,7 +48,13 @@ export interface AdminUsersResponse {
     id: number
     username: string
     email: string
-    role: 'user' | 'admin' | 'creator' | 'editor'
+    role: 'user' | 'admin' | 'editor'
+    is_creator?: boolean
+    creator_profile?: {
+      status: string
+      activated_at?: string | null
+      deactivated_at?: string | null
+    } | null
     is_super_admin?: boolean
     tenant_id?: number
   }>
@@ -273,6 +281,7 @@ export interface AdminCreatorApplicationItem {
   username?: string | null
   email?: string | null
   current_role?: string | null
+  is_creator?: boolean
   created_at?: string | null
   reviewed_at?: string | null
 }

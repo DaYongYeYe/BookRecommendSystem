@@ -132,11 +132,12 @@ def register():
     username = (data.get('username') or '').strip()
     email = _normalize_email(data.get('email'))
     password = data.get('password')
-    email_code = (data.get('email_code') or '').strip()
+    # Registration email verification is temporarily disabled.
+    # email_code = (data.get('email_code') or '').strip()
     age = data.get('age')
 
-    if not username or not email or not password or not email_code or age in (None, ''):
-        return jsonify({'error': 'username, email, password, age and email_code are required'}), 400
+    if not username or not email or not password or age in (None, ''):
+        return jsonify({'error': 'username, email, password and age are required'}), 400
 
     if not _is_valid_email(email):
         return jsonify({'error': 'email format is invalid'}), 400
@@ -155,8 +156,9 @@ def register():
     if User.query.filter_by(email=email).first():
         return jsonify({'error': 'email already exists'}), 400
 
-    if not verify_email_code(email, 'register', email_code):
-        return jsonify({'error': 'email verification code is invalid or expired'}), 400
+    # Registration email verification is temporarily disabled.
+    # if not verify_email_code(email, 'register', email_code):
+    #     return jsonify({'error': 'email verification code is invalid or expired'}), 400
 
     tenant_id = int(current_app.config.get('DEFAULT_TENANT_ID', DEFAULT_TENANT_ID) or DEFAULT_TENANT_ID)
     user = User(username=username, name=username, email=email, age=age, tenant_id=tenant_id)
@@ -208,6 +210,7 @@ def login():
         'role': user.role,
         'is_admin': user.is_admin(),
         'is_super_admin': bool(user.is_super_admin),
+        'is_creator': user.is_creator(),
         'tenant_id': tenant_id,
         'exp': datetime.utcnow() + expires_delta,
     }

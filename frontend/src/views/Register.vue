@@ -48,6 +48,7 @@
             />
           </el-form-item>
 
+          <!-- Registration email verification is temporarily disabled.
           <el-form-item label="图形验证码" prop="captcha_code">
             <div class="captcha-block">
               <div class="inline-action-row">
@@ -82,6 +83,7 @@
               </el-button>
             </div>
           </el-form-item>
+          -->
 
           <el-form-item label="年龄" prop="age">
             <el-input-number
@@ -141,18 +143,18 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, FormInstance, FormRules } from 'element-plus'
-import { getCaptcha, register, sendEmailCode } from '../api/auth'
+import { register } from '../api/auth'
 
 const router = useRouter()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
-const countdown = ref(0)
-
-let timer: number | null = null
+// Registration email verification is temporarily disabled.
+// const countdown = ref(0)
+// let timer: number | null = null
 
 const form = reactive({
   username: '',
@@ -165,7 +167,8 @@ const form = reactive({
   confirmPassword: '',
 })
 
-const captchaImage = ref('')
+// Registration email verification is temporarily disabled.
+// const captchaImage = ref('')
 
 const rules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -173,8 +176,9 @@ const rules: FormRules = {
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '邮箱格式不正确', trigger: ['blur', 'change'] },
   ],
-  captcha_code: [{ required: true, message: '请输入图形验证码', trigger: 'blur' }],
-  email_code: [{ required: true, message: '请输入邮箱验证码', trigger: 'blur' }],
+  // Registration email verification is temporarily disabled.
+  // captcha_code: [{ required: true, message: '请输入图形验证码', trigger: 'blur' }],
+  // email_code: [{ required: true, message: '请输入邮箱验证码', trigger: 'blur' }],
   age: [
     { required: true, message: '请输入年龄', trigger: 'change' },
     {
@@ -205,70 +209,71 @@ const rules: FormRules = {
   ],
 }
 
-const clearTimer = () => {
-  if (timer !== null) {
-    window.clearInterval(timer)
-    timer = null
-  }
-}
-
-const startCountdown = (seconds: number) => {
-  clearTimer()
-  countdown.value = seconds
-  timer = window.setInterval(() => {
-    if (countdown.value <= 1) {
-      countdown.value = 0
-      clearTimer()
-      return
-    }
-    countdown.value -= 1
-  }, 1000)
-}
-
-onUnmounted(() => {
-  clearTimer()
-})
-
-const refreshCaptcha = async () => {
-  const data = await getCaptcha()
-  form.captcha_id = data.captcha_id
-  form.captcha_code = ''
-  captchaImage.value = data.captcha_image
-}
-
-onMounted(async () => {
-  try {
-    await refreshCaptcha()
-  } catch {
-    ElMessage.error('获取图形验证码失败，请稍后重试')
-  }
-})
-
-const handleSendCode = async () => {
-  if (!form.email) {
-    ElMessage.warning('请先输入邮箱')
-    return
-  }
-  if (!form.captcha_id || !form.captcha_code) {
-    ElMessage.warning('请先输入图形验证码')
-    return
-  }
-
-  try {
-    const res = await sendEmailCode({
-      email: form.email,
-      purpose: 'register',
-      captcha_id: form.captcha_id,
-      captcha_code: form.captcha_code,
-    })
-    startCountdown(res.resend_seconds || 60)
-    ElMessage.success(`验证码已发送到 ${res.masked_email}`)
-  } catch (error: any) {
-    const msg = error?.response?.data?.error || '发送验证码失败'
-    ElMessage.error(msg)
-    await refreshCaptcha()
-  }
-}
+// Registration email verification is temporarily disabled.
+// const clearTimer = () => {
+//   if (timer !== null) {
+//     window.clearInterval(timer)
+//     timer = null
+//   }
+// }
+//
+// const startCountdown = (seconds: number) => {
+//   clearTimer()
+//   countdown.value = seconds
+//   timer = window.setInterval(() => {
+//     if (countdown.value <= 1) {
+//       countdown.value = 0
+//       clearTimer()
+//       return
+//     }
+//     countdown.value -= 1
+//   }, 1000)
+// }
+//
+// onUnmounted(() => {
+//   clearTimer()
+// })
+//
+// const refreshCaptcha = async () => {
+//   const data = await getCaptcha()
+//   form.captcha_id = data.captcha_id
+//   form.captcha_code = ''
+//   captchaImage.value = data.captcha_image
+// }
+//
+// onMounted(async () => {
+//   try {
+//     await refreshCaptcha()
+//   } catch {
+//     ElMessage.error('获取图形验证码失败，请稍后重试')
+//   }
+// })
+//
+// const handleSendCode = async () => {
+//   if (!form.email) {
+//     ElMessage.warning('请先输入邮箱')
+//     return
+//   }
+//   if (!form.captcha_id || !form.captcha_code) {
+//     ElMessage.warning('请先输入图形验证码')
+//     return
+//   }
+//
+//   try {
+//     const res = await sendEmailCode({
+//       email: form.email,
+//       purpose: 'register',
+//       captcha_id: form.captcha_id,
+//       captcha_code: form.captcha_code,
+//     })
+//     startCountdown(res.resend_seconds || 60)
+//     ElMessage.success(`验证码已发送到 ${res.masked_email}`)
+//   } catch (error: any) {
+//     const msg = error?.response?.data?.error || '发送验证码失败'
+//     ElMessage.error(msg)
+//     await refreshCaptcha()
+//   }
+// }
 
 const onSubmit = () => {
   if (!formRef.value) return
@@ -281,7 +286,8 @@ const onSubmit = () => {
         email: form.email,
         age: Number(form.age),
         password: form.password,
-        email_code: form.email_code,
+        // Registration email verification is temporarily disabled.
+        // email_code: form.email_code,
       })
       ElMessage.success('注册成功，请登录')
       router.push('/login')

@@ -3,6 +3,7 @@ import { getToken } from '@/api/request'
 type JwtPayload = {
   is_admin?: boolean
   is_super_admin?: boolean
+  is_creator?: boolean
   tenant_id?: number
   role?: string
 }
@@ -38,7 +39,7 @@ export function isCreatorToken(): boolean {
   if (!token) return false
   const payload = decodeJwtPayload(token)
   if (!payload) return false
-  return payload.role === 'creator'
+  return payload.is_creator === true || payload.role === 'creator'
 }
 
 export function isSuperAdminToken(): boolean {

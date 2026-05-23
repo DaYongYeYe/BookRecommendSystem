@@ -24,6 +24,11 @@
             <el-tag :type="row.is_super_admin ? 'danger' : 'info'">{{ row.is_super_admin ? '是' : '否' }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="创作者能力" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.is_creator ? 'success' : 'info'">{{ row.is_creator ? '已开通' : '未开通' }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="tenant_id" label="租户" width="90" />
         <el-table-column label="操作" width="300">
           <template #default="{ row }">
@@ -101,9 +106,11 @@
           <el-select v-model="createForm.role" style="width: 100%">
             <el-option label="普通用户" value="user" />
             <el-option label="管理员" value="admin" />
-            <el-option label="创作者" value="creator" />
             <el-option label="编辑" value="editor" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="创作者能力">
+          <el-switch v-model="createForm.is_creator" />
         </el-form-item>
         <el-form-item label="超级管理员">
           <el-switch v-model="createForm.is_super_admin" :disabled="!canManageSuperAdmin || createForm.role !== 'admin'" />
@@ -123,9 +130,11 @@
           <el-select v-model="editForm.role" style="width: 100%">
             <el-option label="普通用户" value="user" />
             <el-option label="管理员" value="admin" />
-            <el-option label="创作者" value="creator" />
             <el-option label="编辑" value="editor" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="创作者能力">
+          <el-switch v-model="editForm.is_creator" />
         </el-form-item>
         <el-form-item label="超级管理员">
           <el-switch v-model="editForm.is_super_admin" :disabled="!canManageSuperAdmin || editForm.role !== 'admin'" />
@@ -165,13 +174,14 @@ import {
 } from '../../api/admin'
 import { isSuperAdminToken } from '../../utils/auth'
 
-type UserRole = 'user' | 'admin' | 'creator' | 'editor'
+type UserRole = 'user' | 'admin' | 'editor'
 
 type UserItem = {
   id: number
   username: string
   email: string
   role: UserRole
+  is_creator?: boolean
   is_super_admin?: boolean
   tenant_id?: number
 }
@@ -182,6 +192,7 @@ type CreatorApplicationItem = {
   status: 'pending' | 'approved' | 'rejected' | string
   username?: string | null
   email?: string | null
+  is_creator?: boolean
   apply_reason?: string | null
   review_comment?: string | null
   reviewed_by_name?: string | null
@@ -209,6 +220,7 @@ const createForm = reactive({
   email: '',
   password: '',
   role: 'user' as UserRole,
+  is_creator: false,
   is_super_admin: false,
 })
 const createRules: FormRules = {
@@ -229,6 +241,7 @@ const editForm = reactive({
   username: '',
   email: '',
   role: 'user' as UserRole,
+  is_creator: false,
   is_super_admin: false,
 })
 const editRules: FormRules = {
@@ -253,7 +266,6 @@ const resetRules: FormRules = {
 
 const roleTagType = (role: UserRole) => {
   if (role === 'admin') return 'danger'
-  if (role === 'creator') return 'success'
   if (role === 'editor') return 'warning'
   return 'info'
 }
@@ -313,6 +325,7 @@ const openCreateDialog = () => {
   createForm.email = ''
   createForm.password = ''
   createForm.role = 'user'
+  createForm.is_creator = false
   createForm.is_super_admin = false
   createDialogVisible.value = true
 }
@@ -340,6 +353,7 @@ const openEditDialog = (row: UserItem) => {
   editForm.username = row.username
   editForm.email = row.email
   editForm.role = row.role
+  editForm.is_creator = !!row.is_creator
   editForm.is_super_admin = !!row.is_super_admin
   editDialogVisible.value = true
 }
@@ -355,6 +369,7 @@ const onEdit = async () => {
         username: editForm.username,
         email: editForm.email,
         role: editForm.role,
+        is_creator: !!editForm.is_creator,
         is_super_admin: editForm.role === 'admin' ? !!editForm.is_super_admin : false,
       })
       ElMessage.success('用户更新成功')
@@ -408,7 +423,7 @@ const onDelete = async (row: UserItem) => {
 const onReviewApplication = async (row: CreatorApplicationItem, action: 'approve' | 'reject') => {
   try {
     const { value } = await ElMessageBox.prompt(
-      action === 'approve' ? '通过后将自动开通创作者角色，可填写备注（可选）' : '请填写驳回原因（可选）',
+      action === 'approve' ? '通过后将自动开通创作者能力，可填写备注（可选）' : '请填写驳回原因（可选）',
       action === 'approve' ? '通过申请' : '驳回申请',
       {
         inputPlaceholder: action === 'approve' ? '例如：请注意版权规范' : '例如：申请说明不足',
@@ -420,7 +435,7 @@ const onReviewApplication = async (row: CreatorApplicationItem, action: 'approve
       action,
       review_comment: (value || '').trim() || undefined,
     })
-    ElMessage.success(action === 'approve' ? '已通过申请并开通创作者' : '已驳回申请')
+    ElMessage.success(action === 'approve' ? '已通过申请并开通创作者能力' : '已驳回申请')
     await Promise.all([loadUsers(), loadCreatorApplications()])
   } catch (error: any) {
     if (error !== 'cancel' && error !== 'close') {

@@ -261,13 +261,14 @@ let cachedAuthCheck:
       checkedAt: number
       isAuthenticated: boolean
       role: string | null
+      isCreator: boolean
     }
   | null = null
 
-async function checkAuthRoleWithServer(token: string): Promise<{ isAuthenticated: boolean; role: string | null } | null> {
+async function checkAuthRoleWithServer(token: string): Promise<{ isAuthenticated: boolean; role: string | null; isCreator: boolean } | null> {
   const now = Date.now()
   if (cachedAuthCheck && cachedAuthCheck.token === token && now - cachedAuthCheck.checkedAt <= AUTH_CHECK_TTL_MS) {
-    return { isAuthenticated: cachedAuthCheck.isAuthenticated, role: cachedAuthCheck.role }
+    return { isAuthenticated: cachedAuthCheck.isAuthenticated, role: cachedAuthCheck.role, isCreator: cachedAuthCheck.isCreator }
   }
 
   try {
@@ -280,13 +281,15 @@ async function checkAuthRoleWithServer(token: string): Promise<{ isAuthenticated
     const payload = await response.json().catch(() => null)
     const isAuthenticated = Boolean(response.ok && payload?.is_authenticated && payload?.user)
     const role = (payload?.user?.role as string | undefined) ?? null
+    const isCreator = Boolean(payload?.user?.is_creator || role === 'creator')
     cachedAuthCheck = {
       token,
       checkedAt: now,
       isAuthenticated,
       role,
+      isCreator,
     }
-    return { isAuthenticated, role }
+    return { isAuthenticated, role, isCreator }
   } catch {
     return null
   }
@@ -360,7 +363,7 @@ router.beforeEach(async (to, _from, next) => {
       })
       return
     }
-    if (serverAuth && serverAuth.role !== 'creator') {
+    if (serverAuth && !serverAuth.isCreator) {
       next({
         path: '/403',
         query: { redirect: to.fullPath },
@@ -382,7 +385,7 @@ router.beforeEach(async (to, _from, next) => {
       const serverAuth = await checkAuthRoleWithServer(token)
       if (serverAuth && !serverAuth.isAuthenticated) {
         clearToken()
-      } else if (serverAuth && serverAuth.role === 'creator') {
+      } else if (serverAuth && serverAuth.isCreator) {
         next({ path: '/creator/works' })
         return
       }

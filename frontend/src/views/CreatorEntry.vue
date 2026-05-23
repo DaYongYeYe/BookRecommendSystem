@@ -18,10 +18,10 @@ const application = ref<CreatorApplicationItem | null>(null)
 
 const hasLogin = computed(() => Boolean(getToken()))
 const canOpenCreator = computed(() => {
-  if (profile.value?.role) return profile.value.role === 'creator'
+  if (profile.value) return profile.value.is_creator === true
   return isCreatorToken()
 })
-const canApply = computed(() => hasLogin.value && !canOpenCreator.value && (!application.value || application.value.status !== 'pending'))
+const canApply = computed(() => hasLogin.value && profile.value?.role === 'user' && !canOpenCreator.value && (!application.value || application.value.status !== 'pending'))
 
 const currentStep = computed(() => {
   if (canOpenCreator.value) return 3
