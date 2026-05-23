@@ -53,6 +53,7 @@ const highlightModeEnabled = ref(false)
 const showComments = ref(true)
 const preferenceLoaded = ref(false)
 const immersiveMode = ref(false)
+const postReadSectionId = 'reader-post-read'
 
 const { readerTheme, readerFontSize, readerLineHeight, readerMargin, setTheme, setFontSize, setLineHeight, setMargin } = useReaderPreferences()
 const { resumeIfNeeded, syncReadingProgress, getAnalyticsContext } = useReadingProgress(bookId, activeSectionId)
@@ -169,6 +170,25 @@ const readingStats = computed(() => {
     comment_count: reader.value?.book_comments.length || 0,
   }
 })
+
+const relatedSections = computed(() => {
+  if (reader.value?.related_sections?.length) {
+    return reader.value.related_sections.filter((section) => section.items.length > 0)
+  }
+  if (reader.value?.related_books?.length) {
+    return [
+      {
+        key: 'related',
+        title: '相关推荐',
+        description: '读完这本后，可以顺手看看这些同题材或同热度作品。',
+        items: reader.value.related_books,
+      },
+    ]
+  }
+  return []
+})
+
+const highlightedBookComments = computed(() => (reader.value?.book_comments || []).slice(0, 4))
 
 const estimatedMinutesLeft = computed(() => {
   if (!reader.value) return 0
@@ -291,6 +311,10 @@ function scrollToSection(sectionId: string) {
   document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+function scrollToPostRead() {
+  document.getElementById(postReadSectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 function goToPrevChapter() {
   if (!hasPrevChapter.value || !reader.value) return
   const prev = reader.value.sections[currentSectionIndex.value - 1]
@@ -298,9 +322,34 @@ function goToPrevChapter() {
 }
 
 function goToNextChapter() {
-  if (!hasNextChapter.value || !reader.value) return
+  if (!reader.value) return
+  if (!hasNextChapter.value) {
+    scrollToPostRead()
+    return
+  }
   const next = reader.value.sections[currentSectionIndex.value + 1]
   if (next) scrollToSection(next.id)
+}
+
+function goBook(targetBookId: number) {
+  router.push(`/books/${targetBookId}`)
+}
+
+function formatCount(value?: number | null) {
+  const num = Number(value || 0)
+  if (num >= 10000) {
+    return `${(num / 10000).toFixed(1)} 万`
+  }
+  return String(num)
+}
+
+function formatWordCount(value?: number | null) {
+  const num = Number(value || 0)
+  if (!num) return '未标注'
+  if (num >= 10000) {
+    return `${(num / 10000).toFixed(1)} 万字`
+  }
+  return `${num} 字`
 }
 
 function handleSelection() {
@@ -646,16 +695,137 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
             </button>
             <span class="text-xs" :class="ts.textMuted">{{ currentSectionIndex + 1 }} / {{ reader.sections.length }}</span>
             <button
-              class="flex items-center gap-2 rounded-full border px-5 py-3 text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
+              class="flex items-center gap-2 rounded-full border px-5 py-3 text-sm font-medium transition"
               :class="[ts.border, ts.text]"
-              :disabled="!hasNextChapter"
               @click="goToNextChapter"
             >
-              <span>下一章</span>
+              <span>{{ hasNextChapter ? '下一章' : '读完了，继续发现' }}</span>
               <span>&rarr;</span>
             </button>
           </div>
         </article>
+
+        <!-- Post-read recommendations -->
+        <section
+          :id="postReadSectionId"
+          :class="cardClass"
+          class="mt-6 scroll-mt-32 p-6 md:p-8"
+        >
+          <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div>
+              <p class="text-xs uppercase tracking-[0.32em]" :class="ts.textMuted">Finished</p>
+              <h2 class="mt-3 text-3xl font-semibold" :class="ts.text">读完了，继续发现下一本</h2>
+              <p class="mt-3 max-w-2xl text-sm leading-7" :class="ts.textSecondary">
+                你已经读到这本书的末尾。可以留下书评，也可以接着看同分类、同主题和近期热读的作品。
+              </p>
+
+              <div class="mt-6 grid gap-3 sm:grid-cols-3">
+                <div class="rounded-2xl border p-4" :class="ts.border">
+                  <p class="text-xs" :class="ts.textMuted">读者评分</p>
+                  <p class="mt-2 text-2xl font-semibold" :class="ts.text">{{ reader.book.rating || '-' }}</p>
+                </div>
+                <div class="rounded-2xl border p-4" :class="ts.border">
+                  <p class="text-xs" :class="ts.textMuted">评分人数</p>
+                  <p class="mt-2 text-2xl font-semibold" :class="ts.text">{{ formatCount(reader.book.rating_count) }}</p>
+                </div>
+                <div class="rounded-2xl border p-4" :class="ts.border">
+                  <p class="text-xs" :class="ts.textMuted">最近在读</p>
+                  <p class="mt-2 text-2xl font-semibold" :class="ts.text">{{ formatCount(reader.book.recent_reads) }}</p>
+                </div>
+              </div>
+
+              <div class="mt-6 rounded-2xl border p-5" :class="ts.border">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 class="text-xl font-semibold" :class="ts.text">写下你的书评</h3>
+                    <p class="mt-1 text-sm" :class="ts.textSecondary">读后的判断会帮助后来者更快决定要不要开读。</p>
+                  </div>
+                  <span
+                    class="rounded-full px-3 py-1.5 text-xs"
+                    :class="readerTheme === 'dark' ? 'bg-white/10 text-stone-200' : 'bg-stone-100 text-stone-600'"
+                  >
+                    {{ reader.book_comments.length }} 条书评
+                  </span>
+                </div>
+                <textarea
+                  v-model="bookCommentDraft"
+                  class="mt-4 min-h-28 w-full rounded-2xl border bg-transparent px-4 py-3 text-sm outline-none transition focus:border-emerald-500"
+                  :class="ts.border"
+                  placeholder="写下你读完这本书后的感受..."
+                />
+                <div class="mt-3 flex flex-wrap items-center gap-3">
+                  <button class="rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-medium text-white" @click="submitBookComment">
+                    发布书评
+                  </button>
+                  <button class="rounded-full border px-5 py-2.5 text-sm" :class="[ts.border, ts.text]" @click="router.push(`/books/${bookId}`)">
+                    返回详情
+                  </button>
+                </div>
+              </div>
+
+              <div class="mt-6">
+                <div class="flex items-center justify-between gap-3">
+                  <h3 class="text-xl font-semibold" :class="ts.text">精选书评</h3>
+                  <span class="text-xs" :class="ts.textMuted">{{ reader.book_comments.length }} 条</span>
+                </div>
+                <div class="mt-4 grid gap-3 md:grid-cols-2">
+                  <div
+                    v-for="comment in highlightedBookComments"
+                    :key="comment.id"
+                    class="rounded-2xl border p-4"
+                    :class="ts.border"
+                  >
+                    <div class="flex items-center justify-between gap-3 text-xs" :class="ts.textMuted">
+                      <span class="truncate">{{ comment.author }}</span>
+                      <span class="shrink-0">{{ comment.created_at }}</span>
+                    </div>
+                    <p class="mt-2 line-clamp-3 text-sm leading-7" :class="ts.textSecondary">{{ comment.content }}</p>
+                  </div>
+                  <div v-if="highlightedBookComments.length === 0" class="rounded-2xl border p-5 text-sm" :class="[ts.border, ts.textSecondary]">
+                    还没有书评，读完后的第一条反馈可以从这里开始。
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <aside class="space-y-4">
+              <section
+                v-for="section in relatedSections"
+                :key="section.key"
+                class="rounded-2xl border p-4"
+                :class="ts.border"
+              >
+                <h3 class="text-lg font-semibold" :class="ts.text">{{ section.title }}</h3>
+                <p class="mt-1 text-sm leading-6" :class="ts.textSecondary">{{ section.description }}</p>
+                <div class="mt-4 space-y-3">
+                  <button
+                    v-for="item in section.items"
+                    :key="`${section.key}-${item.id}`"
+                    class="flex w-full gap-3 rounded-2xl border p-3 text-left transition"
+                    :class="[ts.border, ts.hover]"
+                    @click="goBook(item.id)"
+                  >
+                    <img :src="item.cover || ''" :alt="item.title" class="h-24 w-16 shrink-0 rounded-xl object-cover" />
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-semibold" :class="ts.text">{{ item.title }}</span>
+                      <span class="mt-1 block truncate text-xs" :class="ts.textMuted">{{ item.author || '作者待补充' }}</span>
+                      <span class="mt-2 block text-xs leading-5" :class="ts.textSecondary">
+                        评分 {{ item.rating || '-' }} · {{ formatWordCount(item.word_count) }}
+                      </span>
+                      <span class="mt-1 block line-clamp-2 text-xs leading-5" :class="ts.textMuted">
+                        {{ item.reason || item.category_name || '读完后可以继续探索。' }}
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              </section>
+
+              <section v-if="relatedSections.length === 0" class="rounded-2xl border p-5 text-sm" :class="[ts.border, ts.textSecondary]">
+                暂时还没有相关推荐，可以先回到首页继续发现。
+              </section>
+            </aside>
+          </div>
+        </section>
       </template>
     </main>
 

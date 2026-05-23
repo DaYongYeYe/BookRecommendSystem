@@ -86,6 +86,8 @@ export interface ReaderPayload {
   sections: ReaderSection[]
   highlights: ReaderHighlight[]
   book_comments: ReaderComment[]
+  related_books?: RelatedBookSection['items']
+  related_sections?: RelatedBookSection[]
   bookmarks?: ReaderBookmark[]
   reading_stats?: {
     last_read_at?: string | null
