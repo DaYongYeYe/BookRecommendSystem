@@ -136,6 +136,31 @@ def _apply_schema_compatibility_patches(app: Flask):
                 .replace('{user_id_type}', user_id_type)
             )
 
+        if 'user_achievements' not in table_names:
+            achievement_user_id_type = 'INT'
+            users_id_column = next((col for col in inspector.get_columns('users') if col.get('name') == 'id'), None)
+            if users_id_column:
+                raw_type = str(users_id_column.get('type', '')).upper()
+                if 'BIGINT' in raw_type:
+                    achievement_user_id_type = 'BIGINT'
+                if 'UNSIGNED' in raw_type:
+                    achievement_user_id_type = f'{achievement_user_id_type} UNSIGNED'
+            patches.append(
+                f"""
+                CREATE TABLE user_achievements (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id {achievement_user_id_type} NOT NULL,
+                    achievement_key VARCHAR(64) NOT NULL,
+                    title VARCHAR(100) NOT NULL,
+                    description VARCHAR(255) NULL,
+                    unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_user_achievement_key (user_id, achievement_key),
+                    KEY idx_user_achievements_user (user_id),
+                    KEY idx_user_achievements_unlocked_at (unlocked_at)
+                )
+                """
+            )
+
         if 'books' in table_names:
             book_columns = {col['name'] for col in inspector.get_columns('books')}
             if 'subtitle' not in book_columns:

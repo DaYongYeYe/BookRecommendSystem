@@ -13,6 +13,7 @@ import CreatorEntry from '@/views/CreatorEntry.vue'
 import UserProfileHub from '@/views/UserProfileHub.vue'
 import UserProfile from '@/views/UserProfile.vue'
 import UserLibrary from '@/views/UserLibrary.vue'
+import UserReadingStats from '@/views/UserReadingStats.vue'
 import AdminLogin from '@/views/admin/AdminLogin.vue'
 import AdminRegister from '@/views/admin/AdminRegister.vue'
 import AdminLayout from '@/views/admin/AdminLayout.vue'
@@ -109,6 +110,12 @@ const routes: RouteRecordRaw[] = [
     path: '/user/library',
     name: 'UserLibrary',
     component: UserLibrary,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/user/reading-stats',
+    name: 'UserReadingStats',
+    component: UserReadingStats,
     meta: { requiresAuth: true },
   },
   {

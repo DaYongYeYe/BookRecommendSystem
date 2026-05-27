@@ -31,6 +31,7 @@ DROP TABLE IF EXISTS `reviews`;
 DROP TABLE IF EXISTS `role_permissions`;
 DROP TABLE IF EXISTS `roles`;
 DROP TABLE IF EXISTS `tags`;
+DROP TABLE IF EXISTS `user_achievements`;
 DROP TABLE IF EXISTS `user_reading_progress`;
 DROP TABLE IF EXISTS `user_roles`;
 DROP TABLE IF EXISTS `user_shelf`;
@@ -460,6 +461,20 @@ CREATE TABLE `user_shelf` (
   KEY `idx_shelf_book` (`book_id`),
   CONSTRAINT `fk_shelf_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_shelf_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `user_achievements` (
+  `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`         BIGINT UNSIGNED NOT NULL,
+  `achievement_key` VARCHAR(64) NOT NULL,
+  `title`           VARCHAR(100) NOT NULL,
+  `description`     VARCHAR(255) DEFAULT NULL,
+  `unlocked_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_user_achievement_key` (`user_id`, `achievement_key`),
+  KEY `idx_user_achievements_user` (`user_id`),
+  KEY `idx_user_achievements_unlocked_at` (`unlocked_at`),
+  CONSTRAINT `fk_user_achievements_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `recommendation_feedback` (

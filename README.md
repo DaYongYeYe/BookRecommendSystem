@@ -6,6 +6,15 @@ BookRecommendSystem 是一个围绕“阅读发现、在线阅读、创作投稿
 - 前端：`Vue 3 + TypeScript + Vite + Element Plus + Tailwind CSS`
 - 数据能力：推荐流、分类/标签、榜单、阅读进度、评论、创作者作品与后台审核
 
+## 项目定位与路线图
+
+本项目定位为学习型、课程设计/毕设级阅读平台原型，用于展示阅读发现、在线阅读、互动沉淀、创作投稿、后台审核和 RBAC 权限的完整业务链路。当前示例内容、阅读数据、作者数据和运营数据均为原型演示数据，不承诺真实版权、真实收益或真实商业运营。
+
+- 竞品差异与 P0/P1/P2/P3 路线图：[docs/competitor-gap-analysis.md](docs/competitor-gap-analysis.md)
+- P0/P1 实施进度记录：[docs/p0-p1-implementation-progress.md](docs/p0-p1-implementation-progress.md)
+- 截图索引：[docs/screenshot-index.md](docs/screenshot-index.md)
+- 产品能力地图：[docs/product-capability-map.md](docs/product-capability-map.md)
+
 ## 在线演示
 
 演示地址：[http://43.155.215.208:8080](http://43.155.215.208:8080)

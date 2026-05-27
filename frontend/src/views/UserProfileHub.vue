@@ -19,6 +19,10 @@ function goLibrary() {
   router.push('/user/library')
 }
 
+function goReadingStats() {
+  router.push('/user/reading-stats')
+}
+
 function goCreatorCenter() {
   router.push('/creator-center')
 }
@@ -49,7 +53,7 @@ onMounted(async () => {
           你的个人信息还未完善，建议先补充头像、名称与笔名，后续创作与展示会更完整。
         </div>
 
-        <div class="mt-6 grid gap-4 md:grid-cols-3">
+        <div class="mt-6 grid gap-4 md:grid-cols-4">
           <button class="rounded-2xl border border-stone-200 bg-stone-50 p-5 text-left hover:border-stone-300" @click="goAccountProfile">
             <p class="text-base font-semibold">基本资料</p>
             <p class="mt-2 text-sm text-stone-500">头像、名称、笔名、地区、年龄</p>
@@ -57,6 +61,10 @@ onMounted(async () => {
           <button class="rounded-2xl border border-stone-200 bg-stone-50 p-5 text-left hover:border-stone-300" @click="goLibrary">
             <p class="text-base font-semibold">我的阅读</p>
             <p class="mt-2 text-sm text-stone-500">收藏、阅读进度与历史记录</p>
+          </button>
+          <button class="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-left hover:border-emerald-300" @click="goReadingStats">
+            <p class="text-base font-semibold text-emerald-900">阅读统计</p>
+            <p class="mt-2 text-sm text-emerald-700">本周数据、阅读偏好与成就</p>
           </button>
           <button class="rounded-2xl border border-stone-200 bg-stone-50 p-5 text-left hover:border-stone-300" @click="goCreatorCenter">
             <p class="text-base font-semibold">创作者信息</p>

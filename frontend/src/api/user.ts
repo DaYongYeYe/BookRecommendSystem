@@ -35,6 +35,45 @@ export interface BookItem {
   }
 }
 
+export interface ReadingStatsPayload {
+  week_start: string
+  stats: {
+    weekly_read_minutes: number
+    weekly_reading_days: number
+    completed_chapter_count: number
+    shelf_count: number
+    highlight_count: number
+    comment_count: number
+    bookmark_count: number
+    reading_streak_days: number
+  }
+  preferences: {
+    theme: 'light' | 'dark' | 'green' | 'parchment'
+    font_size: number
+    line_height: number
+    margin: 'narrow' | 'medium' | 'wide'
+    show_highlights: boolean
+    show_comments: boolean
+    updated_at?: string | null
+  }
+  achievements: Array<{
+    achievement_key: string
+    title: string
+    description: string
+    unlocked: boolean
+    unlocked_at?: string | null
+  }>
+  recent_books: Array<{
+    id: number
+    title: string
+    author?: string | null
+    cover?: string | null
+    section_id?: string | null
+    scroll_percent: number
+    updated_at?: string | null
+  }>
+}
+
 export function getUserProfile() {
   return request.get<any, { user: UserProfile }>('/user/profile')
 }
@@ -63,4 +102,8 @@ export function getUserFavorites() {
 
 export function getUserHistory() {
   return request.get<any, { items: BookItem[] }>('/user/history')
+}
+
+export function getReadingStats() {
+  return request.get<any, ReadingStatsPayload>('/user/reading-stats')
 }

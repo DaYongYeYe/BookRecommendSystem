@@ -417,6 +417,31 @@ class UserShelf(db.Model):
         }
 
 
+class UserAchievement(db.Model):
+    __tablename__ = 'user_achievements'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    achievement_key = db.Column(db.String(64), nullable=False)
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(255))
+    unlocked_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'achievement_key', name='uniq_user_achievement_key'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'achievement_key': self.achievement_key,
+            'title': self.title,
+            'description': self.description,
+            'unlocked_at': self.unlocked_at.isoformat() if self.unlocked_at else None,
+        }
+
+
 class UserSearchHistory(db.Model):
     __tablename__ = 'user_search_history'
 

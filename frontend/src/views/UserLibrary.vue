@@ -40,7 +40,10 @@ onMounted(loadData)
         >
           返回用户详情
         </button>
-        <button class="rounded-full bg-stone-900 px-4 py-2 text-sm text-white" @click="router.push('/')">返回首页</button>
+        <div class="flex flex-wrap gap-2">
+          <button class="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm text-stone-700" @click="router.push('/user/reading-stats')">阅读统计</button>
+          <button class="rounded-full bg-stone-900 px-4 py-2 text-sm text-white" @click="router.push('/')">返回首页</button>
+        </div>
       </div>
 
       <h1 class="text-3xl font-semibold">我的阅读</h1>

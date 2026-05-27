@@ -125,6 +125,14 @@ INSERT INTO reader_book_comments (id, book_id, author, content, created_at) VALU
   (3,1,'Cindy Wu','不是那种很吵闹的故事，但情绪会慢慢进来。',NOW())
 ON DUPLICATE KEY UPDATE book_id=VALUES(book_id),author=VALUES(author),content=VALUES(content),created_at=VALUES(created_at);
 
+INSERT INTO reader_bookmarks (id, user_id, book_id, section_id, paragraph_id, note, created_at) VALUES
+  (1,2,1,'chapter-1-2','p5','灯塔段落，适合回看。',NOW()),
+  (2,2,3,'chapter-1','p1','机器与陪伴的开篇。',NOW()),
+  (3,3,1,'chapter-2','p7','雨夜摘录。',NOW())
+ON DUPLICATE KEY UPDATE
+  user_id=VALUES(user_id),book_id=VALUES(book_id),section_id=VALUES(section_id),
+  paragraph_id=VALUES(paragraph_id),note=VALUES(note),created_at=VALUES(created_at);
+
 INSERT INTO user_reading_progress (id, user_id, book_id, section_id, paragraph_id, scroll_percent, created_at, updated_at) VALUES
   (1,2,1,'chapter-1-2','p5',68.50,NOW(),NOW()),
   (2,2,3,'chapter-1','p1',22.00,NOW(),NOW()),
@@ -161,6 +169,25 @@ INSERT INTO user_shelf (id, user_id, book_id, created_at) VALUES
   (3,3,1,NOW()),(4,3,2,NOW()),
   (5,4,1,NOW()),(6,4,6,NOW())
 ON DUPLICATE KEY UPDATE user_id=VALUES(user_id),book_id=VALUES(book_id),created_at=VALUES(created_at);
+
+INSERT INTO book_analytics_events (id, book_id, user_id, event_type, session_id, read_duration_seconds, geo_label, age_group, created_at) VALUES
+  (1,1,2,'read_heartbeat','seed-a1',720,'Asia/Shanghai','20-29',NOW() - INTERVAL 1 DAY),
+  (2,1,2,'read_heartbeat','seed-a2',900,'Asia/Shanghai','20-29',NOW() - INTERVAL 2 DAY),
+  (3,3,2,'read_heartbeat','seed-a3',540,'Asia/Shanghai','20-29',NOW() - INTERVAL 3 DAY),
+  (4,1,3,'read_heartbeat','seed-b1',420,'Asia/Shanghai','20-29',NOW() - INTERVAL 1 DAY),
+  (5,6,4,'reader_open','seed-c1',0,'Asia/Shanghai','30-39',NOW())
+ON DUPLICATE KEY UPDATE
+  book_id=VALUES(book_id),user_id=VALUES(user_id),event_type=VALUES(event_type),
+  session_id=VALUES(session_id),read_duration_seconds=VALUES(read_duration_seconds),
+  geo_label=VALUES(geo_label),age_group=VALUES(age_group),created_at=VALUES(created_at);
+
+INSERT INTO user_achievements (id, user_id, achievement_key, title, description, unlocked_at) VALUES
+  (1,2,'first_shelf','第一次加入书架','已经把第一本书放进自己的阅读清单。',NOW() - INTERVAL 4 DAY),
+  (2,2,'first_highlight','第一次划线','开始把有共鸣的句子沉淀成笔记。',NOW() - INTERVAL 3 DAY),
+  (3,2,'three_day_streak','连续阅读 3 天','保持了稳定的阅读节奏。',NOW() - INTERVAL 1 DAY)
+ON DUPLICATE KEY UPDATE
+  user_id=VALUES(user_id),achievement_key=VALUES(achievement_key),title=VALUES(title),
+  description=VALUES(description),unlocked_at=VALUES(unlocked_at);
 
 INSERT INTO recommendation_feedback (id, user_id, book_id, action, created_at) VALUES
   (1,2,1,'click',NOW()),
