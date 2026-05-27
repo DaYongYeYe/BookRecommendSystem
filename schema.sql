@@ -8,6 +8,8 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS `book_chapters`;
 DROP TABLE IF EXISTS `book_analytics_events`;
+DROP TABLE IF EXISTS `book_list_items`;
+DROP TABLE IF EXISTS `book_lists`;
 DROP TABLE IF EXISTS `book_versions`;
 DROP TABLE IF EXISTS `book_manuscripts`;
 DROP TABLE IF EXISTS `book_rankings`;
@@ -25,6 +27,8 @@ DROP TABLE IF EXISTS `reader_highlights`;
 DROP TABLE IF EXISTS `reader_paragraphs`;
 DROP TABLE IF EXISTS `reader_sections`;
 DROP TABLE IF EXISTS `recommendation_feedback`;
+DROP TABLE IF EXISTS `community_book_review_reactions`;
+DROP TABLE IF EXISTS `community_book_reviews`;
 DROP TABLE IF EXISTS `review_comments`;
 DROP TABLE IF EXISTS `review_likes`;
 DROP TABLE IF EXISTS `reviews`;
@@ -32,6 +36,7 @@ DROP TABLE IF EXISTS `role_permissions`;
 DROP TABLE IF EXISTS `roles`;
 DROP TABLE IF EXISTS `tags`;
 DROP TABLE IF EXISTS `user_achievements`;
+DROP TABLE IF EXISTS `user_interest_tags`;
 DROP TABLE IF EXISTS `user_reading_progress`;
 DROP TABLE IF EXISTS `user_roles`;
 DROP TABLE IF EXISTS `user_shelf`;
@@ -489,6 +494,94 @@ CREATE TABLE `recommendation_feedback` (
   KEY `idx_rf_action` (`action`),
   CONSTRAINT `fk_rf_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_rf_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `user_interest_tags` (
+  `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`        BIGINT UNSIGNED NOT NULL,
+  `tag_id`         BIGINT UNSIGNED NOT NULL,
+  `weight`         INT NOT NULL DEFAULT 0,
+  `source_summary` VARCHAR(255) DEFAULT NULL,
+  `updated_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_user_interest_tag` (`user_id`, `tag_id`),
+  KEY `idx_user_interest_tags_user` (`user_id`),
+  KEY `idx_user_interest_tags_tag` (`tag_id`),
+  KEY `idx_user_interest_tags_updated_at` (`updated_at`),
+  CONSTRAINT `fk_uit_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_uit_tag` FOREIGN KEY (`tag_id`) REFERENCES `tags`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `book_lists` (
+  `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`     BIGINT UNSIGNED NOT NULL,
+  `title`       VARCHAR(120) NOT NULL,
+  `description` VARCHAR(500) DEFAULT NULL,
+  `visibility`  VARCHAR(20) NOT NULL DEFAULT 'public',
+  `cover`       VARCHAR(500) DEFAULT NULL,
+  `likes_count` INT NOT NULL DEFAULT 0,
+  `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_book_lists_user` (`user_id`),
+  KEY `idx_book_lists_visibility` (`visibility`),
+  KEY `idx_book_lists_created_at` (`created_at`),
+  CONSTRAINT `fk_book_lists_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `book_list_items` (
+  `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `list_id`    BIGINT UNSIGNED NOT NULL,
+  `book_id`    BIGINT UNSIGNED NOT NULL,
+  `note`       VARCHAR(255) DEFAULT NULL,
+  `sort_order` INT NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_book_list_book` (`list_id`, `book_id`),
+  KEY `idx_book_list_items_list` (`list_id`),
+  KEY `idx_book_list_items_book` (`book_id`),
+  CONSTRAINT `fk_bli_list` FOREIGN KEY (`list_id`) REFERENCES `book_lists`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_bli_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `community_book_reviews` (
+  `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`        BIGINT UNSIGNED NOT NULL,
+  `book_id`        BIGINT UNSIGNED NOT NULL,
+  `title`          VARCHAR(120) NOT NULL,
+  `content`        TEXT NOT NULL,
+  `rating`         INT DEFAULT NULL,
+  `visibility`     VARCHAR(20) NOT NULL DEFAULT 'public',
+  `likes_count`    INT NOT NULL DEFAULT 0,
+  `comments_count` INT NOT NULL DEFAULT 0,
+  `is_violation`   TINYINT(1) NOT NULL DEFAULT 0,
+  `violation_reason` VARCHAR(255) DEFAULT NULL,
+  `moderated_at`   DATETIME DEFAULT NULL,
+  `moderated_by`   BIGINT UNSIGNED DEFAULT NULL,
+  `created_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_community_reviews_user` (`user_id`),
+  KEY `idx_community_reviews_book` (`book_id`),
+  KEY `idx_community_reviews_visibility` (`visibility`),
+  KEY `idx_community_reviews_created_at` (`created_at`),
+  CONSTRAINT `fk_cbr_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_cbr_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_cbr_moderator` FOREIGN KEY (`moderated_by`) REFERENCES `users`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `community_book_review_reactions` (
+  `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `review_id`  BIGINT UNSIGNED NOT NULL,
+  `user_id`    BIGINT UNSIGNED NOT NULL,
+  `reaction`   VARCHAR(20) NOT NULL DEFAULT 'like',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_review_reaction_user` (`review_id`, `user_id`),
+  KEY `idx_community_review_reactions_review` (`review_id`),
+  KEY `idx_community_review_reactions_user` (`user_id`),
+  CONSTRAINT `fk_cbrr_review` FOREIGN KEY (`review_id`) REFERENCES `community_book_reviews`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_cbrr_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ======================

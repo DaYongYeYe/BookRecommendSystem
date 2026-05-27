@@ -219,6 +219,9 @@ onMounted(async () => {
           <button class="rounded-full border border-stone-300 px-4 py-2 text-sm text-stone-700 transition hover:border-stone-500" @click="router.push('/user/library')">
             我的阅读
           </button>
+          <button class="rounded-full border border-stone-300 px-4 py-2 text-sm text-stone-700 transition hover:border-stone-500" @click="router.push('/community')">
+            书评广场
+          </button>
           <button class="rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700 transition hover:bg-emerald-100" @click="goCreatorEntry">
             {{ canOpenCreator ? '进入创作中心' : '成为作者' }}
           </button>
@@ -456,6 +459,13 @@ onMounted(async () => {
           >
             {{ category.name }}
           </button>
+        </div>
+        <div class="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-stone-50 px-4 py-4">
+          <div>
+            <p class="text-sm font-semibold text-stone-900">书单 / 书评广场</p>
+            <p class="mt-1 text-xs text-stone-500">查看读者整理的主题书单，也可以发布自己的书评。</p>
+          </div>
+          <button class="rounded-full bg-stone-900 px-4 py-2 text-sm font-medium text-white" @click="router.push('/community')">进入广场</button>
         </div>
       </section>
 

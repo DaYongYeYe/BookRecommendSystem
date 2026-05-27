@@ -9,11 +9,17 @@ from app.api import bp
 from app.models import (
     Book,
     BookAnalyticsEvent,
+    BookList,
+    BookListItem,
+    BookReview,
+    BookReviewReaction,
     BookTag,
     Category,
     ReaderSection,
     RecommendationFeedback,
     Tag,
+    User,
+    UserInterestTag,
     UserReadingProgress,
     UserSearchHistory,
     UserShelf,
@@ -33,6 +39,7 @@ DEFAULT_HOT_SEARCH_TERMS = [
 DEFAULT_SEARCH_HISTORY_LIMIT = 8
 VALID_COMPLETION_STATUSES = {'ongoing', 'completed', 'paused'}
 VALID_RECOMMENDATION_ACTIONS = {'hide', 'more_like_this', 'read_later', 'add_to_shelf'}
+VALID_COMMUNITY_VISIBILITIES = {'public', 'private'}
 RANKING_WINDOW_DAYS = 7
 RANKING_TYPE_ORDER = ['hot', 'new_book', 'surging', 'completed', 'collection', 'following']
 RANKING_TYPE_CONFIG = {
@@ -709,6 +716,224 @@ def _record_search_history(current_user, keyword: str):
         db.session.delete(row)
 
 
+def _user_display_payload(user_id: int | None):
+    user = User.query.get(user_id) if user_id else None
+    if not user:
+        return {'id': user_id, 'nickname': '读者', 'avatar': None}
+    return {
+        'id': user.id,
+        'nickname': user.name or user.pen_name or user.username,
+        'avatar': user.avatar_url,
+    }
+
+
+def _book_card_payload(book: Book | None):
+    if not book:
+        return None
+    return {
+        'id': book.id,
+        'title': book.title,
+        'author': book.author,
+        'cover': book.cover,
+        'rating': float(book.rating or book.score or 0),
+        'category_id': book.category_id,
+    }
+
+
+def _community_booklist_payload(book_list: BookList):
+    rows = (
+        db.session.query(BookListItem, Book)
+        .join(Book, Book.id == BookListItem.book_id)
+        .filter(BookListItem.list_id == book_list.id)
+        .order_by(BookListItem.sort_order.asc(), BookListItem.id.asc())
+        .all()
+    )
+    books = []
+    for item, book in rows:
+        payload = _book_card_payload(book) or {}
+        payload.update({'note': item.note, 'sort_order': int(item.sort_order or 0)})
+        books.append(payload)
+
+    payload = book_list.to_dict()
+    payload.update(
+        {
+            'user': _user_display_payload(book_list.user_id),
+            'book_count': len(books),
+            'books': books,
+            'cover': book_list.cover or (books[0].get('cover') if books else None),
+        }
+    )
+    return payload
+
+
+def _community_review_payload(review: BookReview, current_user=None):
+    book = Book.query.get(review.book_id)
+    payload = review.to_dict()
+    payload.update(
+        {
+            'user': _user_display_payload(review.user_id),
+            'book': _book_card_payload(book),
+            'liked_by_me': bool(
+                current_user
+                and BookReviewReaction.query.filter_by(
+                    review_id=review.id,
+                    user_id=current_user.id,
+                    reaction='like',
+                ).first()
+            ),
+        }
+    )
+    return payload
+
+
+def _parse_positive_int(value, field_name: str):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None, jsonify({'error': f'invalid {field_name}'}), 400
+    if parsed <= 0:
+        return None, jsonify({'error': f'invalid {field_name}'}), 400
+    return parsed, None, None
+
+
+def _visible_book_by_id(book_id: int):
+    book = Book.query.get(book_id)
+    if not book or (book.status or 'published') != 'published' or (book.shelf_status or 'down') != 'up':
+        return None
+    return book
+
+
+def _bump_interest_score(score_map: dict, tag_id: int, points: int, source: str):
+    entry = score_map.setdefault(int(tag_id), {'weight': 0, 'sources': set()})
+    entry['weight'] += int(points)
+    if source:
+        entry['sources'].add(source)
+
+
+def _book_tag_ids_for_books(book_ids: list[int] | set[int]):
+    if not book_ids:
+        return []
+    return [
+        int(tag_id)
+        for tag_id, in db.session.query(BookTag.tag_id)
+        .filter(BookTag.book_id.in_(list(book_ids)))
+        .all()
+    ]
+
+
+def _fallback_interest_tags(limit: int):
+    rows = (
+        db.session.query(Tag, func.count(BookTag.id).label('book_count'))
+        .outerjoin(BookTag, BookTag.tag_id == Tag.id)
+        .group_by(Tag.id)
+        .order_by(func.count(BookTag.id).desc(), Tag.id.asc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            **tag.to_dict(),
+            'weight': int(book_count or 0),
+            'source_summary': '热门标签',
+        }
+        for tag, book_count in rows
+    ]
+
+
+def _build_user_interest_tags(current_user, limit: int = 10):
+    if not current_user:
+        return _fallback_interest_tags(limit)
+
+    scores: dict[int, dict] = {}
+
+    shelf_book_ids = [row.book_id for row in UserShelf.query.filter_by(user_id=current_user.id).all()]
+    for tag_id in _book_tag_ids_for_books(shelf_book_ids):
+        _bump_interest_score(scores, tag_id, 5, '书架收藏')
+
+    progress_book_ids = [
+        row.book_id
+        for row in UserReadingProgress.query.filter_by(user_id=current_user.id)
+        .order_by(UserReadingProgress.updated_at.desc(), UserReadingProgress.id.desc())
+        .limit(20)
+        .all()
+    ]
+    for tag_id in _book_tag_ids_for_books(progress_book_ids):
+        _bump_interest_score(scores, tag_id, 4, '阅读历史')
+
+    feedback_rows = (
+        RecommendationFeedback.query.filter_by(user_id=current_user.id)
+        .order_by(RecommendationFeedback.created_at.desc(), RecommendationFeedback.id.desc())
+        .limit(40)
+        .all()
+    )
+    for row in feedback_rows:
+        tag_ids = _book_tag_ids_for_books([row.book_id])
+        if row.action == 'hide':
+            for tag_id in tag_ids:
+                _bump_interest_score(scores, tag_id, -3, '已减少推荐')
+            continue
+        if row.action in {'more_like_this', 'add_to_shelf', 'read_later'}:
+            points = 6 if row.action == 'more_like_this' else 4
+            for tag_id in tag_ids:
+                _bump_interest_score(scores, tag_id, points, '推荐反馈')
+
+    tags = Tag.query.all()
+    search_rows = (
+        UserSearchHistory.query.filter_by(user_id=current_user.id)
+        .order_by(UserSearchHistory.last_searched_at.desc(), UserSearchHistory.id.desc())
+        .limit(12)
+        .all()
+    )
+    for row in search_rows:
+        keyword = (row.keyword or '').lower()
+        if not keyword:
+            continue
+        for tag in tags:
+            label = (tag.label or '').lower()
+            code = (tag.code or '').lower()
+            if keyword in label or label in keyword or keyword in code or code in keyword:
+                _bump_interest_score(scores, tag.id, min(10, max(1, int(row.search_count or 1)) * 2), '搜索历史')
+        matched_books = _books_search_query(row.keyword).limit(5).all()
+        for tag_id in _book_tag_ids_for_books([book.id for book in matched_books]):
+            _bump_interest_score(scores, tag_id, 2, '搜索命中作品')
+
+    ranked = [
+        (tag_id, data)
+        for tag_id, data in scores.items()
+        if int(data.get('weight') or 0) > 0
+    ]
+    ranked.sort(key=lambda item: (-int(item[1]['weight']), item[0]))
+    ranked = ranked[:limit]
+
+    if not ranked:
+        return _fallback_interest_tags(limit)
+
+    tag_map = {tag.id: tag for tag in Tag.query.filter(Tag.id.in_([tag_id for tag_id, _ in ranked])).all()}
+    UserInterestTag.query.filter_by(user_id=current_user.id).delete(synchronize_session=False)
+    items = []
+    for tag_id, data in ranked:
+        tag = tag_map.get(tag_id)
+        if not tag:
+            continue
+        source_summary = '、'.join(sorted(data['sources']))[:255]
+        db.session.add(
+            UserInterestTag(
+                user_id=current_user.id,
+                tag_id=tag_id,
+                weight=int(data['weight']),
+                source_summary=source_summary,
+            )
+        )
+        items.append(
+            {
+                **tag.to_dict(),
+                'weight': int(data['weight']),
+                'source_summary': source_summary,
+            }
+        )
+    return items
+
+
 def _get_hot_search_term_items(limit: int = 8):
     items = []
     seen = set()
@@ -994,6 +1219,20 @@ def api_get_recommendation_feed(current_user):
     except ValueError:
         limit = 6
     return jsonify(_build_recommendation_feed(current_user, limit_per_section=limit)), 200
+
+
+@bp.route('/recommendations/interest-tags', methods=['GET'])
+@login_optional
+def api_get_interest_tags(current_user):
+    try:
+        limit = max(1, min(int(request.args.get('limit', 10)), 20))
+    except ValueError:
+        limit = 10
+
+    items = _build_user_interest_tags(current_user, limit=limit)
+    if current_user:
+        db.session.commit()
+    return jsonify({'items': items, 'generated_from': 'user_behavior' if current_user else 'popular_tags'}), 200
 
 
 @bp.route('/shelf/toggle', methods=['POST'])
@@ -1317,6 +1556,183 @@ def api_get_more_recommendations():
             },
         }
     ), 200
+
+
+@bp.route('/community/booklists', methods=['GET'])
+@login_optional
+def api_get_community_booklists(current_user):
+    try:
+        limit = max(1, min(int(request.args.get('limit', 12)), 30))
+    except ValueError:
+        limit = 12
+
+    query = BookList.query
+    if current_user:
+        query = query.filter(or_(BookList.visibility == 'public', BookList.user_id == current_user.id))
+    else:
+        query = query.filter(BookList.visibility == 'public')
+
+    q = _normalize_search_keyword(request.args.get('q', ''), max_len=40)
+    if q:
+        like = f'%{q}%'
+        query = query.filter(or_(BookList.title.ilike(like), BookList.description.ilike(like)))
+
+    rows = (
+        query.order_by(BookList.likes_count.desc(), BookList.updated_at.desc(), BookList.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return jsonify({'items': [_community_booklist_payload(item) for item in rows]}), 200
+
+
+@bp.route('/community/booklists', methods=['POST'])
+@login_required
+def api_create_community_booklist(current_user):
+    data = request.get_json() or {}
+    title = _normalize_search_keyword(data.get('title', ''), max_len=120)
+    description = _normalize_search_keyword(data.get('description', ''), max_len=500)
+    visibility = (data.get('visibility') or 'public').strip()
+    if not title:
+        return jsonify({'error': 'title is required'}), 400
+    if visibility not in VALID_COMMUNITY_VISIBILITIES:
+        return jsonify({'error': 'invalid visibility'}), 400
+
+    book_list = BookList(
+        user_id=current_user.id,
+        title=title,
+        description=description or None,
+        visibility=visibility,
+    )
+    db.session.add(book_list)
+    db.session.commit()
+    return jsonify({'message': 'booklist created', 'item': _community_booklist_payload(book_list)}), 201
+
+
+@bp.route('/community/booklists/<int:list_id>/books', methods=['POST'])
+@login_required
+def api_add_book_to_community_booklist(current_user, list_id: int):
+    data = request.get_json() or {}
+    book_id, error_response, error_status = _parse_positive_int(data.get('book_id'), 'book_id')
+    if error_response:
+        return error_response, error_status
+    note = _normalize_search_keyword(data.get('note', ''), max_len=255)
+
+    book_list = BookList.query.get(list_id)
+    if not book_list:
+        return jsonify({'error': 'booklist not found'}), 404
+    if book_list.user_id != current_user.id:
+        return jsonify({'error': 'forbidden'}), 403
+    book = _visible_book_by_id(book_id)
+    if not book:
+        return jsonify({'error': 'book not found'}), 404
+
+    existing = BookListItem.query.filter_by(list_id=list_id, book_id=book_id).first()
+    if existing:
+        existing.note = note or existing.note
+    else:
+        max_order = db.session.query(func.coalesce(func.max(BookListItem.sort_order), 0)).filter_by(list_id=list_id).scalar() or 0
+        db.session.add(
+            BookListItem(
+                list_id=list_id,
+                book_id=book_id,
+                note=note or None,
+                sort_order=int(max_order) + 1,
+            )
+        )
+    book_list.updated_at = db.func.now()
+    db.session.commit()
+    return jsonify({'message': 'book added', 'item': _community_booklist_payload(book_list)}), 200
+
+
+@bp.route('/community/reviews', methods=['GET'])
+@login_optional
+def api_get_community_reviews(current_user):
+    try:
+        limit = max(1, min(int(request.args.get('limit', 12)), 30))
+    except ValueError:
+        limit = 12
+
+    query = BookReview.query.filter(BookReview.visibility == 'public', BookReview.is_violation == False)  # noqa: E712
+    book_id = request.args.get('book_id')
+    if book_id not in (None, ''):
+        parsed_book_id, error_response, error_status = _parse_positive_int(book_id, 'book_id')
+        if error_response:
+            return error_response, error_status
+        query = query.filter(BookReview.book_id == parsed_book_id)
+
+    rows = (
+        query.order_by(BookReview.likes_count.desc(), BookReview.created_at.desc(), BookReview.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return jsonify({'items': [_community_review_payload(item, current_user) for item in rows]}), 200
+
+
+@bp.route('/community/reviews', methods=['POST'])
+@login_required
+def api_create_community_review(current_user):
+    data = request.get_json() or {}
+    book_id, error_response, error_status = _parse_positive_int(data.get('book_id'), 'book_id')
+    if error_response:
+        return error_response, error_status
+    title = _normalize_search_keyword(data.get('title', ''), max_len=120)
+    content = (data.get('content') or '').strip()
+    visibility = (data.get('visibility') or 'public').strip()
+    rating = data.get('rating')
+
+    if not title:
+        return jsonify({'error': 'title is required'}), 400
+    if len(content) < 8:
+        return jsonify({'error': 'content is too short'}), 400
+    if visibility not in VALID_COMMUNITY_VISIBILITIES:
+        return jsonify({'error': 'invalid visibility'}), 400
+    if rating not in (None, ''):
+        try:
+            rating = max(1, min(int(rating), 5))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid rating'}), 400
+    else:
+        rating = None
+    if not _visible_book_by_id(book_id):
+        return jsonify({'error': 'book not found'}), 404
+
+    review = BookReview(
+        user_id=current_user.id,
+        book_id=book_id,
+        title=title,
+        content=content[:2000],
+        rating=rating,
+        visibility=visibility,
+    )
+    db.session.add(review)
+    db.session.commit()
+    return jsonify({'message': 'review created', 'item': _community_review_payload(review, current_user)}), 201
+
+
+@bp.route('/community/reviews/<int:review_id>/reaction', methods=['POST'])
+@login_required
+def api_react_community_review(current_user, review_id: int):
+    data = request.get_json() or {}
+    liked = data.get('liked', True)
+    if not isinstance(liked, bool):
+        return jsonify({'error': 'liked must be boolean'}), 400
+
+    review = BookReview.query.get(review_id)
+    if not review or review.visibility != 'public' or review.is_violation:
+        return jsonify({'error': 'review not found'}), 404
+
+    existing = BookReviewReaction.query.filter_by(review_id=review_id, user_id=current_user.id).first()
+    if liked and not existing:
+        db.session.add(BookReviewReaction(review_id=review_id, user_id=current_user.id, reaction='like'))
+    if (not liked) and existing:
+        db.session.delete(existing)
+
+    db.session.flush()
+    review.likes_count = (
+        BookReviewReaction.query.filter_by(review_id=review_id, reaction='like').count()
+    )
+    db.session.commit()
+    return jsonify({'message': 'reaction saved', 'item': _community_review_payload(review, current_user)}), 200
 
 
 @bp.route('/reviews/highlighted', methods=['GET'])

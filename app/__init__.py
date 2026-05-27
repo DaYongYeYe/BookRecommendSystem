@@ -562,6 +562,104 @@ def _apply_schema_compatibility_patches(app: Flask):
             if feedback_columns and 'source_section' not in feedback_columns:
                 patches.append("ALTER TABLE recommendation_feedback ADD COLUMN source_section VARCHAR(64) NULL")
 
+        if 'book_lists' not in table_names and 'books' in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE book_lists (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id {users_id_type} NOT NULL,
+                    title VARCHAR(120) NOT NULL,
+                    description VARCHAR(500) NULL,
+                    visibility VARCHAR(20) NOT NULL DEFAULT 'public',
+                    cover VARCHAR(500) NULL,
+                    likes_count INT NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    KEY idx_book_lists_user (user_id),
+                    KEY idx_book_lists_visibility (visibility),
+                    KEY idx_book_lists_created_at (created_at)
+                )
+                """
+            )
+
+        if 'book_list_items' not in table_names and 'books' in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE book_list_items (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    list_id BIGINT UNSIGNED NOT NULL,
+                    book_id {books_id_type} NOT NULL,
+                    note VARCHAR(255) NULL,
+                    sort_order INT NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_book_list_book (list_id, book_id),
+                    KEY idx_book_list_items_list (list_id),
+                    KEY idx_book_list_items_book (book_id)
+                )
+                """
+            )
+
+        if 'community_book_reviews' not in table_names and 'books' in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE community_book_reviews (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id {users_id_type} NOT NULL,
+                    book_id {books_id_type} NOT NULL,
+                    title VARCHAR(120) NOT NULL,
+                    content TEXT NOT NULL,
+                    rating INT NULL,
+                    visibility VARCHAR(20) NOT NULL DEFAULT 'public',
+                    likes_count INT NOT NULL DEFAULT 0,
+                    comments_count INT NOT NULL DEFAULT 0,
+                    is_violation TINYINT(1) NOT NULL DEFAULT 0,
+                    violation_reason VARCHAR(255) NULL,
+                    moderated_at DATETIME NULL,
+                    moderated_by {users_id_type} NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    KEY idx_community_reviews_user (user_id),
+                    KEY idx_community_reviews_book (book_id),
+                    KEY idx_community_reviews_visibility (visibility),
+                    KEY idx_community_reviews_created_at (created_at)
+                )
+                """
+            )
+
+        if 'community_book_review_reactions' not in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE community_book_review_reactions (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    review_id BIGINT UNSIGNED NOT NULL,
+                    user_id {users_id_type} NOT NULL,
+                    reaction VARCHAR(20) NOT NULL DEFAULT 'like',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_review_reaction_user (review_id, user_id),
+                    KEY idx_community_review_reactions_review (review_id),
+                    KEY idx_community_review_reactions_user (user_id)
+                )
+                """
+            )
+
+        if 'user_interest_tags' not in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE user_interest_tags (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id {users_id_type} NOT NULL,
+                    tag_id BIGINT UNSIGNED NOT NULL,
+                    weight INT NOT NULL DEFAULT 0,
+                    source_summary VARCHAR(255) NULL,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_user_interest_tag (user_id, tag_id),
+                    KEY idx_user_interest_tags_user (user_id),
+                    KEY idx_user_interest_tags_tag (tag_id),
+                    KEY idx_user_interest_tags_updated_at (updated_at)
+                )
+                """
+            )
+
         if 'reader_bookmarks' not in table_names and 'books' in table_names:
             patches.append(
                 f"""

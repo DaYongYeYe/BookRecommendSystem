@@ -6,6 +6,7 @@ import Search from '@/views/Search.vue'
 import CategoryDiscovery from '@/views/CategoryDiscovery.vue'
 import Rankings from '@/views/Rankings.vue'
 import RecommendationsMore from '@/views/RecommendationsMore.vue'
+import CommunityPlaza from '@/views/CommunityPlaza.vue'
 import Reader from '@/views/Reader.vue'
 import BookDetail from '@/views/BookDetail.vue'
 import BookEntry from '@/views/BookEntry.vue'
@@ -63,6 +64,11 @@ const routes: RouteRecordRaw[] = [
     path: '/rankings',
     name: 'Rankings',
     component: Rankings,
+  },
+  {
+    path: '/community',
+    name: 'CommunityPlaza',
+    component: CommunityPlaza,
   },
   {
     path: '/login',

@@ -442,6 +442,139 @@ class UserAchievement(db.Model):
         }
 
 
+class BookList(db.Model):
+    __tablename__ = 'book_lists'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.String(500))
+    visibility = db.Column(db.String(20), nullable=False, default='public', index=True)
+    cover = db.Column(db.String(500))
+    likes_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'title': self.title,
+            'description': self.description,
+            'visibility': self.visibility or 'public',
+            'cover': self.cover,
+            'likes_count': int(self.likes_count or 0),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class BookListItem(db.Model):
+    __tablename__ = 'book_list_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    list_id = db.Column(db.Integer, db.ForeignKey('book_lists.id'), nullable=False, index=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    note = db.Column(db.String(255))
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('list_id', 'book_id', name='uniq_book_list_book'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'list_id': self.list_id,
+            'book_id': self.book_id,
+            'note': self.note,
+            'sort_order': int(self.sort_order or 0),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class BookReview(db.Model):
+    __tablename__ = 'community_book_reviews'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    title = db.Column(db.String(120), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    rating = db.Column(db.Integer)
+    visibility = db.Column(db.String(20), nullable=False, default='public', index=True)
+    likes_count = db.Column(db.Integer, nullable=False, default=0)
+    comments_count = db.Column(db.Integer, nullable=False, default=0)
+    is_violation = db.Column(db.Boolean, nullable=False, default=False)
+    violation_reason = db.Column(db.String(255))
+    moderated_at = db.Column(db.DateTime)
+    moderated_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'book_id': self.book_id,
+            'title': self.title,
+            'content': self.content,
+            'rating': self.rating,
+            'visibility': self.visibility or 'public',
+            'likes_count': int(self.likes_count or 0),
+            'comments_count': int(self.comments_count or 0),
+            'is_violation': bool(self.is_violation),
+            'violation_reason': self.violation_reason,
+            'moderated_at': self.moderated_at.isoformat() if self.moderated_at else None,
+            'moderated_by': self.moderated_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class BookReviewReaction(db.Model):
+    __tablename__ = 'community_book_review_reactions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    review_id = db.Column(db.Integer, db.ForeignKey('community_book_reviews.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    reaction = db.Column(db.String(20), nullable=False, default='like')
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('review_id', 'user_id', name='uniq_review_reaction_user'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'review_id': self.review_id,
+            'user_id': self.user_id,
+            'reaction': self.reaction or 'like',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class UserInterestTag(db.Model):
+    __tablename__ = 'user_interest_tags'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    tag_id = db.Column(db.Integer, db.ForeignKey('tags.id'), nullable=False, index=True)
+    weight = db.Column(db.Integer, nullable=False, default=0)
+    source_summary = db.Column(db.String(255))
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now(), index=True)
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'tag_id', name='uniq_user_interest_tag'),)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'tag_id': self.tag_id,
+            'weight': int(self.weight or 0),
+            'source_summary': self.source_summary,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class UserSearchHistory(db.Model):
     __tablename__ = 'user_search_history'
 

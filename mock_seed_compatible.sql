@@ -196,6 +196,52 @@ INSERT INTO recommendation_feedback (id, user_id, book_id, action, created_at) V
   (4,4,6,'like',NOW())
 ON DUPLICATE KEY UPDATE user_id=VALUES(user_id),book_id=VALUES(book_id),action=VALUES(action),created_at=VALUES(created_at);
 
+INSERT INTO user_interest_tags (id, user_id, tag_id, weight, source_summary, updated_at) VALUES
+  (1,2,4,18,'书架收藏、阅读历史、搜索历史',NOW()),
+  (2,2,1,12,'阅读历史、推荐反馈',NOW()),
+  (3,2,2,9,'书架收藏',NOW()),
+  (4,3,2,11,'书架收藏、阅读历史',NOW())
+ON DUPLICATE KEY UPDATE
+  user_id=VALUES(user_id),tag_id=VALUES(tag_id),weight=VALUES(weight),
+  source_summary=VALUES(source_summary),updated_at=VALUES(updated_at);
+
+-- Community booklists and reviews
+INSERT INTO book_lists (id, user_id, title, description, visibility, likes_count, created_at, updated_at) VALUES
+  (1,2,'夜读时慢慢看的治愈书','适合睡前、通勤和雨天打开的温柔故事。','public',26,NOW() - INTERVAL 5 DAY,NOW()),
+  (2,3,'海港、灯塔与旧信','把有海风、有回忆、有慢热情绪的书放在一起。','public',18,NOW() - INTERVAL 3 DAY,NOW()),
+  (3,4,'专注力恢复清单','情绪太散的时候，先读一些能把注意力收回来的书。','public',12,NOW() - INTERVAL 2 DAY,NOW())
+ON DUPLICATE KEY UPDATE
+  user_id=VALUES(user_id),title=VALUES(title),description=VALUES(description),
+  visibility=VALUES(visibility),likes_count=VALUES(likes_count),updated_at=VALUES(updated_at);
+
+INSERT INTO book_list_items (id, list_id, book_id, note, sort_order, created_at) VALUES
+  (1,1,1,'灯塔章节适合晚上慢慢读。',1,NOW() - INTERVAL 5 DAY),
+  (2,1,6,'雨夜书信体，氛围很稳。',2,NOW() - INTERVAL 5 DAY),
+  (3,1,4,'细碎生活里有情绪回声。',3,NOW() - INTERVAL 4 DAY),
+  (4,2,1,'旧港和灯塔是这个书单的中心意象。',1,NOW() - INTERVAL 3 DAY),
+  (5,2,2,'像一部安静的城市电影。',2,NOW() - INTERVAL 3 DAY),
+  (6,3,5,'先读这本把节奏拉回来。',1,NOW() - INTERVAL 2 DAY),
+  (7,3,3,'思辨感强，适合专注阅读。',2,NOW() - INTERVAL 2 DAY)
+ON DUPLICATE KEY UPDATE
+  list_id=VALUES(list_id),book_id=VALUES(book_id),note=VALUES(note),
+  sort_order=VALUES(sort_order),created_at=VALUES(created_at);
+
+INSERT INTO community_book_reviews (id, user_id, book_id, title, content, rating, visibility, likes_count, comments_count, created_at, updated_at) VALUES
+  (1,2,1,'灯塔那章把整本书点亮了','它不是用很大的情节推进你，而是把回忆、海雾和迟到的解释慢慢放到一起。读完会安静一会儿。',5,'public',14,0,NOW() - INTERVAL 4 DAY,NOW()),
+  (2,3,3,'关于陪伴的温柔问题','机器人的视角让“照护”和“替代”变得更复杂，读起来很克制，但后劲挺长。',4,'public',9,0,NOW() - INTERVAL 2 DAY,NOW()),
+  (3,4,5,'适合把注意力重新收回来','不是鸡血式工具书，更像一套能马上开始的小练习。通勤读很合适。',4,'public',7,0,NOW() - INTERVAL 1 DAY,NOW())
+ON DUPLICATE KEY UPDATE
+  user_id=VALUES(user_id),book_id=VALUES(book_id),title=VALUES(title),content=VALUES(content),
+  rating=VALUES(rating),visibility=VALUES(visibility),likes_count=VALUES(likes_count),
+  comments_count=VALUES(comments_count),updated_at=VALUES(updated_at);
+
+INSERT INTO community_book_review_reactions (id, review_id, user_id, reaction, created_at) VALUES
+  (1,1,3,'like',NOW() - INTERVAL 3 DAY),
+  (2,1,4,'like',NOW() - INTERVAL 2 DAY),
+  (3,2,2,'like',NOW() - INTERVAL 1 DAY),
+  (4,3,2,'like',NOW() - INTERVAL 1 DAY)
+ON DUPLICATE KEY UPDATE review_id=VALUES(review_id),user_id=VALUES(user_id),reaction=VALUES(reaction),created_at=VALUES(created_at);
+
 -- Rankings and weekly tasks
 INSERT INTO book_rankings (id, type, rank_no, book_id, snapshot_date) VALUES
   (1,'high_score',1,1,'2026-03-21'),

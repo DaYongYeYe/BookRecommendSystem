@@ -1,6 +1,6 @@
 # P0/P1 实施进度记录
 
-本文记录 `docs/competitor-gap-analysis.md` 中 P0/P1 的实际落地情况。为避免一次性改动过大，本轮只完成 2 个点：P0 文档与产品表达、P1 阅读统计/偏好/成就页。
+本文记录 `docs/competitor-gap-analysis.md` 中 P0/P1 的实际落地情况。为避免一次性改动过大，每批只完成 1-2 个功能点。
 
 ## 本轮完成范围
 
@@ -132,3 +132,98 @@ npm.cmd run build
 
 - 听书入口 + 章节/段落评论。
 - 或书单/书评广场 + 用户兴趣标签。
+
+## 第二批完成范围
+
+### P1：书单 / 书评广场
+
+已完成：
+
+- 新增读者端页面 `/community`，展示公开书单、公开书评和兴趣标签。
+- 首页新增“书评广场”入口，并在热门标签区域增加社区广场跳转卡片。
+- 支持登录用户创建公开书单。
+- 支持登录用户把推荐池中的图书加入自己的书单，并填写推荐语。
+- 支持登录用户发布书评，包含书籍、标题、正文和 1-5 星评分。
+- 支持登录用户对书评做“赞同/取消赞同”基础互动。
+- 列表页具备加载、空状态、错误提示和登录跳转。
+
+对应文件：
+
+- `frontend/src/views/CommunityPlaza.vue`
+- `frontend/src/api/community.ts`
+- `frontend/src/router/index.ts`
+- `frontend/src/views/Home.vue`
+- `app/api/views.py`
+- `app/models.py`
+
+### P1：推荐兴趣标签
+
+已完成：
+
+- 新增 `GET /api/recommendations/interest-tags`。
+- 登录用户会从阅读历史、书架、搜索历史、推荐反馈中计算兴趣标签。
+- 接口会把最新计算结果写入 `user_interest_tags`，作为可追踪的兴趣标签快照。
+- 未登录用户返回热门标签兜底，保证页面仍可浏览。
+- 社区广场右侧展示兴趣标签、权重和来源摘要，标签可跳转搜索。
+
+对应文件：
+
+- `app/api/views.py`
+- `app/models.py`
+- `frontend/src/views/CommunityPlaza.vue`
+- `frontend/src/api/community.ts`
+
+## 第二批后端与数据层
+
+新增表：
+
+- `book_lists`：用户创建的书单，包含标题、描述、可见性、封面、点赞数和时间字段。
+- `book_list_items`：书单与图书关联，包含推荐语和排序字段。
+- `community_book_reviews`：社区书评，包含书籍、用户、标题、正文、评分、可见性、互动数和治理预留字段。
+- `community_book_review_reactions`：书评互动，当前支持 `like`。
+- `user_interest_tags`：用户兴趣标签快照，记录标签权重和来源摘要。
+
+新增接口：
+
+- `GET /api/community/booklists`
+- `POST /api/community/booklists`
+- `POST /api/community/booklists/<list_id>/books`
+- `GET /api/community/reviews`
+- `POST /api/community/reviews`
+- `POST /api/community/reviews/<review_id>/reaction`
+- `GET /api/recommendations/interest-tags`
+
+已更新：
+
+- `schema.sql`：新增上述表结构。
+- `app/__init__.py`：补充旧数据库兼容建表逻辑。
+- `mock_seed_compatible.sql`：补充社区书单、书单图书、社区书评、书评互动和兴趣标签种子数据。
+
+## 第二批测试与验证
+
+新增测试：
+
+- `tests/test_community_interest.py`
+
+覆盖内容：
+
+- 创建书单、查询书单、向书单加入图书。
+- 发布书评、查询书评、赞同书评。
+- 根据书架、阅读历史、搜索历史和推荐反馈生成兴趣标签，并落库到 `user_interest_tags`。
+
+已执行命令：
+
+```powershell
+.\venv\Scripts\python.exe -m unittest tests.test_reading_stats tests.test_community_interest
+```
+
+结果：通过，`Ran 4 tests ... OK`。
+
+已执行前端构建：
+
+```powershell
+cd frontend
+npm.cmd run build
+```
+
+结果：通过，Vite 构建成功。构建输出中存在 chunk 体积提示，这是构建警告，不影响本批功能验收。
