@@ -562,6 +562,28 @@ def _apply_schema_compatibility_patches(app: Flask):
             if feedback_columns and 'source_section' not in feedback_columns:
                 patches.append("ALTER TABLE recommendation_feedback ADD COLUMN source_section VARCHAR(64) NULL")
 
+        if 'recommendation_placements' not in table_names:
+            patches.append(
+                """
+                CREATE TABLE recommendation_placements (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    code VARCHAR(64) NOT NULL UNIQUE,
+                    name VARCHAR(100) NOT NULL,
+                    description VARCHAR(255) NULL,
+                    scene VARCHAR(64) NOT NULL DEFAULT 'home',
+                    strategy VARCHAR(64) NOT NULL DEFAULT 'manual',
+                    max_items INT NOT NULL DEFAULT 6,
+                    is_active TINYINT(1) NOT NULL DEFAULT 1,
+                    sort_order INT NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    KEY idx_recommendation_placements_scene (scene),
+                    KEY idx_recommendation_placements_active (is_active),
+                    KEY idx_recommendation_placements_sort (sort_order)
+                )
+                """
+            )
+
         if 'book_lists' not in table_names and 'books' in table_names:
             patches.append(
                 f"""

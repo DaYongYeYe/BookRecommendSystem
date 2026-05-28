@@ -44,6 +44,12 @@ export interface BookRankingMeta {
 
 export interface BookRankingTypeOption extends BookRankingMeta {}
 
+export interface BookRankingPeriodOption {
+  key: 'day' | 'week' | 'month' | string
+  label: string
+  days: number
+}
+
 export interface BookRankingItem extends HomeBookItem {
   rank: number
   category_name?: string | null
@@ -136,13 +142,21 @@ export function getBooksByCategoryOrTag(params: { category_id?: number; tag_id?:
   return request.get<any, { items: HomeBookItem[] }>('/api/books/by-category', { params })
 }
 
-export function getBookRankings(params?: { type?: BookRankingType | string; limit?: number }) {
+export function getBookRankings(params?: {
+  type?: BookRankingType | string
+  period?: 'day' | 'week' | 'month' | string
+  category_id?: number
+  limit?: number
+}) {
   return request.get<
     any,
     {
       type: BookRankingType
+      period: string
+      category_id?: number | null
       meta: BookRankingMeta
       available_types: BookRankingTypeOption[]
+      available_periods?: BookRankingPeriodOption[]
       snapshot_date: string
       items: BookRankingItem[]
     }

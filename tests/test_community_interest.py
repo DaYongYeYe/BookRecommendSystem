@@ -9,6 +9,7 @@ from app.models import (
     BookTag,
     Category,
     RecommendationFeedback,
+    RecommendationPlacement,
     Tag,
     User,
     UserReadingProgress,
@@ -68,7 +69,29 @@ class CommunityInterestTestCase(unittest.TestCase):
                 recent_reads=80,
                 created_at=datetime.utcnow(),
             )
-            db.session.add_all([user, category, tag_healing, tag_memory, book, second_book])
+            other_category = Category(id=2, code='sci-fi', name='科幻', is_highlighted=False)
+            third_book = Book(
+                id=3,
+                title='星港迁跃',
+                author='测试作者',
+                status='published',
+                shelf_status='up',
+                rating=8.2,
+                score=8.2,
+                category_id=2,
+                recent_reads=40,
+                created_at=datetime.utcnow(),
+            )
+            placement = RecommendationPlacement(
+                code='home_hero',
+                name='首页主推',
+                description='首页首屏主推荐位',
+                scene='home',
+                strategy='featured',
+                max_items=1,
+                sort_order=10,
+            )
+            db.session.add_all([user, category, other_category, tag_healing, tag_memory, book, second_book, third_book, placement])
             db.session.flush()
             self.user_id = user.id
             db.session.add_all(
@@ -76,10 +99,12 @@ class CommunityInterestTestCase(unittest.TestCase):
                     BookTag(book_id=1, tag_id=1),
                     BookTag(book_id=1, tag_id=2),
                     BookTag(book_id=2, tag_id=2),
+                    BookTag(book_id=3, tag_id=2),
                     UserShelf(user_id=user.id, book_id=1),
                     UserReadingProgress(user_id=user.id, book_id=1, section_id='chapter-1', scroll_percent=60),
                     UserSearchHistory(user_id=user.id, keyword='治愈', search_count=3),
                     RecommendationFeedback(user_id=user.id, book_id=1, action='more_like_this'),
+                    UserSearchHistory(user_id=user.id, keyword='星港', search_count=4),
                 ]
             )
             db.session.commit()
@@ -165,6 +190,32 @@ class CommunityInterestTestCase(unittest.TestCase):
             saved = UserInterestTag.query.filter_by(user_id=self.user_id, tag_id=1).first()
             self.assertIsNotNone(saved)
             self.assertGreater(saved.weight, 0)
+
+    def test_hot_search_terms_include_real_stats(self):
+        response = self.client.get('/api/search/hot-terms?limit=5')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        history_terms = [item for item in payload['items'] if item.get('source') == 'search_history']
+        self.assertTrue(history_terms)
+        self.assertIn('search_count', history_terms[0])
+        self.assertIn('trend', history_terms[0])
+
+    def test_rankings_accept_period_and_category(self):
+        response = self.client.get('/api/books/rankings?type=hot&period=month&category_id=1&limit=10')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload['period'], 'month')
+        self.assertEqual(payload['category_id'], 1)
+        self.assertTrue(payload['available_periods'])
+        self.assertTrue(payload['items'])
+        self.assertTrue(all(item['category_id'] == 1 for item in payload['items']))
+
+    def test_recommendation_placements_endpoint(self):
+        response = self.client.get('/api/recommendations/placements?scene=home')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload['items'][0]['code'], 'home_hero')
+        self.assertEqual(payload['items'][0]['scene'], 'home')
 
 
 if __name__ == '__main__':

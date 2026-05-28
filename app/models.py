@@ -617,6 +617,37 @@ class RecommendationFeedback(db.Model):
         }
 
 
+class RecommendationPlacement(db.Model):
+    __tablename__ = 'recommendation_placements'
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(64), nullable=False, unique=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(255))
+    scene = db.Column(db.String(64), nullable=False, default='home')
+    strategy = db.Column(db.String(64), nullable=False, default='manual')
+    max_items = db.Column(db.Integer, nullable=False, default=6)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'code': self.code,
+            'name': self.name,
+            'description': self.description,
+            'scene': self.scene or 'home',
+            'strategy': self.strategy or 'manual',
+            'max_items': int(self.max_items or 0),
+            'is_active': bool(self.is_active),
+            'sort_order': int(self.sort_order or 0),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class ReaderUserPreference(db.Model):
     __tablename__ = 'reader_user_preferences'
 

@@ -196,6 +196,15 @@ INSERT INTO recommendation_feedback (id, user_id, book_id, action, created_at) V
   (4,4,6,'like',NOW())
 ON DUPLICATE KEY UPDATE user_id=VALUES(user_id),book_id=VALUES(book_id),action=VALUES(action),created_at=VALUES(created_at);
 
+INSERT INTO recommendation_placements (id, code, name, description, scene, strategy, max_items, is_active, sort_order, created_at, updated_at) VALUES
+  (1,'home_hero','首页主推','首页首屏主推荐位，优先展示高确定性的精选作品。','home','featured',1,1,10,NOW(),NOW()),
+  (2,'home_category_pick','分类主推','按分类承接读者浏览兴趣的推荐位。','home','category_match',6,1,20,NOW(),NOW()),
+  (3,'ranking_pin','榜单置顶','预留给运营配置榜单置顶或活动作品。','ranking','manual',3,1,30,NOW(),NOW())
+ON DUPLICATE KEY UPDATE
+  code=VALUES(code),name=VALUES(name),description=VALUES(description),scene=VALUES(scene),
+  strategy=VALUES(strategy),max_items=VALUES(max_items),is_active=VALUES(is_active),
+  sort_order=VALUES(sort_order),updated_at=VALUES(updated_at);
+
 INSERT INTO user_interest_tags (id, user_id, tag_id, weight, source_summary, updated_at) VALUES
   (1,2,4,18,'书架收藏、阅读历史、搜索历史',NOW()),
   (2,2,1,12,'阅读历史、推荐反馈',NOW()),

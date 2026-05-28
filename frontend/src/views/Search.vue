@@ -249,10 +249,16 @@ onMounted(async () => {
             <button
               v-for="item in hotTerms"
               :key="item.keyword"
-              class="rounded-full border border-stone-200 bg-stone-50 px-4 py-2 text-sm text-stone-700 transition hover:border-stone-400 hover:bg-white"
+              class="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-2 text-left text-sm text-stone-700 transition hover:border-stone-400 hover:bg-white"
               @click="useKeyword(item.keyword)"
             >
-              {{ item.keyword }}
+              <span class="font-medium">{{ item.keyword }}</span>
+              <span v-if="item.search_count" class="ml-2 text-xs text-emerald-600">
+                {{ item.trend === 'rising' ? '上升' : '稳定' }} · {{ item.search_count }} 次
+              </span>
+              <span v-if="item.matched_book_title" class="block max-w-[12rem] truncate text-xs text-stone-400">
+                命中 {{ item.matched_book_title }}
+              </span>
             </button>
             <p v-if="hotTerms.length === 0" class="text-sm text-stone-400">热门搜索正在准备中</p>
           </div>

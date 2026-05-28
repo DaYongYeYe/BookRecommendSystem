@@ -4,8 +4,11 @@ import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
   getBookRankings,
+  getAllCategories,
+  type HomeCategoryItem,
   type BookRankingItem,
   type BookRankingMeta,
+  type BookRankingPeriodOption,
   type BookRankingTypeOption,
 } from '@/api/home'
 import {
@@ -21,6 +24,14 @@ const router = useRouter()
 const loading = ref(false)
 const activeType = ref<BookRankingType>('hot')
 const rankingTypes = ref<BookRankingTypeOption[]>(DEFAULT_RANKING_TYPES)
+const rankingPeriods = ref<BookRankingPeriodOption[]>([
+  { key: 'day', label: '日榜', days: 1 },
+  { key: 'week', label: '周榜', days: 7 },
+  { key: 'month', label: '月榜', days: 30 },
+])
+const activePeriod = ref('week')
+const categories = ref<HomeCategoryItem[]>([])
+const activeCategoryId = ref<number | undefined>(undefined)
 const rankingMeta = ref<BookRankingMeta>(getRankingTypeMeta('hot'))
 const rankingBooks = ref<BookRankingItem[]>([])
 const snapshotDate = ref('')
@@ -58,16 +69,47 @@ function goHome() {
 }
 
 function changeType(type: BookRankingType) {
-  if (type === activeType.value && route.query.type === type) return
-  router.push({ path: '/rankings', query: { type } })
+  router.push({
+    path: '/rankings',
+    query: {
+      type,
+      period: activePeriod.value,
+      ...(activeCategoryId.value ? { category_id: String(activeCategoryId.value) } : {}),
+    },
+  })
 }
 
-async function loadRankings(type: BookRankingType) {
+function changePeriod(period: string) {
+  router.push({
+    path: '/rankings',
+    query: {
+      type: activeType.value,
+      period,
+      ...(activeCategoryId.value ? { category_id: String(activeCategoryId.value) } : {}),
+    },
+  })
+}
+
+function changeCategory(categoryId?: number) {
+  router.push({
+    path: '/rankings',
+    query: {
+      type: activeType.value,
+      period: activePeriod.value,
+      ...(categoryId ? { category_id: String(categoryId) } : {}),
+    },
+  })
+}
+
+async function loadRankings(type: BookRankingType, period = activePeriod.value, categoryId = activeCategoryId.value) {
   loading.value = true
   try {
-    const response = await getBookRankings({ type, limit: 20 })
+    const response = await getBookRankings({ type, period, category_id: categoryId, limit: 20 })
     activeType.value = normalizeRankingType(response.type)
+    activePeriod.value = response.period || period
+    activeCategoryId.value = response.category_id || undefined
     rankingTypes.value = response.available_types?.length ? response.available_types : DEFAULT_RANKING_TYPES
+    rankingPeriods.value = response.available_periods?.length ? response.available_periods : rankingPeriods.value
     rankingMeta.value = response.meta || getRankingTypeMeta(activeType.value)
     rankingBooks.value = response.items || []
     snapshotDate.value = response.snapshot_date || ''
@@ -80,15 +122,30 @@ async function loadRankings(type: BookRankingType) {
   }
 }
 
+async function loadCategories() {
+  try {
+    const response = await getAllCategories()
+    categories.value = response.items || []
+  } catch {
+    categories.value = []
+  }
+}
+
 watch(
-  () => route.query.type,
-  async (value) => {
-    const nextType = normalizeRankingType(typeof value === 'string' ? value : null)
+  () => [route.query.type, route.query.period, route.query.category_id],
+  async ([typeValue, periodValue, categoryValue]) => {
+    const nextType = normalizeRankingType(typeof typeValue === 'string' ? typeValue : null)
+    const nextPeriod = typeof periodValue === 'string' && ['day', 'week', 'month'].includes(periodValue) ? periodValue : 'week'
+    const nextCategoryId = typeof categoryValue === 'string' && categoryValue ? Number(categoryValue) : undefined
     activeType.value = nextType
-    await loadRankings(nextType)
+    activePeriod.value = nextPeriod
+    activeCategoryId.value = Number.isFinite(nextCategoryId) ? nextCategoryId : undefined
+    await loadRankings(nextType, nextPeriod, activeCategoryId.value)
   },
   { immediate: true }
 )
+
+loadCategories()
 </script>
 
 <template>
@@ -146,6 +203,45 @@ watch(
             @click="changeType(item.key)"
           >
             {{ item.label }}
+          </button>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-3">
+          <button
+            v-for="item in rankingPeriods"
+            :key="item.key"
+            class="rounded-full border px-4 py-2 text-sm transition"
+            :class="
+              activePeriod === item.key
+                ? 'border-emerald-600 bg-emerald-600 text-white'
+                : 'border-stone-300 bg-white text-stone-700 hover:border-stone-400'
+            "
+            @click="changePeriod(item.key)"
+          >
+            {{ item.label }}
+          </button>
+          <button
+            class="rounded-full border px-4 py-2 text-sm transition"
+            :class="
+              !activeCategoryId
+                ? 'border-emerald-600 bg-emerald-600 text-white'
+                : 'border-stone-300 bg-white text-stone-700 hover:border-stone-400'
+            "
+            @click="changeCategory(undefined)"
+          >
+            全部分类
+          </button>
+          <button
+            v-for="category in categories"
+            :key="category.id"
+            class="rounded-full border px-4 py-2 text-sm transition"
+            :class="
+              activeCategoryId === category.id
+                ? 'border-emerald-600 bg-emerald-600 text-white'
+                : 'border-stone-300 bg-white text-stone-700 hover:border-stone-400'
+            "
+            @click="changeCategory(category.id)"
+          >
+            {{ category.name }}
           </button>
         </div>
         <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-stone-500">

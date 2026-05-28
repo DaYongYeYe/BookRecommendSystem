@@ -17,6 +17,7 @@ from app.models import (
     Category,
     ReaderSection,
     RecommendationFeedback,
+    RecommendationPlacement,
     Tag,
     User,
     UserInterestTag,
@@ -125,9 +126,41 @@ def _ranking_type_options():
     ]
 
 
-def _collect_ranking_stats():
-    window_start = datetime.utcnow() - timedelta(days=RANKING_WINDOW_DAYS)
-    books = _visible_books_query().all()
+def _normalize_ranking_period(value: str | None):
+    period = (value or 'week').strip().lower()
+    aliases = {
+        'day': 'day',
+        'daily': 'day',
+        'week': 'week',
+        'weekly': 'week',
+        'month': 'month',
+        'monthly': 'month',
+    }
+    return aliases.get(period)
+
+
+def _ranking_period_options():
+    return [
+        {'key': 'day', 'label': '日榜', 'days': 1},
+        {'key': 'week', 'label': '周榜', 'days': 7},
+        {'key': 'month', 'label': '月榜', 'days': 30},
+    ]
+
+
+def _ranking_period_days(period: str):
+    if period == 'day':
+        return 1
+    if period == 'month':
+        return 30
+    return 7
+
+
+def _collect_ranking_stats(*, window_days: int = RANKING_WINDOW_DAYS, category_id: int | None = None):
+    window_start = datetime.utcnow() - timedelta(days=max(1, int(window_days or RANKING_WINDOW_DAYS)))
+    book_query = _visible_books_query()
+    if category_id:
+        book_query = book_query.filter(Book.category_id == category_id)
+    books = book_query.all()
     categories = {item.id: item for item in Category.query.all()}
 
     shelf_counts = {
@@ -943,7 +976,44 @@ def _get_hot_search_term_items(limit: int = 8):
         if not text or text in seen:
             return
         seen.add(text)
-        items.append({'keyword': text, 'source': source})
+        items.append(
+            {
+                'keyword': text,
+                'source': source,
+                'search_count': 0,
+                'last_searched_at': None,
+                'trend': 'steady',
+                'matched_book_title': None,
+            }
+        )
+
+    history_rows = (
+        db.session.query(
+            UserSearchHistory.keyword,
+            func.coalesce(func.sum(UserSearchHistory.search_count), 0).label('search_count'),
+            func.max(UserSearchHistory.last_searched_at).label('last_searched_at'),
+        )
+        .group_by(UserSearchHistory.keyword)
+        .order_by(func.coalesce(func.sum(UserSearchHistory.search_count), 0).desc(), func.max(UserSearchHistory.last_searched_at).desc())
+        .limit(limit * 2)
+        .all()
+    )
+    for keyword, search_count, last_searched_at in history_rows:
+        text = _normalize_search_keyword(keyword, max_len=20)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        matched_book = _books_search_query(text).order_by(Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc()).first()
+        items.append(
+            {
+                'keyword': text,
+                'source': 'search_history',
+                'search_count': int(search_count or 0),
+                'last_searched_at': last_searched_at.isoformat() if last_searched_at else None,
+                'trend': 'rising' if int(search_count or 0) >= 3 else 'steady',
+                'matched_book_title': matched_book.title if matched_book else None,
+            }
+        )
 
     for keyword in DEFAULT_HOT_SEARCH_TERMS:
         append_term(keyword, 'configured')
@@ -1315,12 +1385,26 @@ def api_get_book_rankings():
     rank_type = _normalize_ranking_type(request.args.get('type', 'hot'))
     if not rank_type:
         return jsonify({'error': 'invalid type', 'available_types': _ranking_type_options()}), 400
+    period = _normalize_ranking_period(request.args.get('period', 'week'))
+    if not period:
+        return jsonify({'error': 'invalid period', 'available_periods': _ranking_period_options()}), 400
     try:
         limit = max(1, min(int(request.args.get('limit', '10')), 50))
     except ValueError:
         limit = 10
+    category_id = None
+    raw_category_id = request.args.get('category_id')
+    if raw_category_id not in (None, ''):
+        category_id, error_response, error_status = _parse_positive_int(raw_category_id, 'category_id')
+        if error_response:
+            return error_response, error_status
+        if not Category.query.get(category_id):
+            return jsonify({'error': 'category not found'}), 404
 
-    books, categories, shelf_counts, reading_users, recent_progress, recent_events = _collect_ranking_stats()
+    books, categories, shelf_counts, reading_users, recent_progress, recent_events = _collect_ranking_stats(
+        window_days=_ranking_period_days(period),
+        category_id=category_id,
+    )
 
     ranked_items = []
     for book in books:
@@ -1352,16 +1436,29 @@ def api_get_book_rankings():
     return jsonify(
         {
             'type': rank_type,
+            'period': period,
+            'category_id': category_id,
             'meta': {
                 'key': rank_type,
                 **RANKING_TYPE_CONFIG[rank_type],
-                'period_hint': '日榜/周榜/月榜后续开放',
+                'period_hint': '支持 day/week/month 与 category_id 筛选',
             },
             'available_types': _ranking_type_options(),
+            'available_periods': _ranking_period_options(),
             'snapshot_date': date.today().isoformat(),
             'items': items,
         }
     ), 200
+
+
+@bp.route('/recommendations/placements', methods=['GET'])
+def api_get_recommendation_placements():
+    scene = _normalize_search_keyword(request.args.get('scene', ''), max_len=64)
+    query = RecommendationPlacement.query.filter_by(is_active=True)
+    if scene:
+        query = query.filter(RecommendationPlacement.scene == scene)
+    items = query.order_by(RecommendationPlacement.sort_order.asc(), RecommendationPlacement.id.asc()).all()
+    return jsonify({'items': [item.to_dict() for item in items]}), 200
 
 
 @bp.route('/user/weekly-reading-task', methods=['GET'])

@@ -54,6 +54,10 @@ const showComments = ref(true)
 const preferenceLoaded = ref(false)
 const immersiveMode = ref(false)
 const postReadSectionId = 'reader-post-read'
+const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window
+const isSpeaking = ref(false)
+const isSpeechPaused = ref(false)
+const speechStatus = ref('')
 
 const { readerTheme, readerFontSize, readerLineHeight, readerMargin, setTheme, setFontSize, setLineHeight, setMargin } = useReaderPreferences()
 const { resumeIfNeeded, syncReadingProgress, getAnalyticsContext } = useReadingProgress(bookId, activeSectionId)
@@ -148,6 +152,14 @@ const currentSectionTitle = computed(() => {
   return reader.value.sections[currentSectionIndex.value]?.title || ''
 })
 
+const currentSectionText = computed(() => {
+  if (!reader.value) return ''
+  const section = reader.value.sections[currentSectionIndex.value]
+  if (!section) return ''
+  const paragraphs = section.paragraphs.map((paragraph) => paragraph.text).join('\n')
+  return `${section.title}\n${paragraphs}`.trim()
+})
+
 const sectionTitleById = computed(() => {
   const map: Record<string, string> = {}
   reader.value?.sections.forEach((section) => {
@@ -224,6 +236,9 @@ async function loadReader() {
     activeSectionId.value = payload.sections[0]?.id || ''
     activeHighlightId.value = payload.highlights[0]?.id ?? null
     await resumeIfNeeded(route.query.resume === '1')
+    if (route.query.listen === '1') {
+      setTimeout(startListening, 300)
+    }
   } catch (_error) {
     ElMessage.error('阅读内容加载失败，请稍后重试')
   } finally {
@@ -329,6 +344,78 @@ function goToNextChapter() {
   }
   const next = reader.value.sections[currentSectionIndex.value + 1]
   if (next) scrollToSection(next.id)
+}
+
+function stopListening() {
+  if (!speechSupported) return
+  window.speechSynthesis.cancel()
+  isSpeaking.value = false
+  isSpeechPaused.value = false
+  speechStatus.value = ''
+}
+
+function startListening() {
+  if (!speechSupported) {
+    ElMessage.warning('当前浏览器不支持语音朗读')
+    return
+  }
+  if (!currentSectionText.value) {
+    ElMessage.warning('当前章节暂无可朗读内容')
+    return
+  }
+  window.speechSynthesis.cancel()
+  const utterance = new SpeechSynthesisUtterance(currentSectionText.value)
+  utterance.lang = 'zh-CN'
+  utterance.rate = 0.95
+  utterance.pitch = 1
+  utterance.onstart = () => {
+    isSpeaking.value = true
+    isSpeechPaused.value = false
+    speechStatus.value = `正在朗读：${currentSectionTitle.value || '当前章节'}`
+  }
+  utterance.onend = () => {
+    isSpeaking.value = false
+    isSpeechPaused.value = false
+    speechStatus.value = '本章朗读完成'
+  }
+  utterance.onerror = () => {
+    isSpeaking.value = false
+    isSpeechPaused.value = false
+    speechStatus.value = '朗读中断，请稍后重试'
+  }
+  window.speechSynthesis.speak(utterance)
+}
+
+function toggleListening() {
+  if (!speechSupported) {
+    ElMessage.warning('当前浏览器不支持语音朗读')
+    return
+  }
+  if (!isSpeaking.value) {
+    startListening()
+    return
+  }
+  if (isSpeechPaused.value) {
+    window.speechSynthesis.resume()
+    isSpeechPaused.value = false
+    speechStatus.value = `正在朗读：${currentSectionTitle.value || '当前章节'}`
+  } else {
+    window.speechSynthesis.pause()
+    isSpeechPaused.value = true
+    speechStatus.value = '朗读已暂停'
+  }
+}
+
+function listenPrevChapter() {
+  if (!hasPrevChapter.value) return
+  goToPrevChapter()
+  setTimeout(startListening, 250)
+}
+
+function listenNextChapter() {
+  if (!hasNextChapter.value) return
+  goToNextChapter()
+  setTimeout(startListening, 250)
 }
 
 function goBook(targetBookId: number) {
@@ -542,6 +629,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   syncReadingProgress(true)
+  stopListening()
   window.removeEventListener('scroll', handleScroll)
   document.removeEventListener('mouseup', handleSelection)
   document.removeEventListener('keydown', handleKeydown)
@@ -550,6 +638,7 @@ onBeforeUnmount(() => {
 watch(
   () => route.params.bookId,
   async () => {
+    stopListening()
     clearSelectionDraft()
     activePanel.value = 'none'
     bookmarks.value = []
@@ -587,6 +676,37 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
           <div class="flex flex-wrap items-center gap-2 lg:justify-end">
             <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="router.push('/')">回到首页</button>
             <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="router.push(`/books/${bookId}`)">返回详情</button>
+            <button
+              class="rounded-full border px-4 py-2 text-sm"
+              :class="isSpeaking ? 'border-emerald-500 bg-emerald-500 text-white' : ts.border"
+              @click="toggleListening"
+            >
+              {{ !speechSupported ? '不支持听书' : isSpeaking && !isSpeechPaused ? '暂停听书' : isSpeechPaused ? '继续听书' : '听书' }}
+            </button>
+            <button
+              class="rounded-full border px-3 py-2 text-sm disabled:opacity-40"
+              :class="ts.border"
+              :disabled="!speechSupported || !hasPrevChapter"
+              @click="listenPrevChapter"
+            >
+              上一章
+            </button>
+            <button
+              class="rounded-full border px-3 py-2 text-sm disabled:opacity-40"
+              :class="ts.border"
+              :disabled="!speechSupported || !hasNextChapter"
+              @click="listenNextChapter"
+            >
+              下一章
+            </button>
+            <button
+              v-if="isSpeaking || isSpeechPaused"
+              class="rounded-full border px-3 py-2 text-sm"
+              :class="ts.border"
+              @click="stopListening"
+            >
+              停止
+            </button>
             <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="saveBookmark">
               {{ currentBookmark ? '更新书签' : '加书签' }}
             </button>
@@ -613,6 +733,9 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
               {{ progressPercent }}%
             </span>
           </div>
+          <p v-if="speechStatus" class="mt-3 text-xs text-emerald-600" :class="readerTheme === 'dark' ? 'text-emerald-300' : ''">
+            {{ speechStatus }}
+          </p>
         </section>
 
         <!-- Content area -->

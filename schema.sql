@@ -496,6 +496,25 @@ CREATE TABLE `recommendation_feedback` (
   CONSTRAINT `fk_rf_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE `recommendation_placements` (
+  `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `code`        VARCHAR(64) NOT NULL,
+  `name`        VARCHAR(100) NOT NULL,
+  `description` VARCHAR(255) DEFAULT NULL,
+  `scene`       VARCHAR(64) NOT NULL DEFAULT 'home',
+  `strategy`    VARCHAR(64) NOT NULL DEFAULT 'manual',
+  `max_items`   INT NOT NULL DEFAULT 6,
+  `is_active`   TINYINT(1) NOT NULL DEFAULT 1,
+  `sort_order`  INT NOT NULL DEFAULT 0,
+  `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_recommendation_placement_code` (`code`),
+  KEY `idx_recommendation_placements_scene` (`scene`),
+  KEY `idx_recommendation_placements_active` (`is_active`),
+  KEY `idx_recommendation_placements_sort` (`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE `user_interest_tags` (
   `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id`        BIGINT UNSIGNED NOT NULL,

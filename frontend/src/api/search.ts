@@ -4,6 +4,10 @@ import type { HomeBookItem } from '@/api/home'
 export interface SearchHotTermItem {
   keyword: string
   source?: string
+  search_count?: number
+  last_searched_at?: string | null
+  trend?: 'rising' | 'steady' | string
+  matched_book_title?: string | null
 }
 
 export interface SearchHistoryItem {

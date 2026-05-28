@@ -105,6 +105,13 @@ function goReader() {
   })
 }
 
+function goListen() {
+  router.push({
+    path: `/reader/${bookId.value}`,
+    query: { ...(progress.value?.section_id ? { resume: '1' } : {}), listen: '1' },
+  })
+}
+
 async function handleShelfToggle() {
   if (!book.value) return
   if (!isLoggedIn.value) {
@@ -239,6 +246,12 @@ watch(bookId, () => {
                   @click="goReader"
                 >
                   {{ startButtonText }}
+                </button>
+                <button
+                  class="rounded-full bg-emerald-600 px-7 py-3 text-sm font-medium text-white transition hover:bg-emerald-700"
+                  @click="goListen"
+                >
+                  听书
                 </button>
                 <button
                   class="rounded-full border border-stone-300 bg-white px-7 py-3 text-sm font-medium text-stone-700 transition hover:border-stone-500"
