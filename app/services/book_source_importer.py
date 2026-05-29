@@ -12,6 +12,7 @@ from typing import Iterable
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
+from flask import current_app
 from sqlalchemy import or_
 
 from app import db
@@ -23,6 +24,7 @@ from app.models import (
     ReaderParagraph,
     ReaderSection,
 )
+from app.services.tencent_cos import upload_image_bytes
 
 
 DEFAULT_SOURCE_JSON_URL = 'https://www.yckceo.com/yuedu/shuyuan/json/id/7283.json'
@@ -31,6 +33,13 @@ DEFAULT_USER_AGENT = (
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
     'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 )
+ALLOWED_COVER_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
+CONTENT_TYPE_EXTENSIONS = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+}
 
 SOURCE_CATEGORY_CODES = {
     'xuanhuan': 'fantasy',
@@ -76,6 +85,20 @@ class HttpClient:
                     charset = response.headers.get_content_charset() or 'utf-8'
                     data = response.read()
                 return data.decode(charset, errors='replace')
+            except Exception as exc:  # noqa: BLE001 - surface URL and final error to CLI.
+                last_error = exc
+                if attempt < self.retries:
+                    time.sleep(self.delay_seconds * (attempt + 1))
+        raise RuntimeError(f'Failed to fetch {url}: {last_error}') from last_error
+
+    def get_bytes(self, url: str) -> tuple[bytes, str]:
+        last_error: Exception | None = None
+        for attempt in range(max(1, self.retries + 1)):
+            try:
+                request = Request(url, headers=self.headers)
+                with urlopen(request, timeout=self.timeout) as response:
+                    content_type = (response.headers.get_content_type() or '').lower()
+                    return response.read(), content_type
             except Exception as exc:  # noqa: BLE001 - surface URL and final error to CLI.
                 last_error = exc
                 if attempt < self.retries:
@@ -371,7 +394,11 @@ def import_book_source(
             if existing_duplicate and not _book_has_source_url(existing_duplicate, info.url):
                 stats.skipped += 1
                 continue
+            source_cover_url = info.cover
+            info.cover = _upload_source_cover(info.cover, client, fallback_name=info.title) or ''
             book, created = upsert_book(info, rank_no=rank_no, source_name=source_config.get('bookSourceName') or 'book source')
+            if not info.cover and _same_url(book.cover, source_cover_url):
+                book.cover = None
             if include_toc or include_content:
                 chapter_stats = import_chapters(
                     book,
@@ -852,6 +879,60 @@ def _source_url_from_book(book: Book, *, base_url: str) -> str:
     if match:
         return match.group(0)
     return ''
+
+
+def _same_url(left: str | None, right: str | None) -> bool:
+    return bool(left and right and left.strip() == right.strip())
+
+
+def _upload_source_cover(cover_url: str, client: HttpClient, *, fallback_name: str) -> str:
+    if not cover_url:
+        return ''
+    try:
+        content, content_type = client.get_bytes(cover_url)
+        filename = _cover_filename(cover_url, content_type, fallback_name=fallback_name)
+        folder = current_app.config.get('COVER_UPLOAD_SUBDIR', 'book_covers')
+        max_size = int(current_app.config.get('MAX_COVER_UPLOAD_SIZE', 5 * 1024 * 1024))
+        uploaded_url, error = upload_image_bytes(
+            content,
+            filename=filename,
+            mimetype=content_type or 'application/octet-stream',
+            folder=folder,
+            allowed_extensions=ALLOWED_COVER_EXTENSIONS,
+            max_size=max_size,
+        )
+        if error:
+            current_app.logger.warning(
+                'book_source_cover_upload_failed',
+                extra={
+                    'event': 'book_source.cover.upload_failed',
+                    'tags': ['book_source', 'cover', 'upload'],
+                    'data': {'cover_url': cover_url, 'error': error},
+                },
+            )
+            return ''
+        return uploaded_url or ''
+    except Exception as exc:  # noqa: BLE001 - cover failure should not block importing book metadata.
+        current_app.logger.warning(
+            'book_source_cover_upload_exception',
+            extra={
+                'event': 'book_source.cover.upload_exception',
+                'tags': ['book_source', 'cover', 'upload', 'exception'],
+                'data': {'cover_url': cover_url, 'error': str(exc)},
+            },
+        )
+        return ''
+
+
+def _cover_filename(cover_url: str, content_type: str, *, fallback_name: str) -> str:
+    path = urlparse(cover_url).path
+    name = Path(path).name
+    ext = Path(name).suffix.lstrip('.').lower()
+    if ext in ALLOWED_COVER_EXTENSIONS:
+        return name
+    ext = CONTENT_TYPE_EXTENSIONS.get((content_type or '').lower(), 'jpg')
+    stem = re.sub(r'[^A-Za-z0-9_-]+', '-', fallback_name or 'book-cover').strip('-') or 'book-cover'
+    return f'{stem[:80]}.{ext}'
 
 
 def _join_keywords(parts: list[str]) -> str:

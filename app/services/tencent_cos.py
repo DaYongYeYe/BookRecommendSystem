@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import BytesIO
 from uuid import uuid4
 
 from flask import current_app
@@ -63,6 +64,62 @@ def upload_image(file_obj, *, folder: str, allowed_extensions: set[str], max_siz
             Body=file_obj.stream,
             Key=object_key,
             ContentType=file_obj.mimetype or 'application/octet-stream',
+        )
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception(
+            'cos_upload_exception',
+            extra={
+                'event': 'dependency.tencent_cos.upload.exception',
+                'tags': ['dependency', 'cos', 'upload', 'exception'],
+                'data': {
+                    'bucket': bucket,
+                    'region': region,
+                    'object_key': object_key,
+                    'error': str(exc),
+                },
+            },
+        )
+        return None, 'cos upload failed'
+
+    return _object_url(bucket, region, object_key), None
+
+
+@dependency_log_aspect('tencent_cos', 'upload_image_bytes', tags=['dependency', 'cos', 'upload', 'aop'])
+def upload_image_bytes(
+    content: bytes,
+    *,
+    filename: str,
+    mimetype: str,
+    folder: str,
+    allowed_extensions: set[str],
+    max_size: int,
+):
+    if not content:
+        return None, 'file is required'
+
+    filename = (filename or '').strip()
+    if '.' not in filename:
+        return None, 'invalid file name'
+
+    ext = filename.rsplit('.', 1)[-1].lower()
+    if ext not in allowed_extensions:
+        return None, 'file type not allowed'
+
+    if len(content) > max_size:
+        return None, 'file too large'
+
+    client, bucket, error = _build_cos_client()
+    if error:
+        return None, error
+
+    region = (current_app.config.get('COS_REGION') or '').strip()
+    object_key = f'{folder.rstrip("/")}/{uuid4().hex}.{ext}'
+    try:
+        client.put_object(
+            Bucket=bucket,
+            Body=BytesIO(content),
+            Key=object_key,
+            ContentType=mimetype or 'application/octet-stream',
         )
     except Exception as exc:  # noqa: BLE001
         current_app.logger.exception(

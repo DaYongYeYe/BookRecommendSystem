@@ -1,9 +1,10 @@
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from app import create_app, db
 from app.models import Book, BookChapter, BookChapterRevision
-from app.services.book_source_importer import BookInfo, HttpClient, _book_has_source_url, _find_existing_book
+from app.services.book_source_importer import BookInfo, HttpClient, _book_has_source_url, _find_existing_book, _upload_source_cover
 from app.services.book_source_importer import import_chapters
 
 
@@ -30,6 +31,18 @@ class FakeClient(HttpClient):
     def get_text(self, url: str) -> str:
         self.requested_urls.append(url)
         return self.pages[url]
+
+
+class FakeBinaryClient(HttpClient):
+    def __init__(self, payload: bytes, content_type: str = 'image/jpeg'):
+        super().__init__()
+        self.payload = payload
+        self.content_type = content_type
+        self.requested_urls: list[str] = []
+
+    def get_bytes(self, url: str):
+        self.requested_urls.append(url)
+        return self.payload, self.content_type
 
 
 class BookSourceImporterIncrementalTestCase(unittest.TestCase):
@@ -222,6 +235,26 @@ class BookSourceImporterIncrementalTestCase(unittest.TestCase):
 
         self.assertEqual(existing.id, book.id)
         self.assertFalse(_book_has_source_url(existing, info.url))
+
+    def test_source_cover_is_uploaded_to_object_storage(self):
+        client = FakeBinaryClient(b'fake-image-bytes', 'image/png')
+
+        with patch('app.services.book_source_importer.upload_image_bytes', return_value=('https://cos.example/book_covers/cover.png', None)) as upload_mock:
+            cover = _upload_source_cover('https://source.test/covers/cover.png?token=1', client, fallback_name='Source Book')
+
+        self.assertEqual(cover, 'https://cos.example/book_covers/cover.png')
+        self.assertEqual(client.requested_urls, ['https://source.test/covers/cover.png?token=1'])
+        upload_mock.assert_called_once()
+        self.assertEqual(upload_mock.call_args.kwargs['filename'], 'cover.png')
+        self.assertEqual(upload_mock.call_args.kwargs['mimetype'], 'image/png')
+
+    def test_source_cover_upload_failure_does_not_keep_external_url(self):
+        client = FakeBinaryClient(b'fake-image-bytes', 'image/jpeg')
+
+        with patch('app.services.book_source_importer.upload_image_bytes', return_value=(None, 'cos upload failed')):
+            cover = _upload_source_cover('https://source.test/covers/cover.jpg', client, fallback_name='Source Book')
+
+        self.assertEqual(cover, '')
 
 
 if __name__ == '__main__':
