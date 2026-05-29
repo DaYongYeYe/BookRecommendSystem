@@ -16,6 +16,7 @@ from app.models import (
     ReaderSection,
     ReaderUserPreference,
     Tag,
+    UserReadingProgress,
     UserShelf,
 )
 

@@ -1,5 +1,6 @@
 import os
 
+import click
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
@@ -863,5 +864,67 @@ def create_app(config_class=Config):
         with app.app_context():
             result = rollback_chapter_migration()
         print(f"Chapter migration rollback finished: {result}")
+
+    @app.cli.command('import-book-source')
+    @click.option('--source', 'source_location', default=None, help='Book source JSON URL, source page URL, local JSON file, or comma-separated locations.')
+    @click.option('--limit', default=1000, show_default=True, help='Maximum number of hot books to import.')
+    @click.option('--max-pages', default=60, show_default=True, help='Maximum list pages to scan per source category.')
+    @click.option('--include-toc', is_flag=True, help='Also import chapter titles into the reader outline.')
+    @click.option('--include-content', is_flag=True, help='Fetch chapter content. Use with a small --max-chapters-per-book first.')
+    @click.option('--max-chapters-per-book', default=0, show_default=True, help='Limit chapters fetched per book; 0 means all when chapter import is enabled.')
+    @click.option('--cookie', default=None, help='Optional Cookie header for sources protected by browser verification.')
+    @click.option('--timeout', default=20, show_default=True, help='Request timeout in seconds.')
+    @click.option('--retries', default=2, show_default=True, help='Retry count per request.')
+    @click.option('--delay', default=0.2, show_default=True, help='Delay between retries/requests in seconds.')
+    @click.option('--dry-run', is_flag=True, help='Parse and fetch candidates without writing database rows.')
+    @click.option('--overwrite-content', is_flag=True, help='Create a new published revision even when a chapter already has content.')
+    @click.option('--random-sample', is_flag=True, help='Shuffle source categories and list candidates before importing.')
+    def import_book_source_command(
+        source_location,
+        limit,
+        max_pages,
+        include_toc,
+        include_content,
+        max_chapters_per_book,
+        cookie,
+        timeout,
+        retries,
+        delay,
+        dry_run,
+        overwrite_content,
+        random_sample,
+    ):
+        """Import authorized books from a Yuedu book source into the local catalog."""
+        from app.services.book_source_importer import DEFAULT_SOURCE_JSON_URL, import_book_source
+
+        source_location = source_location or DEFAULT_SOURCE_JSON_URL
+        stats = import_book_source(
+            source_location=source_location,
+            limit=limit,
+            max_pages=max_pages,
+            include_toc=include_toc or include_content,
+            include_content=include_content,
+            max_chapters_per_book=max_chapters_per_book,
+            cookie=cookie or os.environ.get('BOOK_SOURCE_COOKIE'),
+            timeout=timeout,
+            retries=retries,
+            delay=delay,
+            dry_run=dry_run,
+            overwrite_content=overwrite_content,
+            random_sample=random_sample,
+        )
+        print(
+            'Book source import finished: '
+            f'candidates={stats.candidates}, created={stats.created}, updated={stats.updated}, '
+            f'skipped={stats.skipped}, failed={stats.failed}, chapters={stats.chapters}, '
+            f'paragraphs={stats.paragraphs}, failed_chapters={stats.failed_chapters}, '
+            f'skipped_chapters={stats.skipped_chapters}'
+        )
+        if stats.errors:
+            print('Errors:')
+            for item in stats.errors[:20]:
+                print(f'- {item}')
+            if len(stats.errors) > 20:
+                print(f'- ... {len(stats.errors) - 20} more')
     
     return app
