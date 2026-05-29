@@ -25,18 +25,18 @@ $env:FLASK_APP = "app:create_app"
 
 ## 定时拉取
 
-长驻进程方式，默认每轮间隔 360 分钟，每次请求间隔不少于 3 秒：
+长驻进程方式（需显式加 `--loop`），默认每轮间隔 360 分钟，每次请求间隔不少于 3 秒：
 
 ```powershell
 $env:BOOK_SOURCE_COOKIE = "cf_clearance=...; other_cookie=..."
-.\venv\Scripts\python.exe .\scripts\scheduled_book_source_import.py --limit 1000 --request-delay 3 --interval-minutes 360
+.\venv\Scripts\python.exe .\scripts\scheduled_book_source_import.py --loop --limit 1000 --request-delay 3 --interval-minutes 360
 ```
 
 如果要周期性补前 50 章正文：
 
 ```powershell
 $env:BOOK_SOURCE_COOKIE = "cf_clearance=...; other_cookie=..."
-.\venv\Scripts\python.exe .\scripts\scheduled_book_source_import.py --limit 1000 --include-content --max-chapters-per-book 50 --request-delay 3 --interval-minutes 360
+.\venv\Scripts\python.exe .\scripts\scheduled_book_source_import.py --loop --limit 1000 --include-content --max-chapters-per-book 50 --request-delay 3 --interval-minutes 360
 ```
 
 Windows 任务计划方式：

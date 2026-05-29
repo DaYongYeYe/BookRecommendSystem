@@ -74,9 +74,15 @@ def build_parser() -> argparse.ArgumentParser:
         '--interval-minutes',
         type=positive_int,
         default=int(os.environ.get('BOOK_SOURCE_INTERVAL_MINUTES', 360)),
-        help='How long to wait between import rounds.',
+        help='How long to wait between import rounds when --loop is enabled.',
     )
-    parser.add_argument('--run-once', action='store_true', help='Run one import round and exit.')
+    parser.add_argument(
+        '--loop',
+        action='store_true',
+        help='Keep running on a fixed interval. Default is a single run per process.',
+    )
+    # Backward-compatible alias for older scripts; one-shot is now the default mode.
+    parser.add_argument('--run-once', action='store_true', help=argparse.SUPPRESS)
     return parser
 
 
@@ -147,16 +153,21 @@ def run_round(args: argparse.Namespace) -> bool:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.book_ids and not args.existing_only:
+        log('book_ids is set but existing_only is disabled; book_ids will be ignored')
+
+    one_shot = not args.loop or args.run_once
     log(
         'scheduler started '
-        f'source={args.source} limit={args.limit} interval_minutes={args.interval_minutes} '
+        f'source={args.source} limit={args.limit} mode={"loop" if not one_shot else "run_once"} '
+        f'interval_minutes={args.interval_minutes} '
         f'request_delay={args.request_delay}s include_content={args.include_content} '
         f'max_chapters_per_book={args.max_chapters_per_book} overwrite_content={args.overwrite_content} '
         f'random_sample={args.random_sample} existing_only={args.existing_only} book_ids={args.book_ids or "all"}'
     )
     while True:
         ok = run_round(args)
-        if args.run_once:
+        if one_shot:
             return 0 if ok else 1
         sleep_seconds = args.interval_minutes * 60
         log(f'sleeping {args.interval_minutes} minutes before next round')
