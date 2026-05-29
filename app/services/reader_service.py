@@ -276,12 +276,38 @@ def ensure_seed(book_id: int):
     db.session.commit()
 
 
-def build_reader_payload(book_id: int, current_user=None):
-    ensure_seed(book_id)
-    book = Book.query.get(book_id)
-    if not book or (book.status or 'published') != 'published' or (book.shelf_status or 'down') != 'up':
-        return None
+MAX_READER_SECTION_LIMIT = 5
 
+
+def _clamp_section_window(offset: int = 0, limit: int | None = None):
+    try:
+        offset = int(offset or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    offset = max(0, offset)
+
+    if limit is None:
+        return offset, None
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = MAX_READER_SECTION_LIMIT
+    limit = max(1, min(MAX_READER_SECTION_LIMIT, limit))
+    return offset, limit
+
+
+def _split_revision_paragraphs(section_key: str, content_text: str | None):
+    return [
+        {'id': f'{section_key}-p{idx}', 'text': text}
+        for idx, text in enumerate(
+            [part.strip() for part in (content_text or '').split('\n\n') if part.strip()],
+            start=1,
+        )
+    ]
+
+
+def _build_reader_sections(book_id: int, offset: int = 0, limit: int | None = None):
+    offset, limit = _clamp_section_window(offset, limit)
     chapters = (
         BookChapter.query.filter(
             BookChapter.book_id == book_id,
@@ -290,9 +316,11 @@ def build_reader_payload(book_id: int, current_user=None):
         .order_by(BookChapter.chapter_no.asc(), BookChapter.id.asc())
         .all()
     )
-    sections = []
-    payload_sections = []
+
     payload_outline = []
+    payload_sections = []
+    total_words = 0
+
     if chapters:
         revision_ids = [item.published_revision_id for item in chapters if item.published_revision_id]
         revisions = (
@@ -301,29 +329,34 @@ def build_reader_payload(book_id: int, current_user=None):
             else []
         )
         revision_map = {item.id: item for item in revisions}
+        section_records = []
         for chapter in chapters:
             revision = revision_map.get(chapter.published_revision_id)
             if not revision:
                 continue
             section_key = chapter.chapter_key or f'chapter-{chapter.chapter_no}'
+            section_records.append((section_key, revision))
             payload_outline.append({'id': section_key, 'title': revision.title, 'level': 1})
-            payload_sections.append(
-                {
-                    'id': section_key,
-                    'title': revision.title,
-                    'summary': revision.summary or '',
-                    'paragraphs': [
-                        {'id': f'{section_key}-p{idx}', 'text': text}
-                        for idx, text in enumerate(
-                            [part.strip() for part in (revision.content_text or '').split('\n\n') if part.strip()],
-                            start=1,
-                        )
-                    ],
-                }
-            )
-    else:
-        sections = ReaderSection.query.filter_by(book_id=book_id).order_by(ReaderSection.order_no.asc()).all()
-    section_ids = [item.id for item in sections]
+            total_words += len(revision.content_text or '')
+
+        selected_records = section_records[offset:] if limit is None else section_records[offset:offset + limit]
+        payload_sections = [
+            {
+                'id': section_key,
+                'title': revision.title,
+                'summary': revision.summary or '',
+                'paragraphs': _split_revision_paragraphs(section_key, revision.content_text),
+            }
+            for section_key, revision in selected_records
+        ]
+        return payload_outline, payload_sections, len(section_records), total_words
+
+    sections = ReaderSection.query.filter_by(book_id=book_id).order_by(ReaderSection.order_no.asc()).all()
+    payload_outline = [{'id': s.section_key, 'title': s.title, 'level': s.level} for s in sections]
+    total = len(sections)
+    all_section_ids = [item.id for item in sections]
+    selected_sections = sections[offset:] if limit is None else sections[offset:offset + limit]
+    section_ids = [item.id for item in selected_sections]
 
     paragraph_map = {}
     if section_ids:
@@ -334,6 +367,60 @@ def build_reader_payload(book_id: int, current_user=None):
         )
         for paragraph in paragraphs:
             paragraph_map.setdefault(paragraph.section_id, []).append({'id': paragraph.paragraph_key, 'text': paragraph.text})
+
+    payload_sections = [
+        {
+            'id': s.section_key,
+            'title': s.title,
+            'summary': s.summary or '',
+            'paragraphs': paragraph_map.get(s.id, []),
+        }
+        for s in selected_sections
+    ]
+    if limit is None:
+        total_words = sum(len(paragraph['text']) for section in payload_sections for paragraph in section['paragraphs'])
+    elif all_section_ids:
+        total_words = sum(
+            len(text or '')
+            for (text,) in ReaderParagraph.query.with_entities(ReaderParagraph.text)
+            .filter(ReaderParagraph.section_id.in_(all_section_ids))
+            .all()
+        )
+    return payload_outline, payload_sections, total, total_words
+
+
+def build_reader_sections_payload(book_id: int, offset: int = 0, limit: int = MAX_READER_SECTION_LIMIT):
+    ensure_seed(book_id)
+    book = Book.query.get(book_id)
+    if not book or (book.status or 'published') != 'published' or (book.shelf_status or 'down') != 'up':
+        return None
+
+    offset, limit = _clamp_section_window(offset, limit)
+    _, payload_sections, total, _ = _build_reader_sections(book_id, offset=offset, limit=limit)
+    next_offset = offset + len(payload_sections)
+    return {
+        'sections': payload_sections,
+        'pagination': {
+            'offset': offset,
+            'limit': limit,
+            'total': total,
+            'next_offset': next_offset if next_offset < total else None,
+            'has_more': next_offset < total,
+        },
+    }
+
+
+def build_reader_payload(book_id: int, current_user=None, section_offset: int = 0, section_limit: int | None = None):
+    ensure_seed(book_id)
+    book = Book.query.get(book_id)
+    if not book or (book.status or 'published') != 'published' or (book.shelf_status or 'down') != 'up':
+        return None
+
+    payload_outline, payload_sections, total_sections, computed_total_words = _build_reader_sections(
+        book_id,
+        offset=section_offset,
+        limit=section_limit,
+    )
 
     highlights = ReaderHighlight.query.filter_by(book_id=book_id).order_by(ReaderHighlight.id.asc()).all()
     highlight_ids = [item.id for item in highlights]
@@ -354,18 +441,6 @@ def build_reader_payload(book_id: int, current_user=None):
                 }
             )
 
-    if not payload_outline:
-        payload_outline = [{'id': s.section_key, 'title': s.title, 'level': s.level} for s in sections]
-    if not payload_sections:
-        payload_sections = [
-            {
-                'id': s.section_key,
-                'title': s.title,
-                'summary': s.summary or '',
-                'paragraphs': paragraph_map.get(s.id, []),
-            }
-            for s in sections
-        ]
     payload_highlights = [
         {
             'id': h.id,
@@ -405,7 +480,7 @@ def build_reader_payload(book_id: int, current_user=None):
 
     total_words = int(book.word_count or 0)
     if total_words <= 0:
-        total_words = sum(len(paragraph['text']) for section in payload_sections for paragraph in section['paragraphs'])
+        total_words = computed_total_words
 
     in_shelf = False
     if current_user:
@@ -525,6 +600,7 @@ def build_reader_payload(book_id: int, current_user=None):
             }
         )
 
+    next_offset = section_offset + len(payload_sections)
     return {
         'book': {
             'id': book.id,
@@ -551,6 +627,13 @@ def build_reader_payload(book_id: int, current_user=None):
         },
         'outline': payload_outline,
         'sections': payload_sections,
+        'sections_pagination': {
+            'offset': section_offset,
+            'limit': section_limit,
+            'total': total_sections,
+            'next_offset': next_offset if section_limit is not None and next_offset < total_sections else None,
+            'has_more': section_limit is not None and next_offset < total_sections,
+        },
         'highlights': payload_highlights,
         'book_comments': payload_book_comments,
         'related_books': payload_related_books,

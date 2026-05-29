@@ -10,10 +10,12 @@ import {
   createReaderBookmark,
   deleteReaderBookmark,
   getReader,
+  getReaderSections,
   getReaderPreferences,
   saveReaderPreferences,
   type ReaderBookmark,
   type ReaderPayload,
+  type ReaderSectionsPagination,
 } from '@/api/reader'
 import { getToken } from '@/api/request'
 import { getUserFavorites } from '@/api/user'
@@ -35,6 +37,8 @@ const bookId = computed(() => String(route.params.bookId || '1'))
 
 const reader = ref<ReaderPayload | null>(null)
 const loading = ref(false)
+const loadingMoreSections = ref(false)
+const sectionPagination = ref<ReaderSectionsPagination | null>(null)
 const addingToShelf = ref(false)
 const isInShelf = ref(false)
 
@@ -45,6 +49,7 @@ const activeHighlightId = ref<number | null>(null)
 const highlightCommentDraft = ref('')
 const bookCommentDraft = ref('')
 const activeSectionId = ref<string>('')
+const activeParagraphId = ref<string>('')
 const bookmarks = ref<ReaderBookmark[]>([])
 const bookmarkNoteDraft = ref('')
 
@@ -60,7 +65,7 @@ const isSpeechPaused = ref(false)
 const speechStatus = ref('')
 
 const { readerTheme, readerFontSize, readerLineHeight, readerMargin, setTheme, setFontSize, setLineHeight, setMargin } = useReaderPreferences()
-const { resumeIfNeeded, syncReadingProgress, getAnalyticsContext } = useReadingProgress(bookId, activeSectionId)
+const { resumeIfNeeded, syncReadingProgress, getAnalyticsContext } = useReadingProgress(bookId, activeSectionId, activeParagraphId)
 
 const colorMap: Record<string, string> = {
   amber: 'bg-amber-200/80 decoration-amber-500',
@@ -136,25 +141,25 @@ const activeHighlight = computed(() => {
 const currentSectionIndex = computed(() => {
   if (!reader.value) return 0
   return Math.max(
-    reader.value.sections.findIndex((section) => section.id === activeSectionId.value),
+    reader.value.outline.findIndex((section) => section.id === activeSectionId.value),
     0
   )
 })
 
 const progressPercent = computed(() => {
   if (!reader.value) return 0
-  const totalSections = reader.value.sections.length || 1
+  const totalSections = reader.value.outline.length || reader.value.sections.length || 1
   return Math.min(100, Math.round(((currentSectionIndex.value + 1) / totalSections) * 100))
 })
 
 const currentSectionTitle = computed(() => {
   if (!reader.value) return ''
-  return reader.value.sections[currentSectionIndex.value]?.title || ''
+  return reader.value.outline[currentSectionIndex.value]?.title || ''
 })
 
 const currentSectionText = computed(() => {
   if (!reader.value) return ''
-  const section = reader.value.sections[currentSectionIndex.value]
+  const section = reader.value.sections.find((item) => item.id === activeSectionId.value)
   if (!section) return ''
   const paragraphs = section.paragraphs.map((paragraph) => paragraph.text).join('\n')
   return `${section.title}\n${paragraphs}`.trim()
@@ -162,7 +167,7 @@ const currentSectionText = computed(() => {
 
 const sectionTitleById = computed(() => {
   const map: Record<string, string> = {}
-  reader.value?.sections.forEach((section) => {
+  reader.value?.outline.forEach((section) => {
     map[section.id] = section.title
   })
   return map
@@ -212,7 +217,8 @@ const estimatedMinutesLeft = computed(() => {
 })
 
 const hasPrevChapter = computed(() => currentSectionIndex.value > 0)
-const hasNextChapter = computed(() => reader.value ? currentSectionIndex.value < reader.value.sections.length - 1 : false)
+const hasNextChapter = computed(() => reader.value ? currentSectionIndex.value < reader.value.outline.length - 1 : false)
+const loadedSectionCount = computed(() => reader.value?.sections.length || 0)
 
 const toolbarStickyTop = computed(() => {
   const theme = readerTheme.value
@@ -232,10 +238,17 @@ async function loadReader() {
   try {
     const payload = await getReader(bookId.value, getAnalyticsContext())
     reader.value = payload
+    sectionPagination.value = payload.sections_pagination || null
     bookmarks.value = payload.bookmarks || []
     activeSectionId.value = payload.sections[0]?.id || ''
     activeHighlightId.value = payload.highlights[0]?.id ?? null
-    await resumeIfNeeded(route.query.resume === '1')
+    loading.value = false
+    await nextTick()
+    await resumeIfNeeded(route.query.resume === '1', async (target) => {
+      await loadMoreReaderSections(target.sectionId)
+      await nextTick()
+      return true
+    })
     if (route.query.listen === '1') {
       setTimeout(startListening, 300)
     }
@@ -321,9 +334,16 @@ function toggleCommentVisibility() {
   }
 }
 
-function scrollToSection(sectionId: string) {
+async function scrollToSection(sectionId: string) {
+  await loadMoreReaderSections(sectionId)
   activeSectionId.value = sectionId
-  document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  await nextTick()
+  const element = document.getElementById(sectionId)
+  if (element) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  } else {
+    ElMessage.info('这一章还在加载队列中，请稍后再试')
+  }
 }
 
 function scrollToPostRead() {
@@ -332,8 +352,8 @@ function scrollToPostRead() {
 
 function goToPrevChapter() {
   if (!hasPrevChapter.value || !reader.value) return
-  const prev = reader.value.sections[currentSectionIndex.value - 1]
-  if (prev) scrollToSection(prev.id)
+  const prev = reader.value.outline[currentSectionIndex.value - 1]
+  if (prev) void scrollToSection(prev.id)
 }
 
 function goToNextChapter() {
@@ -342,8 +362,8 @@ function goToNextChapter() {
     scrollToPostRead()
     return
   }
-  const next = reader.value.sections[currentSectionIndex.value + 1]
-  if (next) scrollToSection(next.id)
+  const next = reader.value.outline[currentSectionIndex.value + 1]
+  if (next) void scrollToSection(next.id)
 }
 
 function stopListening() {
@@ -404,6 +424,39 @@ function toggleListening() {
     isSpeechPaused.value = true
     speechStatus.value = '朗读已暂停'
   }
+}
+
+async function loadMoreReaderSections(targetSectionId?: string) {
+  if (!reader.value || loadingMoreSections.value) return false
+
+  if (targetSectionId && reader.value.sections.some((section) => section.id === targetSectionId)) {
+    return true
+  }
+
+  let pagination = sectionPagination.value
+  let loadedTarget = false
+  while (pagination?.has_more) {
+    loadingMoreSections.value = true
+    try {
+      const nextOffset = pagination.next_offset ?? reader.value.sections.length
+      const payload = await getReaderSections(bookId.value, nextOffset, 5)
+      const existingIds = new Set(reader.value.sections.map((section) => section.id))
+      reader.value.sections.push(...payload.sections.filter((section) => !existingIds.has(section.id)))
+      sectionPagination.value = payload.pagination
+      pagination = payload.pagination
+      if (!targetSectionId || reader.value.sections.some((section) => section.id === targetSectionId)) {
+        loadedTarget = true
+        break
+      }
+    } catch (_error) {
+      ElMessage.error('后续章节加载失败，请稍后重试')
+      break
+    } finally {
+      loadingMoreSections.value = false
+    }
+  }
+
+  return loadedTarget || !targetSectionId || reader.value.sections.some((section) => section.id === targetSectionId)
 }
 
 function listenPrevChapter() {
@@ -595,15 +648,28 @@ function handleScroll() {
   }
 
   let currentSection = reader.value.sections[0]?.id || ''
+  let currentParagraph = ''
   reader.value.sections.forEach((section) => {
     const element = document.getElementById(section.id)
     if (element && element.getBoundingClientRect().top <= 140) {
       currentSection = section.id
     }
   })
+  document.querySelectorAll<HTMLElement>('[data-paragraph-id]').forEach((paragraph) => {
+    if (paragraph.getBoundingClientRect().top <= 180) {
+      currentParagraph = paragraph.dataset.paragraphId || ''
+    }
+  })
 
   if (currentSection !== activeSectionId.value) {
     activeSectionId.value = currentSection
+  }
+  if (currentParagraph !== activeParagraphId.value) {
+    activeParagraphId.value = currentParagraph
+  }
+  const doc = document.documentElement
+  if (sectionPagination.value?.has_more && doc.scrollHeight - (doc.scrollTop + doc.clientHeight) < 900) {
+    void loadMoreReaderSections()
   }
   syncReadingProgress(false)
 }
@@ -642,6 +708,7 @@ watch(
     clearSelectionDraft()
     activePanel.value = 'none'
     bookmarks.value = []
+    sectionPagination.value = null
     await nextTick()
     await loadShelfState()
     await loadReader()
@@ -805,6 +872,20 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
             </div>
           </section>
 
+          <div
+            v-if="sectionPagination?.has_more || loadingMoreSections"
+            class="mt-6 flex justify-center"
+          >
+            <button
+              class="rounded-full border px-5 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
+              :class="[ts.border, ts.text]"
+              :disabled="loadingMoreSections"
+              @click="loadMoreReaderSections()"
+            >
+              {{ loadingMoreSections ? '正在加载后续章节...' : `继续加载（已加载 ${loadedSectionCount} / ${reader.outline.length} 章）` }}
+            </button>
+          </div>
+
           <!-- Chapter navigation -->
           <div class="mt-8 flex items-center justify-between gap-4">
             <button
@@ -816,7 +897,7 @@ watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments
               <span>&larr;</span>
               <span>上一章</span>
             </button>
-            <span class="text-xs" :class="ts.textMuted">{{ currentSectionIndex + 1 }} / {{ reader.sections.length }}</span>
+            <span class="text-xs" :class="ts.textMuted">{{ currentSectionIndex + 1 }} / {{ reader.outline.length }}</span>
             <button
               class="flex items-center gap-2 rounded-full border px-5 py-3 text-sm font-medium transition"
               :class="[ts.border, ts.text]"

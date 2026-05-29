@@ -2,7 +2,16 @@ import { Ref, nextTick, ref } from 'vue'
 import { getToken } from '@/api/request'
 import { getReadingProgress, saveReadingProgress } from '@/api/reader'
 
-export function useReadingProgress(bookId: Ref<string>, activeSectionId: Ref<string>) {
+type ResumeTarget = {
+  sectionId: string
+  paragraphId?: string | null
+}
+
+export function useReadingProgress(
+  bookId: Ref<string>,
+  activeSectionId: Ref<string>,
+  activeParagraphId?: Ref<string>
+) {
   const lastProgressSyncAt = ref(0)
   const sessionId = ref(`s_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`)
   const lastDurationTrackAt = ref(Date.now())
@@ -19,7 +28,10 @@ export function useReadingProgress(bookId: Ref<string>, activeSectionId: Ref<str
     }
   }
 
-  async function resumeIfNeeded(shouldResume: boolean) {
+  async function resumeIfNeeded(
+    shouldResume: boolean,
+    ensureTargetLoaded?: (target: ResumeTarget) => Promise<boolean> | boolean
+  ) {
     if (!getToken() || !shouldResume) {
       return
     }
@@ -30,9 +42,21 @@ export function useReadingProgress(bookId: Ref<string>, activeSectionId: Ref<str
         return
       }
 
-      activeSectionId.value = response.progress.section_id
+      const target = {
+        sectionId: response.progress.section_id,
+        paragraphId: response.progress.paragraph_id,
+      }
+      await ensureTargetLoaded?.(target)
+
+      activeSectionId.value = target.sectionId
+      if (activeParagraphId) {
+        activeParagraphId.value = target.paragraphId || ''
+      }
       await nextTick()
-      document.getElementById(response.progress.section_id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const targetElement = target.paragraphId
+        ? document.querySelector(`[data-paragraph-id="${CSS.escape(target.paragraphId)}"]`)
+        : null
+      ;(targetElement || document.getElementById(target.sectionId))?.scrollIntoView({ behavior: 'auto', block: 'start' })
     } catch (_error) {
       // Keep silent and continue reading from beginning.
     }
@@ -63,6 +87,7 @@ export function useReadingProgress(bookId: Ref<string>, activeSectionId: Ref<str
     try {
       await saveReadingProgress(bookId.value, {
         section_id: activeSectionId.value,
+        paragraph_id: activeParagraphId?.value || undefined,
         scroll_percent: getScrollPercent(),
         analytics: {
           ...getAnalyticsContext(),

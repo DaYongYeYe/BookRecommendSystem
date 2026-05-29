@@ -84,6 +84,7 @@ export interface ReaderPayload {
   book: ReaderBook
   outline: ReaderOutlineItem[]
   sections: ReaderSection[]
+  sections_pagination?: ReaderSectionsPagination
   highlights: ReaderHighlight[]
   book_comments: ReaderComment[]
   related_books?: RelatedBookSection['items']
@@ -96,6 +97,19 @@ export interface ReaderPayload {
     highlight_count?: number
     comment_count?: number
   }
+}
+
+export interface ReaderSectionsPagination {
+  offset: number
+  limit: number
+  total: number
+  next_offset: number | null
+  has_more: boolean
+}
+
+export interface ReaderSectionsPayload {
+  sections: ReaderSection[]
+  pagination: ReaderSectionsPagination
 }
 
 export interface RelatedBookSection {
@@ -173,6 +187,12 @@ export interface CreateHighlightPayload {
 
 export function getReader(bookId: string | number, analytics?: ReaderAnalyticsContext) {
   return request.get<any, ReaderPayload>(`/api/books/${bookId}/reader`, { params: analytics })
+}
+
+export function getReaderSections(bookId: string | number, offset = 0, limit = 5) {
+  return request.get<any, ReaderSectionsPayload>(`/api/books/${bookId}/reader/sections`, {
+    params: { offset, limit },
+  })
 }
 
 export function createHighlight(bookId: string | number, payload: CreateHighlightPayload) {

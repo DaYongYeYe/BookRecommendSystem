@@ -8,6 +8,7 @@ from app.models import BookAnalyticsEvent, UserReadingProgress
 from app.rbac.decorators import login_optional, login_required
 from app.services.reader_service import (
     build_reader_payload,
+    build_reader_sections_payload,
     create_bookmark,
     create_book_comment,
     create_highlight,
@@ -17,6 +18,9 @@ from app.services.reader_service import (
     get_reader_preferences,
     save_reader_preferences,
 )
+
+
+READER_SECTION_PAGE_SIZE = 5
 
 
 def _clean_text(value, max_len: int):
@@ -52,7 +56,7 @@ def _track_book_event(
 @bp.route('/books/<int:book_id>/reader', methods=['GET'])
 @login_optional
 def api_get_book_reader(current_user, book_id: int):
-    payload = build_reader_payload(book_id, current_user)
+    payload = build_reader_payload(book_id, current_user, section_offset=0, section_limit=READER_SECTION_PAGE_SIZE)
     if not payload:
         return jsonify({'error': 'book not found'}), 404
 
@@ -73,6 +77,24 @@ def api_get_book_reader(current_user, book_id: int):
             # Touch the record when opening reader so history gets refreshed.
             progress.updated_at = db.func.now()
     db.session.commit()
+    return jsonify(payload), 200
+
+
+@bp.route('/books/<int:book_id>/reader/sections', methods=['GET'])
+@login_optional
+def api_get_book_reader_sections(current_user, book_id: int):
+    try:
+        offset = int(request.args.get('offset', 0) or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        limit = int(request.args.get('limit', READER_SECTION_PAGE_SIZE) or READER_SECTION_PAGE_SIZE)
+    except (TypeError, ValueError):
+        limit = READER_SECTION_PAGE_SIZE
+
+    payload = build_reader_sections_payload(book_id, offset=offset, limit=limit)
+    if not payload:
+        return jsonify({'error': 'book not found'}), 404
     return jsonify(payload), 200
 
 
