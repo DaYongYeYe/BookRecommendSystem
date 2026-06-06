@@ -293,7 +293,11 @@ def _apply_schema_compatibility_patches(app: Flask):
                     cover VARCHAR(500) NULL,
                     description TEXT NULL,
                     content_text LONGTEXT NULL,
+                    content_url VARCHAR(1000) NULL,
+                    content_md5 CHAR(32) NULL,
                     chapter_payload LONGTEXT NULL,
+                    chapter_payload_url VARCHAR(1000) NULL,
+                    chapter_payload_md5 CHAR(32) NULL,
                     update_mode VARCHAR(20) NOT NULL DEFAULT 'create',
                     status VARCHAR(20) NOT NULL DEFAULT 'draft',
                     review_comment TEXT NULL,
@@ -318,6 +322,14 @@ def _apply_schema_compatibility_patches(app: Flask):
                 patches.append("ALTER TABLE book_manuscripts ADD COLUMN tenant_id INT NOT NULL DEFAULT 1")
             if 'chapter_payload' not in manuscript_columns:
                 patches.append("ALTER TABLE book_manuscripts ADD COLUMN chapter_payload LONGTEXT NULL")
+            if 'content_url' not in manuscript_columns:
+                patches.append("ALTER TABLE book_manuscripts ADD COLUMN content_url VARCHAR(1000) NULL")
+            if 'content_md5' not in manuscript_columns:
+                patches.append("ALTER TABLE book_manuscripts ADD COLUMN content_md5 CHAR(32) NULL")
+            if 'chapter_payload_url' not in manuscript_columns:
+                patches.append("ALTER TABLE book_manuscripts ADD COLUMN chapter_payload_url VARCHAR(1000) NULL")
+            if 'chapter_payload_md5' not in manuscript_columns:
+                patches.append("ALTER TABLE book_manuscripts ADD COLUMN chapter_payload_md5 CHAR(32) NULL")
             if 'update_mode' not in manuscript_columns:
                 patches.append("ALTER TABLE book_manuscripts ADD COLUMN update_mode VARCHAR(20) NOT NULL DEFAULT 'create'")
             if 'is_deleted' not in manuscript_columns:
@@ -360,6 +372,8 @@ def _apply_schema_compatibility_patches(app: Flask):
                     cover VARCHAR(500) NULL,
                     description TEXT NULL,
                     content_text LONGTEXT NULL,
+                    content_url VARCHAR(1000) NULL,
+                    content_md5 CHAR(32) NULL,
                     created_by {users_id_type} NULL,
                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE KEY uniq_book_version_no (book_id, version_no),
@@ -367,6 +381,12 @@ def _apply_schema_compatibility_patches(app: Flask):
                 )
                 """
             )
+        else:
+            version_columns = {col['name'] for col in inspector.get_columns('book_versions')}
+            if 'content_url' not in version_columns:
+                patches.append("ALTER TABLE book_versions ADD COLUMN content_url VARCHAR(1000) NULL")
+            if 'content_md5' not in version_columns:
+                patches.append("ALTER TABLE book_versions ADD COLUMN content_md5 CHAR(32) NULL")
 
         if 'book_chapters' not in table_names:
             patches.append(
@@ -438,7 +458,9 @@ def _apply_schema_compatibility_patches(app: Flask):
                     chapter_id BIGINT UNSIGNED NOT NULL,
                     version_no INT NOT NULL DEFAULT 1,
                     title VARCHAR(255) NOT NULL,
-                    content_text LONGTEXT NOT NULL,
+                    content_text LONGTEXT NULL,
+                    content_url VARCHAR(1000) NULL,
+                    content_md5 CHAR(32) NULL,
                     summary TEXT NULL,
                     status VARCHAR(20) NOT NULL DEFAULT 'draft',
                     review_comment TEXT NULL,
@@ -465,6 +487,10 @@ def _apply_schema_compatibility_patches(app: Flask):
                 patches.append("ALTER TABLE book_chapter_revisions ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'draft'")
             if 'review_comment' not in revision_columns:
                 patches.append("ALTER TABLE book_chapter_revisions ADD COLUMN review_comment TEXT NULL")
+            if 'content_url' not in revision_columns:
+                patches.append("ALTER TABLE book_chapter_revisions ADD COLUMN content_url VARCHAR(1000) NULL")
+            if 'content_md5' not in revision_columns:
+                patches.append("ALTER TABLE book_chapter_revisions ADD COLUMN content_md5 CHAR(32) NULL")
 
         if 'categories' not in table_names:
             patches.append(

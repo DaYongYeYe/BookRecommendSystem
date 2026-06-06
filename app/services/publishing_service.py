@@ -13,6 +13,12 @@ from app.models import (
     ReaderSection,
     User,
 )
+from app.services.chapter_content import (
+    get_manuscript_chapters,
+    get_record_text,
+    serialize_revision_with_content,
+    store_text_on_record,
+)
 
 CHAPTER_PATTERN = re.compile(
     r'^\s*((?:\u7b2c[\d\u4e00-\u5341\u767e\u5343]+[\u7ae0\u8282\u5377\u7bc7].*)|(?:chapter\s+\d+.*))$',
@@ -89,31 +95,25 @@ def _build_chapters_from_text(content_text: str):
 
 
 def _load_manuscript_chapters(manuscript):
-    raw_payload = getattr(manuscript, 'chapter_payload', None)
-    if raw_payload:
-        try:
-            data = json.loads(raw_payload)
-        except (TypeError, ValueError):
-            data = []
-        if isinstance(data, list):
-            chapters = []
-            for index, item in enumerate(data, start=1):
-                if not isinstance(item, dict):
-                    continue
-                content_text = (item.get('content_text') or '').strip()
-                if not content_text:
-                    continue
-                chapters.append(
-                    {
-                        'section_key': (item.get('section_key') or '').strip() or None,
-                        'title': (item.get('title') or f'第 {index} 章').strip(),
-                        'content_text': content_text,
-                    }
-                )
-            if chapters:
-                return chapters
-    return _build_chapters_from_text(getattr(manuscript, 'content_text', '') or '')
-
+    data = get_manuscript_chapters(manuscript)
+    if isinstance(data, list):
+        chapters = []
+        for index, item in enumerate(data, start=1):
+            if not isinstance(item, dict):
+                continue
+            content_text = (item.get('content_text') or '').strip()
+            if not content_text:
+                continue
+            chapters.append(
+                {
+                    'section_key': (item.get('section_key') or '').strip() or None,
+                    'title': (item.get('title') or f'? {index} ?').strip(),
+                    'content_text': content_text,
+                }
+            )
+        if chapters:
+            return chapters
+    return _build_chapters_from_text(get_record_text(manuscript))
 
 def _chapter_to_paragraphs(chapter):
     parts = []
@@ -173,29 +173,10 @@ def _sync_reader_section_with_revision(book_id: int, chapter: BookChapter, revis
         db.session.add(section)
         db.session.flush()
     else:
-        old_paragraphs = ReaderParagraph.query.filter_by(section_id=section.id).order_by(ReaderParagraph.order_no.asc()).all()
-        old_keys = [item.paragraph_key for item in old_paragraphs if item.paragraph_key]
-        if old_keys:
-            ReaderHighlight.query.filter(
-                ReaderHighlight.book_id == book_id,
-                ReaderHighlight.paragraph_key.in_(old_keys),
-            ).delete(synchronize_session=False)
         ReaderParagraph.query.filter_by(section_id=section.id).delete(synchronize_session=False)
         section.title = revision.title
         section.summary = revision.summary or ''
         section.order_no = chapter.chapter_no
-
-    next_paragraph_key_no = _get_max_paragraph_key_no()
-    for paragraph_order, paragraph_text in enumerate(_chapter_to_paragraphs({'content_text': revision.content_text}), start=1):
-        next_paragraph_key_no += 1
-        db.session.add(
-            ReaderParagraph(
-                section_id=section.id,
-                paragraph_key=f'p{next_paragraph_key_no}',
-                text=paragraph_text,
-                order_no=paragraph_order,
-            )
-        )
 
 
 def ensure_chapter_workflow_seed(book: Book):
@@ -225,7 +206,7 @@ def ensure_chapter_workflow_seed(book: Book):
             chapter_id=chapter.id,
             version_no=1,
             title=chapter.title,
-            content_text=content_text or '',
+            content_text=None,
             summary=section.summary or _build_chapter_summary(content_text or ''),
             status='published',
             published_at=datetime.utcnow(),
@@ -234,6 +215,7 @@ def ensure_chapter_workflow_seed(book: Book):
             created_by=book.creator_id,
             tenant_id=chapter.tenant_id,
         )
+        store_text_on_record(revision, content_text or '', folder='book_chapters')
         db.session.add(revision)
         db.session.flush()
         chapter.published_revision_id = revision.id
@@ -252,8 +234,8 @@ def list_book_chapters(book: Book):
         latest = _latest_revision(chapter.id)
         published = BookChapterRevision.query.get(chapter.published_revision_id) if chapter.published_revision_id else None
         payload = chapter.to_dict()
-        payload['latest_revision'] = latest.to_dict() if latest else None
-        payload['published_revision'] = published.to_dict() if published else None
+        payload['latest_revision'] = serialize_revision_with_content(latest) if latest else None
+        payload['published_revision'] = serialize_revision_with_content(published) if published else None
         payload['can_submit'] = bool(latest and latest.status in ('draft', 'rejected'))
         payload['can_edit'] = bool(latest and latest.status in ('draft', 'rejected'))
         items.append(payload)
@@ -280,12 +262,13 @@ def create_chapter_draft(book: Book, *, title: str, content_text: str, creator):
         chapter_id=chapter.id,
         version_no=1,
         title=title,
-        content_text=content_text,
+        content_text=None,
         summary=_build_chapter_summary(content_text),
         status='draft',
         created_by=creator.id if creator else None,
         tenant_id=chapter.tenant_id,
     )
+    store_text_on_record(revision, content_text, folder='book_chapter_drafts')
     db.session.add(revision)
     db.session.commit()
     return chapter, revision
@@ -300,7 +283,7 @@ def update_chapter_draft(chapter: BookChapter, *, title: str, content_text: str,
             chapter_id=chapter.id,
             version_no=_next_revision_no(chapter.id),
             title=title,
-            content_text=content_text,
+            content_text=None,
             summary=_build_chapter_summary(content_text),
             status='draft',
             created_by=creator.id if creator else None,
@@ -310,7 +293,7 @@ def update_chapter_draft(chapter: BookChapter, *, title: str, content_text: str,
         db.session.flush()
 
     revision.title = title
-    revision.content_text = content_text
+    store_text_on_record(revision, content_text, folder='book_chapter_drafts')
     revision.summary = _build_chapter_summary(content_text)
     revision.status = 'draft'
     revision.review_comment = None
@@ -431,55 +414,24 @@ def _append_new_section(book_id: int, chapter: dict, *, section_order: int, sect
     db.session.add(section)
     db.session.flush()
 
-    next_paragraph_key_no = int(paragraph_key_no or 0)
-    for paragraph_order, paragraph_text in enumerate(_chapter_to_paragraphs(chapter), start=1):
-        next_paragraph_key_no += 1
-        db.session.add(
-            ReaderParagraph(
-                section_id=section.id,
-                paragraph_key=f'p{next_paragraph_key_no}',
-                text=paragraph_text,
-                order_no=paragraph_order,
-            )
-        )
-
-    return next_paragraph_key_no
+    return int(paragraph_key_no or 0)
 
 
 def _replace_section_content(section, chapter: dict, *, paragraph_key_start: int):
-    old_paragraphs = ReaderParagraph.query.filter_by(section_id=section.id).order_by(ReaderParagraph.order_no.asc()).all()
-    old_paragraph_keys = [paragraph.paragraph_key for paragraph in old_paragraphs if paragraph.paragraph_key]
-    if old_paragraph_keys:
-        ReaderHighlight.query.filter(
-            ReaderHighlight.book_id == section.book_id,
-            ReaderHighlight.paragraph_key.in_(old_paragraph_keys),
-        ).delete(synchronize_session=False)
     ReaderParagraph.query.filter_by(section_id=section.id).delete(synchronize_session=False)
 
     section.title = chapter.get('title') or section.title
 
-    next_paragraph_key_no = int(paragraph_key_start or 0)
-    for paragraph_order, paragraph_text in enumerate(_chapter_to_paragraphs(chapter), start=1):
-        next_paragraph_key_no += 1
-        db.session.add(
-            ReaderParagraph(
-                section_id=section.id,
-                paragraph_key=f'p{next_paragraph_key_no}',
-                text=paragraph_text,
-                order_no=paragraph_order,
-            )
-        )
-    return next_paragraph_key_no
+    return int(paragraph_key_start or 0)
 
 
 def _calculate_book_word_count(book_id: int):
-    rows = (
-        db.session.query(ReaderParagraph.text)
-        .join(ReaderSection, ReaderParagraph.section_id == ReaderSection.id)
-        .filter(ReaderSection.book_id == book_id)
+    revisions = (
+        BookChapterRevision.query.join(BookChapter, BookChapter.published_revision_id == BookChapterRevision.id)
+        .filter(BookChapter.book_id == book_id)
         .all()
     )
-    return sum(len((row.text or '').strip()) for row in rows)
+    return sum(len(get_record_text(revision).strip()) for revision in revisions)
 
 
 def _publish_full_book(book_id: int, chapters: list[dict], current_state: dict):
@@ -553,7 +505,7 @@ def _sync_chapter_workflow_after_manuscript_publish(book: Book, chapters: list[d
             chapter_id=chapter.id,
             version_no=_next_revision_no(chapter.id),
             title=chapter_data.get('title') or chapter.title,
-            content_text=(chapter_data.get('content_text') or '').strip(),
+            content_text=None,
             summary=_build_chapter_summary((chapter_data.get('content_text') or '').strip()),
             status='published',
             review_comment=None,
@@ -564,6 +516,7 @@ def _sync_chapter_workflow_after_manuscript_publish(book: Book, chapters: list[d
             created_by=reviewer.id if reviewer else book.creator_id,
             tenant_id=chapter.tenant_id,
         )
+        store_text_on_record(revision, (chapter_data.get('content_text') or '').strip(), folder='book_chapters')
         db.session.add(revision)
         db.session.flush()
         previous = BookChapterRevision.query.get(chapter.published_revision_id) if chapter.published_revision_id else None
@@ -578,7 +531,10 @@ def publish_manuscript(manuscript, reviewer):
     if manuscript.status != 'approved':
         return None, 'manuscript status must be approved before publish'
 
-    chapters = _load_manuscript_chapters(manuscript)
+    try:
+        chapters = _load_manuscript_chapters(manuscript)
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)
     if not chapters:
         return None, 'content_text is required for publish'
 
@@ -609,7 +565,11 @@ def publish_manuscript(manuscript, reviewer):
     else:
         _publish_incremental_update(book.id, chapters, current_state)
 
-    _sync_chapter_workflow_after_manuscript_publish(book, chapters, reviewer, now)
+    try:
+        _sync_chapter_workflow_after_manuscript_publish(book, chapters, reviewer, now)
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        return None, str(exc)
     book.word_count = _calculate_book_word_count(book.id)
 
     latest = db.session.query(db.func.max(BookVersion.version_no)).filter(BookVersion.book_id == book.id).scalar() or 0
@@ -620,9 +580,10 @@ def publish_manuscript(manuscript, reviewer):
         title=manuscript.title,
         cover=manuscript.cover,
         description=manuscript.description,
-        content_text=manuscript.content_text,
+        content_text=None,
         created_by=reviewer.id if reviewer else None,
     )
+    store_text_on_record(version, _compile_chapters(chapters), folder='book_versions')
     db.session.add(version)
 
     manuscript.status = 'published'

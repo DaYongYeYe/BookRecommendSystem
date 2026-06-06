@@ -24,6 +24,7 @@ from app.models import (
     ReaderParagraph,
     ReaderSection,
 )
+from app.services.chapter_content import get_record_text, store_text_on_record
 from app.services.tencent_cos import upload_image_bytes
 
 
@@ -649,14 +650,17 @@ def import_chapters(
                 chapter_id=chapter_row.id,
                 version_no=_next_revision_no(chapter_row.id),
                 title=chapter.title,
-                content_text=content,
+                content_text=None,
                 status='published',
                 published_at=datetime.utcnow(),
                 tenant_id=int(book.tenant_id or 1),
             )
+            store_text_on_record(revision, content, folder='book_chapters')
             db.session.add(revision)
             db.session.flush()
             chapter_row.published_revision_id = revision.id
+            book.word_count = _sum_published_word_count(book.id) or int(book.word_count or 0)
+            db.session.commit()
             imported_count += 1
             paragraph_count += len([part for part in content.split('\n\n') if part.strip()])
         else:
@@ -962,13 +966,12 @@ def _next_revision_no(chapter_id: int) -> int:
 
 
 def _sum_published_word_count(book_id: int) -> int:
-    rows = (
-        db.session.query(BookChapterRevision.content_text)
-        .join(BookChapter, BookChapter.published_revision_id == BookChapterRevision.id)
+    revisions = (
+        BookChapterRevision.query.join(BookChapter, BookChapter.published_revision_id == BookChapterRevision.id)
         .filter(BookChapter.book_id == book_id)
         .all()
     )
-    return sum(len((row[0] or '').replace('\n', '')) for row in rows)
+    return sum(len(get_record_text(revision).replace('\n', '')) for revision in revisions)
 
 
 def _sleep(seconds: float) -> None:

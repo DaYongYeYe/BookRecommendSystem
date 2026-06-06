@@ -19,6 +19,7 @@ from app.models import (
     UserReadingProgress,
     UserShelf,
 )
+from app.services.chapter_content import get_record_text, store_text_on_record
 
 
 DEFAULT_BOOK_ID = 1
@@ -210,7 +211,7 @@ def ensure_seed(book_id: int):
         for key, value in DEFAULT_BOOK.items():
             setattr(book, key, value)
 
-    if ReaderSection.query.filter_by(book_id=book_id).first():
+    if BookChapter.query.filter_by(book_id=book_id).first() or ReaderSection.query.filter_by(book_id=book_id).first():
         return
 
     for section_order, section_data in enumerate(DEFAULT_READER_SECTIONS, start=1):
@@ -225,15 +226,33 @@ def ensure_seed(book_id: int):
         db.session.add(section)
         db.session.flush()
 
-        for paragraph_order, paragraph in enumerate(section_data['paragraphs'], start=1):
-            db.session.add(
-                ReaderParagraph(
-                    section_id=section.id,
-                    paragraph_key=paragraph['paragraph_key'],
-                    text=paragraph['text'],
-                    order_no=paragraph_order,
-                )
-            )
+        chapter = BookChapter(
+            book_id=book_id,
+            chapter_key=section_data['section_key'],
+            chapter_no=section_order,
+            title=section_data['title'],
+            status='published',
+            tenant_id=int(getattr(book, 'tenant_id', 1) or 1),
+            created_by=getattr(book, 'creator_id', None),
+        )
+        db.session.add(chapter)
+        db.session.flush()
+        content_text = '\n\n'.join(paragraph['text'] for paragraph in section_data['paragraphs'])
+        revision = BookChapterRevision(
+            chapter_id=chapter.id,
+            version_no=1,
+            title=section_data['title'],
+            content_text=None,
+            summary=section_data['summary'],
+            status='published',
+            published_at=datetime.utcnow(),
+            tenant_id=chapter.tenant_id,
+            created_by=getattr(book, 'creator_id', None),
+        )
+        store_text_on_record(revision, content_text, folder='book_chapters')
+        db.session.add(revision)
+        db.session.flush()
+        chapter.published_revision_id = revision.id
 
     db.session.flush()
 
@@ -335,9 +354,10 @@ def _build_reader_sections(book_id: int, offset: int = 0, limit: int | None = No
             if not revision:
                 continue
             section_key = chapter.chapter_key or f'chapter-{chapter.chapter_no}'
-            section_records.append((section_key, revision))
+            content_text = get_record_text(revision)
+            section_records.append((section_key, revision, content_text))
             payload_outline.append({'id': section_key, 'title': revision.title, 'level': 1})
-            total_words += len(revision.content_text or '')
+            total_words += len(content_text or '')
 
         selected_records = section_records[offset:] if limit is None else section_records[offset:offset + limit]
         payload_sections = [
@@ -345,9 +365,9 @@ def _build_reader_sections(book_id: int, offset: int = 0, limit: int | None = No
                 'id': section_key,
                 'title': revision.title,
                 'summary': revision.summary or '',
-                'paragraphs': _split_revision_paragraphs(section_key, revision.content_text),
+                'paragraphs': _split_revision_paragraphs(section_key, content_text),
             }
-            for section_key, revision in selected_records
+            for section_key, revision, content_text in selected_records
         ]
         return payload_outline, payload_sections, len(section_records), total_words
 

@@ -39,6 +39,13 @@ from app.services.publishing_service import (
     submit_chapter_for_review,
     update_chapter_draft,
 )
+from app.services.chapter_content import (
+    get_record_text,
+    serialize_manuscript_with_content,
+    serialize_revision_with_content,
+    store_manuscript_chapters,
+    store_text_on_record,
+)
 from app.services.tencent_cos import upload_image
 
 ALLOWED_COVER_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
@@ -1089,7 +1096,11 @@ def create_creator_book_chapter(current_user, book_id: int):
         return jsonify({'error': 'content_text is required'}), 400
 
     chapter, revision = create_chapter_draft(book, title=title, content_text=content_text, creator=current_user)
-    return jsonify({'message': 'chapter draft created', 'chapter': chapter.to_dict(), 'revision': revision.to_dict()}), 201
+    return jsonify({
+        'message': 'chapter draft created',
+        'chapter': chapter.to_dict(),
+        'revision': serialize_revision_with_content(revision),
+    }), 201
 
 
 @bp.route('/books/<int:book_id>/chapters/<int:chapter_id>', methods=['PUT'])
@@ -1120,7 +1131,11 @@ def update_creator_book_chapter(current_user, book_id: int, chapter_id: int):
         return jsonify({'error': 'content_text is required'}), 400
 
     revision = update_chapter_draft(chapter, title=title, content_text=content_text, creator=current_user)
-    return jsonify({'message': 'chapter draft updated', 'chapter': chapter.to_dict(), 'revision': revision.to_dict()}), 200
+    return jsonify({
+        'message': 'chapter draft updated',
+        'chapter': chapter.to_dict(),
+        'revision': serialize_revision_with_content(revision),
+    }), 200
 
 
 @bp.route('/books/<int:book_id>/chapters/<int:chapter_id>/submit', methods=['POST'])
@@ -1145,7 +1160,11 @@ def submit_creator_book_chapter(current_user, book_id: int, chapter_id: int):
     revision, error = submit_chapter_for_review(chapter)
     if error:
         return jsonify({'error': error}), 400
-    return jsonify({'message': 'chapter submitted for review', 'chapter': chapter.to_dict(), 'revision': revision.to_dict()}), 200
+    return jsonify({
+        'message': 'chapter submitted for review',
+        'chapter': chapter.to_dict(),
+        'revision': serialize_revision_with_content(revision),
+    }), 200
 
 
 @bp.route('/books/<int:book_id>/chapters/<int:chapter_id>/versions', methods=['GET'])
@@ -1166,7 +1185,7 @@ def get_creator_book_chapter_versions(current_user, book_id: int, chapter_id: in
         .order_by(BookChapterRevision.version_no.desc(), BookChapterRevision.id.desc())
         .all()
     )
-    return jsonify({'items': [item.to_dict() for item in revisions]}), 200
+    return jsonify({'items': [serialize_revision_with_content(item) for item in revisions]}), 200
 
 
 @bp.route('/books/<int:book_id>/chapters/reorder', methods=['POST'])
@@ -1220,7 +1239,7 @@ def list_creator_manuscripts(current_user):
     if status:
         query = query.filter_by(status=status)
     rows = query.order_by(BookManuscript.updated_at.desc(), BookManuscript.id.desc()).all()
-    return jsonify({'items': [row.to_dict() for row in rows]}), 200
+    return jsonify({'items': [serialize_manuscript_with_content(row) for row in rows]}), 200
 
 
 @bp.route('/manuscripts', methods=['POST'])
@@ -1288,15 +1307,21 @@ def create_creator_manuscript(current_user):
         title=title,
         cover=payload.get('cover') if payload.get('cover') is not None else book.cover,
         description=payload.get('description') if payload.get('description') is not None else book.description,
-        content_text=compiled_content,
-        chapter_payload=json.dumps(chapters, ensure_ascii=False) if chapters else None,
+        content_text=None,
+        chapter_payload=None,
         update_mode=update_mode,
         status='draft',
         tenant_id=tenant_id,
     )
+    try:
+        store_text_on_record(manuscript, compiled_content, folder='book_manuscripts')
+        store_manuscript_chapters(manuscript, chapters)
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        return jsonify({'error': str(exc)}), 500
     db.session.add(manuscript)
     db.session.commit()
-    return jsonify({'message': 'draft created', 'manuscript': manuscript.to_dict()}), 201
+    return jsonify({'message': 'draft created', 'manuscript': serialize_manuscript_with_content(manuscript)}), 201
 
 
 @bp.route('/manuscripts/<int:manuscript_id>', methods=['PUT'])
@@ -1337,17 +1362,26 @@ def update_creator_manuscript(current_user, manuscript_id: int):
     if 'description' in payload:
         manuscript.description = payload.get('description')
     if 'content_text' in payload and payload.get('content_text') is not None:
-        manuscript.content_text = payload.get('content_text')
+        try:
+            store_text_on_record(manuscript, payload.get('content_text'), folder='book_manuscripts')
+        except Exception as exc:  # noqa: BLE001
+            db.session.rollback()
+            return jsonify({'error': str(exc)}), 500
     if 'chapters' in payload and payload.get('chapters') is not None:
         chapters = payload.get('chapters') or []
-        manuscript.chapter_payload = json.dumps(chapters, ensure_ascii=False) if chapters else None
-        manuscript.content_text = _compile_chapters(chapters) if chapters else manuscript.content_text
+        try:
+            store_manuscript_chapters(manuscript, chapters)
+            if chapters:
+                store_text_on_record(manuscript, _compile_chapters(chapters), folder='book_manuscripts')
+        except Exception as exc:  # noqa: BLE001
+            db.session.rollback()
+            return jsonify({'error': str(exc)}), 500
 
     manuscript.status = 'draft'
     manuscript.review_comment = None
 
     db.session.commit()
-    return jsonify({'message': 'draft updated', 'manuscript': manuscript.to_dict()}), 200
+    return jsonify({'message': 'draft updated', 'manuscript': serialize_manuscript_with_content(manuscript)}), 200
 
 
 @bp.route('/manuscripts/<int:manuscript_id>/submit', methods=['POST'])
@@ -1372,14 +1406,18 @@ def submit_creator_manuscript(current_user, manuscript_id: int):
         return jsonify({'error': 'manuscript status cannot submit'}), 400
     if not (manuscript.title or '').strip():
         return jsonify({'error': 'title is required'}), 400
-    if not (manuscript.content_text or '').strip():
+    try:
+        manuscript_content = get_record_text(manuscript)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({'error': str(exc)}), 500
+    if not manuscript_content.strip():
         return jsonify({'error': 'content_text is required'}), 400
 
     manuscript.status = 'submitted'
     manuscript.submitted_at = datetime.utcnow()
     manuscript.review_comment = None
     db.session.commit()
-    return jsonify({'message': 'manuscript submitted', 'manuscript': manuscript.to_dict()}), 200
+    return jsonify({'message': 'manuscript submitted', 'manuscript': serialize_manuscript_with_content(manuscript)}), 200
 
 
 @bp.route('/manuscripts/<int:manuscript_id>', methods=['DELETE'])
@@ -1427,7 +1465,7 @@ def restore_creator_manuscript(current_user, manuscript_id: int):
     if manuscript.status not in ('draft', 'rejected'):
         manuscript.status = 'draft'
     db.session.commit()
-    return jsonify({'message': 'manuscript restored', 'manuscript': manuscript.to_dict()}), 200
+    return jsonify({'message': 'manuscript restored', 'manuscript': serialize_manuscript_with_content(manuscript)}), 200
 
 
 def _seconds_to_label(seconds: float):

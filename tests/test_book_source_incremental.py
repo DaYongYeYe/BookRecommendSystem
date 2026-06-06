@@ -8,6 +8,19 @@ from app.services.book_source_importer import BookInfo, HttpClient, _book_has_so
 from app.services.book_source_importer import import_chapters
 
 
+class FakeTextStorage:
+    def __init__(self):
+        self.items: dict[str, str] = {}
+
+    def upload_text(self, content: str, *, folder: str = 'book_chapters'):
+        url = f'https://cos.example/{folder}/{len(self.items) + 1}.txt'
+        self.items[url] = content
+        return {'url': url, 'md5': '0' * 32}, None
+
+    def fetch_text(self, url: str, expected_md5: str | None = None):
+        return self.items.get(url, ''), None
+
+
 class TestConfig:
     TESTING = True
     SECRET_KEY = 'test-secret'
@@ -51,8 +64,15 @@ class BookSourceImporterIncrementalTestCase(unittest.TestCase):
         self.ctx = self.app.app_context()
         self.ctx.push()
         db.create_all()
+        self.text_storage = FakeTextStorage()
+        self.upload_text_patcher = patch('app.services.chapter_content.upload_text', self.text_storage.upload_text)
+        self.fetch_text_patcher = patch('app.services.chapter_content.fetch_text', self.text_storage.fetch_text)
+        self.upload_text_patcher.start()
+        self.fetch_text_patcher.start()
 
     def tearDown(self):
+        self.fetch_text_patcher.stop()
+        self.upload_text_patcher.stop()
         db.session.remove()
         db.drop_all()
         self.ctx.pop()
@@ -118,6 +138,10 @@ class BookSourceImporterIncrementalTestCase(unittest.TestCase):
         added = BookChapter.query.filter_by(book_id=book.id, chapter_key='chapter-2').first()
         self.assertIsNotNone(added)
         self.assertIsNotNone(added.published_revision_id)
+        added_revision = BookChapterRevision.query.get(added.published_revision_id)
+        self.assertIsNone(added_revision.content_text)
+        self.assertTrue(added_revision.content_url)
+        self.assertEqual(added_revision.content_md5, '0' * 32)
 
     def test_overwrite_content_creates_new_revision_for_existing_chapter(self):
         book = Book(title='Overwrite Book', author='Author', status='published', shelf_status='up')
@@ -168,6 +192,8 @@ class BookSourceImporterIncrementalTestCase(unittest.TestCase):
         db.session.refresh(chapter)
         latest = BookChapterRevision.query.get(chapter.published_revision_id)
         self.assertEqual(latest.version_no, 2)
+        self.assertIsNone(latest.content_text)
+        self.assertTrue(latest.content_url)
 
     def test_duplicate_book_from_different_source_is_detected_by_title_and_author(self):
         book = Book(

@@ -6,6 +6,7 @@
 
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS `book_chapter_revisions`;
 DROP TABLE IF EXISTS `book_chapters`;
 DROP TABLE IF EXISTS `book_analytics_events`;
 DROP TABLE IF EXISTS `book_list_items`;
@@ -210,7 +211,11 @@ CREATE TABLE `book_manuscripts` (
   `cover`         VARCHAR(500) DEFAULT NULL,
   `description`   TEXT,
   `content_text`  LONGTEXT,
+  `content_url`   VARCHAR(1000) DEFAULT NULL,
+  `content_md5`   CHAR(32) DEFAULT NULL,
   `chapter_payload` LONGTEXT,
+  `chapter_payload_url` VARCHAR(1000) DEFAULT NULL,
+  `chapter_payload_md5` CHAR(32) DEFAULT NULL,
   `update_mode`   VARCHAR(20) NOT NULL DEFAULT 'create',
   `status`        VARCHAR(20) NOT NULL DEFAULT 'draft',
   `review_comment` TEXT,
@@ -238,6 +243,8 @@ CREATE TABLE `book_versions` (
   `cover`         VARCHAR(500) DEFAULT NULL,
   `description`   TEXT,
   `content_text`  LONGTEXT,
+  `content_url`   VARCHAR(1000) DEFAULT NULL,
+  `content_md5`   CHAR(32) DEFAULT NULL,
   `created_by`    BIGINT UNSIGNED DEFAULT NULL,
   `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -279,6 +286,31 @@ CREATE TABLE `book_chapters` (
   UNIQUE KEY `uniq_book_chapter_no` (`book_id`, `chapter_no`),
   KEY `idx_book_chapters_tenant` (`tenant_id`),
   CONSTRAINT `fk_chapters_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `book_chapter_revisions` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `chapter_id` BIGINT UNSIGNED NOT NULL,
+  `version_no` INT NOT NULL DEFAULT 1,
+  `title` VARCHAR(255) NOT NULL,
+  `content_text` LONGTEXT DEFAULT NULL,
+  `content_url` VARCHAR(1000) DEFAULT NULL,
+  `content_md5` CHAR(32) DEFAULT NULL,
+  `summary` TEXT,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'draft',
+  `review_comment` TEXT,
+  `submitted_at` DATETIME DEFAULT NULL,
+  `reviewed_at` DATETIME DEFAULT NULL,
+  `reviewed_by` BIGINT UNSIGNED DEFAULT NULL,
+  `published_at` DATETIME DEFAULT NULL,
+  `created_by` BIGINT UNSIGNED DEFAULT NULL,
+  `tenant_id` INT NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_chapter_revision_no` (`chapter_id`, `version_no`),
+  KEY `idx_chapter_revisions_tenant` (`tenant_id`),
+  CONSTRAINT `fk_chapter_revisions_chapter` FOREIGN KEY (`chapter_id`) REFERENCES `book_chapters`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ======================

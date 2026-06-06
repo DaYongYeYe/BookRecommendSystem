@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from hashlib import md5
 from io import BytesIO
+from urllib.parse import urlparse
+from urllib.request import urlopen
 from uuid import uuid4
 
 from flask import current_app
@@ -31,6 +34,27 @@ def _object_url(bucket: str, region: str, object_key: str) -> str:
         base = custom_domain.rstrip('/')
         return f'{base}/{object_key}'
     return f'https://{bucket}.cos.{region}.myqcloud.com/{object_key}'
+
+
+def _object_key_from_url(url: str, bucket: str, region: str) -> str | None:
+    parsed = urlparse(url or '')
+    path = parsed.path.lstrip('/')
+    if not parsed.netloc or not path:
+        return None
+
+    custom_domain = (current_app.config.get('COS_DOMAIN') or '').strip()
+    if custom_domain:
+        custom = urlparse(custom_domain)
+        if parsed.netloc == custom.netloc:
+            custom_path = custom.path.strip('/')
+            if custom_path and path.startswith(f'{custom_path}/'):
+                return path[len(custom_path) + 1:]
+            return path
+
+    expected_host = f'{bucket}.cos.{region}.myqcloud.com'
+    if parsed.netloc == expected_host:
+        return path
+    return None
 
 
 @dependency_log_aspect('tencent_cos', 'upload_image', tags=['dependency', 'cos', 'upload', 'aop'])
@@ -138,3 +162,96 @@ def upload_image_bytes(
         return None, 'cos upload failed'
 
     return _object_url(bucket, region, object_key), None
+
+
+@dependency_log_aspect('tencent_cos', 'upload_text', tags=['dependency', 'cos', 'upload', 'text', 'aop'])
+def upload_text(content: str, *, folder: str = 'book_chapters'):
+    text = content or ''
+    payload = text.encode('utf-8')
+    if not payload:
+        return None, 'content is required'
+
+    client, bucket, error = _build_cos_client()
+    if error:
+        return None, error
+
+    region = (current_app.config.get('COS_REGION') or '').strip()
+    digest = md5(payload).hexdigest()
+    object_key = f'{folder.rstrip("/")}/{digest[:2]}/{uuid4().hex}.txt'
+    try:
+        client.put_object(
+            Bucket=bucket,
+            Body=BytesIO(payload),
+            Key=object_key,
+            ContentType='text/plain; charset=utf-8',
+        )
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception(
+            'cos_text_upload_exception',
+            extra={
+                'event': 'dependency.tencent_cos.text_upload.exception',
+                'tags': ['dependency', 'cos', 'upload', 'text', 'exception'],
+                'data': {
+                    'bucket': bucket,
+                    'region': region,
+                    'object_key': object_key,
+                    'error': str(exc),
+                },
+            },
+        )
+        return None, 'cos upload failed'
+
+    return {'url': _object_url(bucket, region, object_key), 'md5': digest}, None
+
+
+@dependency_log_aspect('tencent_cos', 'fetch_text', tags=['dependency', 'cos', 'download', 'text', 'aop'])
+def fetch_text(url: str, expected_md5: str | None = None):
+    target_url = (url or '').strip()
+    if not target_url:
+        return None, 'content url is required'
+
+    client, bucket, cos_error = _build_cos_client()
+    region = (current_app.config.get('COS_REGION') or '').strip()
+    content: bytes | None = None
+
+    object_key = _object_key_from_url(target_url, bucket or '', region) if bucket and region else None
+    if client and bucket and object_key:
+        try:
+            response = client.get_object(Bucket=bucket, Key=object_key)
+            content = response['Body'].get_raw_stream().read()
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.exception(
+                'cos_text_fetch_exception',
+                extra={
+                    'event': 'dependency.tencent_cos.text_fetch.exception',
+                    'tags': ['dependency', 'cos', 'download', 'text', 'exception'],
+                    'data': {
+                        'bucket': bucket,
+                        'region': region,
+                        'object_key': object_key,
+                        'error': str(exc),
+                    },
+                },
+            )
+            return None, 'cos fetch failed'
+    else:
+        if cos_error and not target_url.lower().startswith(('http://', 'https://')):
+            return None, cos_error
+        try:
+            with urlopen(target_url, timeout=15) as response:  # noqa: S310 - configured content URL.
+                content = response.read()
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.exception(
+                'cos_text_url_fetch_exception',
+                extra={
+                    'event': 'dependency.tencent_cos.text_url_fetch.exception',
+                    'tags': ['dependency', 'cos', 'download', 'text', 'exception'],
+                    'data': {'url': target_url, 'error': str(exc)},
+                },
+            )
+            return None, 'content fetch failed'
+
+    digest = md5(content or b'').hexdigest()
+    if expected_md5 and digest.lower() != expected_md5.lower():
+        return None, 'content md5 mismatch'
+    return (content or b'').decode('utf-8', errors='replace'), None

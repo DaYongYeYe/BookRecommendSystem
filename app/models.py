@@ -737,7 +737,10 @@ class BookChapter(db.Model):
     chapter_no = db.Column(db.Integer, nullable=False, default=1)
     title = db.Column(db.String(255), nullable=False)
     status = db.Column(db.String(20), nullable=False, default='draft')
-    published_revision_id = db.Column(db.Integer, db.ForeignKey('book_chapter_revisions.id'))
+    published_revision_id = db.Column(
+        db.Integer,
+        db.ForeignKey('book_chapter_revisions.id', use_alter=True, name='fk_book_chapters_published_revision'),
+    )
     tenant_id = db.Column(db.Integer, nullable=False, default=1, index=True)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     created_at = db.Column(db.DateTime, server_default=db.func.now())
@@ -771,7 +774,9 @@ class BookChapterRevision(db.Model):
     chapter_id = db.Column(db.Integer, db.ForeignKey('book_chapters.id'), nullable=False, index=True)
     version_no = db.Column(db.Integer, nullable=False, default=1)
     title = db.Column(db.String(255), nullable=False)
-    content_text = db.Column(db.Text, nullable=False)
+    content_text = db.Column(db.Text)
+    content_url = db.Column(db.String(1000))
+    content_md5 = db.Column(db.String(32))
     summary = db.Column(db.Text)
     status = db.Column(db.String(20), nullable=False, default='draft')
     review_comment = db.Column(db.Text)
@@ -793,6 +798,8 @@ class BookChapterRevision(db.Model):
             'version_no': int(self.version_no or 1),
             'title': self.title,
             'content_text': self.content_text,
+            'content_url': self.content_url,
+            'content_md5': self.content_md5,
             'summary': self.summary,
             'status': self.status or 'draft',
             'review_comment': self.review_comment,
@@ -862,7 +869,11 @@ class BookManuscript(db.Model):
     cover = db.Column(db.String(500))
     description = db.Column(db.Text)
     content_text = db.Column(db.Text)
+    content_url = db.Column(db.String(1000))
+    content_md5 = db.Column(db.String(32))
     chapter_payload = db.Column(db.Text)
+    chapter_payload_url = db.Column(db.String(1000))
+    chapter_payload_md5 = db.Column(db.String(32))
     update_mode = db.Column(db.String(20), nullable=False, default='create')
     status = db.Column(db.String(20), nullable=False, default='draft')
     review_comment = db.Column(db.Text)
@@ -892,7 +903,11 @@ class BookManuscript(db.Model):
             'cover': self.cover,
             'description': self.description,
             'content_text': self.content_text,
+            'content_url': self.content_url,
+            'content_md5': self.content_md5,
             'chapters': chapters,
+            'chapter_payload_url': self.chapter_payload_url,
+            'chapter_payload_md5': self.chapter_payload_md5,
             'update_mode': self.update_mode or 'create',
             'status': self.status,
             'review_comment': self.review_comment,
@@ -920,6 +935,8 @@ class BookVersion(db.Model):
     cover = db.Column(db.String(500))
     description = db.Column(db.Text)
     content_text = db.Column(db.Text)
+    content_url = db.Column(db.String(1000))
+    content_md5 = db.Column(db.String(32))
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
@@ -935,6 +952,8 @@ class BookVersion(db.Model):
             'cover': self.cover,
             'description': self.description,
             'content_text': self.content_text,
+            'content_url': self.content_url,
+            'content_md5': self.content_md5,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }

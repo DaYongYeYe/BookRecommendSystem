@@ -346,7 +346,11 @@ CREATE TABLE IF NOT EXISTS book_manuscripts (
     cover VARCHAR(500),
     description TEXT,
     content_text LONGTEXT,
+    content_url VARCHAR(1000),
+    content_md5 CHAR(32),
     chapter_payload LONGTEXT,
+    chapter_payload_url VARCHAR(1000),
+    chapter_payload_md5 CHAR(32),
     update_mode VARCHAR(20) NOT NULL DEFAULT 'create',
     status VARCHAR(20) NOT NULL DEFAULT 'draft',
     review_comment TEXT,
@@ -369,9 +373,51 @@ CREATE TABLE IF NOT EXISTS book_versions (
     cover VARCHAR(500),
     description TEXT,
     content_text LONGTEXT,
+    content_url VARCHAR(1000),
+    content_md5 CHAR(32),
     created_by INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uniq_book_version_no (book_id, version_no),
     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
     FOREIGN KEY (manuscript_id) REFERENCES book_manuscripts(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS book_chapters (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    book_id INT NOT NULL,
+    chapter_key VARCHAR(64) NOT NULL,
+    chapter_no INT NOT NULL DEFAULT 1,
+    title VARCHAR(255) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    published_revision_id INT,
+    tenant_id INT NOT NULL DEFAULT 1,
+    created_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_book_chapter_key (book_id, chapter_key),
+    UNIQUE KEY uniq_book_chapter_no (book_id, chapter_no),
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS book_chapter_revisions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    chapter_id INT NOT NULL,
+    version_no INT NOT NULL DEFAULT 1,
+    title VARCHAR(255) NOT NULL,
+    content_text LONGTEXT,
+    content_url VARCHAR(1000),
+    content_md5 CHAR(32),
+    summary TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    review_comment TEXT,
+    submitted_at DATETIME,
+    reviewed_at DATETIME,
+    reviewed_by INT,
+    published_at DATETIME,
+    created_by INT,
+    tenant_id INT NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_chapter_revision_no (chapter_id, version_no),
+    FOREIGN KEY (chapter_id) REFERENCES book_chapters(id) ON DELETE CASCADE
 );

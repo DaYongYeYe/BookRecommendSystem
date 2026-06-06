@@ -13,6 +13,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app import create_app, db
+from app.services.tencent_cos import upload_text
 
 
 PASSWORD_HASH = generate_password_hash("123456")
@@ -20,6 +21,13 @@ TENANT_ID = 1
 BOOK_ID_START = 1001
 BOOKS_PER_CATEGORY = 12
 USER_ID_START = 101
+
+
+def store_seed_content(content: str):
+    result, error = upload_text(content, folder="book_chapters")
+    if error or not result:
+        raise RuntimeError(error or "failed to upload seed content")
+    return result
 
 
 CATEGORIES = [
@@ -499,6 +507,7 @@ def upsert_reader_content(books: list[dict]):
                 f"章节结尾留下一个轻巧的钩子，既推动主线，也让读者愿意点开下一章继续读下去。",
             ]
             content_text = "\n\n".join(paragraphs)
+            stored_content = store_seed_content(content_text)
             execute(
                 """
                 INSERT INTO book_chapters (
@@ -535,18 +544,20 @@ def upsert_reader_content(books: list[dict]):
             execute(
                 """
                 INSERT INTO book_chapter_revisions (
-                  id, chapter_id, version_no, title, content_text, summary, status,
+                  id, chapter_id, version_no, title, content_text, content_url, content_md5, summary, status,
                   submitted_at, reviewed_at, reviewed_by, published_at, created_by, tenant_id,
                   created_at, updated_at
                 )
                 VALUES (
-                  :id, :chapter_id, 1, :title, :content_text, :summary, 'published',
+                  :id, :chapter_id, 1, :title, NULL, :content_url, :content_md5, :summary, 'published',
                   :submitted_at, :reviewed_at, 1, :published_at, :created_by, :tenant_id,
                   :created_at, :updated_at
                 )
                 ON DUPLICATE KEY UPDATE
                   title = VALUES(title),
-                  content_text = VALUES(content_text),
+                  content_text = NULL,
+                  content_url = VALUES(content_url),
+                  content_md5 = VALUES(content_md5),
                   summary = VALUES(summary),
                   status = VALUES(status),
                   reviewed_at = VALUES(reviewed_at),
@@ -559,7 +570,8 @@ def upsert_reader_content(books: list[dict]):
                     "id": revision_id,
                     "chapter_id": chapter_id,
                     "title": chapter_title,
-                    "content_text": content_text,
+                    "content_url": stored_content["url"],
+                    "content_md5": stored_content["md5"],
                     "summary": f"{book['title']}的第 {chapter_no} 个阅读片段，适合测试在线阅读器。",
                     "submitted_at": now - timedelta(days=chapter_no + 2),
                     "reviewed_at": now - timedelta(days=chapter_no + 1),
@@ -593,21 +605,7 @@ def upsert_reader_content(books: list[dict]):
                 text("SELECT id FROM reader_sections WHERE book_id=:book_id AND section_key=:section_key"),
                 {"book_id": book["id"], "section_key": section_key},
             ).scalar_one()
-            for p_idx, paragraph in enumerate(paragraphs, start=1):
-                execute(
-                    """
-                    INSERT INTO reader_paragraphs (section_id, paragraph_key, text, order_no, created_at)
-                    VALUES (:section_id, :paragraph_key, :text, :order_no, :created_at)
-                    ON DUPLICATE KEY UPDATE text = VALUES(text), order_no = VALUES(order_no)
-                    """,
-                    {
-                        "section_id": section_id,
-                        "paragraph_key": f"{section_key}-p{p_idx}",
-                        "text": paragraph,
-                        "order_no": p_idx,
-                        "created_at": now,
-                    },
-                )
+            execute("DELETE FROM reader_paragraphs WHERE section_id = :section_id", {"section_id": section_id})
 
 
 def upsert_interactions(books: list[dict]):

@@ -23,6 +23,11 @@ from app.models import (
 from app.logging_utils import business_log_aspect
 from app.rbac.decorators import admin_required
 from app.services.publishing_service import publish_manuscript, review_chapter_revision
+from app.services.chapter_content import (
+    serialize_manuscript_with_content,
+    serialize_revision_with_content,
+    serialize_version_with_content,
+)
 from app.services.tencent_cos import upload_image
 from app.services.captcha import generate_captcha, verify_captcha
 
@@ -996,7 +1001,7 @@ def get_manuscripts(current_user):
             return jsonify({'error': 'invalid creator_id'}), 400
 
     manuscripts = query.order_by(BookManuscript.updated_at.desc(), BookManuscript.id.desc()).all()
-    return jsonify({'items': [row.to_dict() for row in manuscripts]}), 200
+    return jsonify({'items': [serialize_manuscript_with_content(row) for row in manuscripts]}), 200
 
 
 @bp.route('/manuscripts/<int:manuscript_id>/review', methods=['POST'])
@@ -1020,7 +1025,7 @@ def review_manuscript(current_user, manuscript_id):
     manuscript.review_comment = review_comment
     manuscript.status = 'approved' if action == 'approve' else 'rejected'
     db.session.commit()
-    return jsonify({'message': 'review updated', 'manuscript': manuscript.to_dict()}), 200
+    return jsonify({'message': 'review updated', 'manuscript': serialize_manuscript_with_content(manuscript)}), 200
 
 
 @bp.route('/manuscripts/<int:manuscript_id>/publish', methods=['POST'])
@@ -1038,8 +1043,8 @@ def publish_reviewed_manuscript(current_user, manuscript_id):
     return jsonify({
         'message': 'manuscript published',
         'book_id': manuscript.book_id,
-        'manuscript': manuscript.to_dict(),
-        'version': version.to_dict(),
+        'manuscript': serialize_manuscript_with_content(manuscript),
+        'version': serialize_version_with_content(version),
     }), 200
 
 
@@ -1065,7 +1070,7 @@ def review_chapter(current_user, chapter_id: int):
     return jsonify({
         'message': 'chapter review updated',
         'chapter': chapter.to_dict(),
-        'revision': revision.to_dict(),
+        'revision': serialize_revision_with_content(revision),
     }), 200
 
 
@@ -1120,7 +1125,7 @@ def get_chapter_reviews(current_user):
                 'shelf_status': book.shelf_status,
                 'audit_status': book.audit_status,
             },
-            'latest_revision': latest.to_dict(),
+            'latest_revision': serialize_revision_with_content(latest),
         })
 
     return jsonify({'items': items}), 200
@@ -1166,7 +1171,7 @@ def batch_review_chapters(current_user):
         success_items.append({
             'chapter_id': chapter_id,
             'chapter': chapter.to_dict(),
-            'revision': revision.to_dict(),
+            'revision': serialize_revision_with_content(revision),
         })
 
     return jsonify({
@@ -1205,8 +1210,8 @@ def get_chapter_compare(current_user, chapter_id: int):
             'shelf_status': book.shelf_status,
             'audit_status': book.audit_status,
         },
-        'latest_revision': latest_revision.to_dict() if latest_revision else None,
-        'published_revision': published_revision.to_dict() if published_revision else None,
+        'latest_revision': serialize_revision_with_content(latest_revision) if latest_revision else None,
+        'published_revision': serialize_revision_with_content(published_revision) if published_revision else None,
     }), 200
 
 
