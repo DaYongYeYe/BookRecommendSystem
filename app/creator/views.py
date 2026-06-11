@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import current_app, jsonify, request
 from sqlalchemy import func
@@ -1487,12 +1487,19 @@ def get_creator_books_analytics(current_user):
         limit = min(max(int(request.args.get('limit', 50)), 1), 100)
     except (TypeError, ValueError):
         limit = 50
+    try:
+        days = min(max(int(request.args.get('days', 30)), 1), 180)
+    except (TypeError, ValueError):
+        days = 30
 
     books = _creator_book_query(current_user).order_by(Book.created_at.desc(), Book.id.desc()).limit(limit).all()
     if not books:
-        return jsonify({'items': []}), 200
+        return jsonify({'items': [], 'trend': {'dates': [], 'series': []}}), 200
 
     book_ids = [book.id for book in books]
+    today = datetime.utcnow().date()
+    trend_start_date = today - timedelta(days=days - 1)
+    trend_start = datetime.combine(trend_start_date, datetime.min.time())
 
     event_counts_rows = (
         db.session.query(
@@ -1573,6 +1580,52 @@ def get_creator_books_analytics(current_user):
         label = (row.age_group or 'unknown').strip() or 'unknown'
         age_map.setdefault(row.book_id, []).append((label, int(row.total or 0)))
 
+    trend_event_rows = (
+        db.session.query(
+            func.date(BookAnalyticsEvent.created_at).label('event_date'),
+            BookAnalyticsEvent.event_type,
+            func.count(BookAnalyticsEvent.id).label('total'),
+        )
+        .filter(
+            BookAnalyticsEvent.book_id.in_(book_ids),
+            BookAnalyticsEvent.created_at >= trend_start,
+            BookAnalyticsEvent.event_type.in_(('impression', 'reader_open')),
+        )
+        .group_by(func.date(BookAnalyticsEvent.created_at), BookAnalyticsEvent.event_type)
+        .all()
+    )
+    trend_counts = {}
+    for row in trend_event_rows:
+        day_key = str(row.event_date)
+        trend_counts.setdefault(day_key, {})[row.event_type] = int(row.total or 0)
+
+    trend_user_rows = (
+        db.session.query(
+            func.date(BookAnalyticsEvent.created_at).label('event_date'),
+            func.count(func.distinct(BookAnalyticsEvent.user_id)).label('read_users'),
+        )
+        .filter(
+            BookAnalyticsEvent.book_id.in_(book_ids),
+            BookAnalyticsEvent.created_at >= trend_start,
+            BookAnalyticsEvent.event_type == 'reader_open',
+            BookAnalyticsEvent.user_id.isnot(None),
+        )
+        .group_by(func.date(BookAnalyticsEvent.created_at))
+        .all()
+    )
+    trend_users = {str(row.event_date): int(row.read_users or 0) for row in trend_user_rows}
+
+    trend_dates = [(trend_start_date + timedelta(days=offset)).isoformat() for offset in range(days)]
+    trend_series = [
+        {
+            'date': day_key,
+            'impressions': int(trend_counts.get(day_key, {}).get('impression', 0)),
+            'reads': int(trend_counts.get(day_key, {}).get('reader_open', 0)),
+            'read_users': int(trend_users.get(day_key, 0)),
+        }
+        for day_key in trend_dates
+    ]
+
     items = []
     for book in books:
         counts = event_counts.get(book.id, {})
@@ -1618,7 +1671,7 @@ def get_creator_books_analytics(current_user):
             }
         )
 
-    return jsonify({'items': items}), 200
+    return jsonify({'items': items, 'trend': {'dates': trend_dates, 'series': trend_series}}), 200
 
 
 @bp.route('/notifications', methods=['GET'])

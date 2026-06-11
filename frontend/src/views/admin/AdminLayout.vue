@@ -16,6 +16,10 @@
             <el-icon><Reading /></el-icon>
             <span>书本管理</span>
           </el-menu-item>
+          <el-menu-item index="/manage/recommendation-config">
+            <el-icon><Operation /></el-icon>
+            <span>推荐配置</span>
+          </el-menu-item>
           <el-menu-item index="/manage/works/review">
             <el-icon><Reading /></el-icon>
             <span>作品审核</span>
@@ -61,7 +65,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ChatDotRound, Document, House, Lock, Reading, User } from '@element-plus/icons-vue'
+import { ChatDotRound, Document, House, Lock, Operation, Reading, User } from '@element-plus/icons-vue'
 import { clearToken } from '../../api/request'
 import { isSuperAdminToken } from '../../utils/auth'
 
@@ -74,6 +78,7 @@ const showRbacMenu = computed(() => isSuperAdminToken())
 const pageTitle = computed(() => {
   if (route.path.startsWith('/manage/comments')) return '评论管理'
   if (route.path.startsWith('/manage/books')) return '书本管理'
+  if (route.path.startsWith('/manage/recommendation-config')) return '推荐配置'
   if (route.path.startsWith('/manage/works/review')) return '作品审核'
   if (route.path.startsWith('/manage/manuscripts/review')) return '稿件审核'
   if (route.path.startsWith('/manage/chapters/review')) return '章节审核'

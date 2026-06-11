@@ -63,6 +63,7 @@ const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in wi
 const isSpeaking = ref(false)
 const isSpeechPaused = ref(false)
 const speechStatus = ref('')
+const speechRunId = ref(0)
 
 const { readerTheme, readerFontSize, readerLineHeight, readerMargin, setTheme, setFontSize, setLineHeight, setMargin } = useReaderPreferences()
 const { resumeIfNeeded, syncReadingProgress, getAnalyticsContext } = useReadingProgress(bookId, activeSectionId, activeParagraphId)
@@ -341,8 +342,10 @@ async function scrollToSection(sectionId: string) {
   const element = document.getElementById(sectionId)
   if (element) {
     element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return true
   } else {
     ElMessage.info('这一章还在加载队列中，请稍后再试')
+    return false
   }
 }
 
@@ -350,24 +353,25 @@ function scrollToPostRead() {
   document.getElementById(postReadSectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-function goToPrevChapter() {
-  if (!hasPrevChapter.value || !reader.value) return
+async function goToPrevChapter() {
+  if (!hasPrevChapter.value || !reader.value) return false
   const prev = reader.value.outline[currentSectionIndex.value - 1]
-  if (prev) void scrollToSection(prev.id)
+  return prev ? scrollToSection(prev.id) : false
 }
 
-function goToNextChapter() {
-  if (!reader.value) return
+async function goToNextChapter() {
+  if (!reader.value) return false
   if (!hasNextChapter.value) {
     scrollToPostRead()
-    return
+    return false
   }
   const next = reader.value.outline[currentSectionIndex.value + 1]
-  if (next) void scrollToSection(next.id)
+  return next ? scrollToSection(next.id) : false
 }
 
 function stopListening() {
   if (!speechSupported) return
+  speechRunId.value += 1
   window.speechSynthesis.cancel()
   isSpeaking.value = false
   isSpeechPaused.value = false
@@ -383,6 +387,8 @@ function startListening() {
     ElMessage.warning('当前章节暂无可朗读内容')
     return
   }
+  speechRunId.value += 1
+  const runId = speechRunId.value
   window.speechSynthesis.cancel()
   const utterance = new SpeechSynthesisUtterance(currentSectionText.value)
   utterance.lang = 'zh-CN'
@@ -394,11 +400,18 @@ function startListening() {
     speechStatus.value = `正在朗读：${currentSectionTitle.value || '当前章节'}`
   }
   utterance.onend = () => {
+    if (runId !== speechRunId.value) return
     isSpeaking.value = false
     isSpeechPaused.value = false
+    if (hasNextChapter.value) {
+      speechStatus.value = '本章朗读完成，正在切换下一章'
+      void listenNextChapter()
+      return
+    }
     speechStatus.value = '本章朗读完成'
   }
   utterance.onerror = () => {
+    if (runId !== speechRunId.value) return
     isSpeaking.value = false
     isSpeechPaused.value = false
     speechStatus.value = '朗读中断，请稍后重试'
@@ -459,16 +472,26 @@ async function loadMoreReaderSections(targetSectionId?: string) {
   return loadedTarget || !targetSectionId || reader.value.sections.some((section) => section.id === targetSectionId)
 }
 
-function listenPrevChapter() {
-  if (!hasPrevChapter.value) return
-  goToPrevChapter()
-  setTimeout(startListening, 250)
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-function listenNextChapter() {
+async function listenPrevChapter() {
+  if (!hasPrevChapter.value) return
+  const moved = await goToPrevChapter()
+  if (moved) {
+    await delay(250)
+    startListening()
+  }
+}
+
+async function listenNextChapter() {
   if (!hasNextChapter.value) return
-  goToNextChapter()
-  setTimeout(startListening, 250)
+  const moved = await goToNextChapter()
+  if (moved) {
+    await delay(250)
+    startListening()
+  }
 }
 
 function goBook(targetBookId: number) {

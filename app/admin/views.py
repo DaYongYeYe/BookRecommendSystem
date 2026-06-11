@@ -19,6 +19,8 @@ from app.models import (
     Category,
     Tag,
     BookTag,
+    BookRanking,
+    RecommendationPlacement,
 )
 from app.logging_utils import business_log_aspect
 from app.rbac.decorators import admin_required
@@ -35,6 +37,14 @@ BOOK_STATUSES = ['published', 'draft', 'archived']
 BOOK_COMPLETION_STATUSES = ['ongoing', 'completed', 'paused']
 ALLOWED_COVER_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 ALLOWED_USER_ROLES = {'user', 'admin', 'editor'}
+RANKING_TYPE_OPTIONS = [
+    {'key': 'hot', 'label': '热门榜'},
+    {'key': 'new_book', 'label': '新书榜'},
+    {'key': 'surging', 'label': '飙升榜'},
+    {'key': 'completed', 'label': '完结榜'},
+    {'key': 'collection', 'label': '收藏榜'},
+    {'key': 'following', 'label': '追更榜'},
+]
 
 
 def _tenant_id(user):
@@ -75,6 +85,53 @@ def _parse_completion_status(raw_value, default='ongoing'):
     if status not in BOOK_COMPLETION_STATUSES:
         return None, 'invalid completion_status'
     return status, None
+
+
+def _parse_positive_int_value(raw_value, field_name, *, min_value=1, max_value=None):
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return None, f'invalid {field_name}'
+    if value < min_value:
+        return None, f'{field_name} must be >= {min_value}'
+    if max_value is not None and value > max_value:
+        return None, f'{field_name} must be <= {max_value}'
+    return value, None
+
+
+def _parse_bool_value(raw_value, default=False):
+    if raw_value is None:
+        return default
+    if isinstance(raw_value, bool):
+        return raw_value
+    if isinstance(raw_value, (int, float)):
+        return bool(raw_value)
+    value = str(raw_value).strip().lower()
+    if value in ('1', 'true', 'yes', 'on'):
+        return True
+    if value in ('0', 'false', 'no', 'off'):
+        return False
+    return default
+
+
+def _serialize_ranking_row(row, book=None):
+    payload = {
+        'id': row.id,
+        'type': row.type,
+        'rank_no': int(row.rank_no or 0),
+        'book_id': row.book_id,
+        'snapshot_date': row.snapshot_date.isoformat() if row.snapshot_date else None,
+    }
+    if book:
+        payload['book'] = {
+            'id': book.id,
+            'title': book.title,
+            'author': book.author,
+            'cover': book.cover,
+            'status': book.status,
+            'shelf_status': book.shelf_status,
+        }
+    return payload
 
 
 def _utc_day_range(day):
@@ -807,6 +864,190 @@ def get_book_options(current_user):
         'tags': [item.to_dict() for item in tags],
         'statuses': [{'value': item, 'label': item} for item in BOOK_STATUSES],
         'completion_statuses': [{'value': item, 'label': item} for item in BOOK_COMPLETION_STATUSES],
+    }), 200
+
+
+@bp.route('/recommendation-placements', methods=['GET'])
+@admin_required
+def get_recommendation_placements(current_user):
+    scene = (request.args.get('scene') or '').strip()
+    query = RecommendationPlacement.query
+    if scene:
+        query = query.filter(RecommendationPlacement.scene == scene)
+    rows = query.order_by(RecommendationPlacement.sort_order.asc(), RecommendationPlacement.id.asc()).all()
+    return jsonify({'items': [row.to_dict() for row in rows]}), 200
+
+
+@bp.route('/recommendation-placements', methods=['POST'])
+@admin_required
+@business_log_aspect('admin.recommendation_placement.create', tags=['admin', 'recommendation', 'business', 'aop'])
+def create_recommendation_placement(current_user):
+    data = request.get_json() or {}
+    code = (data.get('code') or '').strip()
+    name = (data.get('name') or '').strip()
+    if not code or not name:
+        return jsonify({'error': 'code and name are required'}), 400
+    if RecommendationPlacement.query.filter_by(code=code).first():
+        return jsonify({'error': 'placement code already exists'}), 400
+
+    max_items, max_items_error = _parse_positive_int_value(data.get('max_items', 6), 'max_items', min_value=1, max_value=50)
+    if max_items_error:
+        return jsonify({'error': max_items_error}), 400
+    sort_order, sort_error = _parse_positive_int_value(data.get('sort_order', 0), 'sort_order', min_value=0)
+    if sort_error:
+        return jsonify({'error': sort_error}), 400
+
+    row = RecommendationPlacement(
+        code=code,
+        name=name,
+        description=(data.get('description') or '').strip() or None,
+        scene=(data.get('scene') or 'home').strip() or 'home',
+        strategy=(data.get('strategy') or 'manual').strip() or 'manual',
+        max_items=max_items,
+        is_active=_parse_bool_value(data.get('is_active'), True),
+        sort_order=sort_order,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({'message': 'placement created', 'item': row.to_dict()}), 201
+
+
+@bp.route('/recommendation-placements/<int:placement_id>', methods=['PUT'])
+@admin_required
+@business_log_aspect('admin.recommendation_placement.update', tags=['admin', 'recommendation', 'business', 'aop'])
+def update_recommendation_placement(current_user, placement_id):
+    row = RecommendationPlacement.query.get(placement_id)
+    if not row:
+        return jsonify({'error': 'placement not found'}), 404
+
+    data = request.get_json() or {}
+    if 'code' in data:
+        code = (data.get('code') or '').strip()
+        if not code:
+            return jsonify({'error': 'code is required'}), 400
+        existing = RecommendationPlacement.query.filter_by(code=code).first()
+        if existing and existing.id != row.id:
+            return jsonify({'error': 'placement code already exists'}), 400
+        row.code = code
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'name is required'}), 400
+        row.name = name
+    if 'description' in data:
+        row.description = (data.get('description') or '').strip() or None
+    if 'scene' in data:
+        row.scene = (data.get('scene') or 'home').strip() or 'home'
+    if 'strategy' in data:
+        row.strategy = (data.get('strategy') or 'manual').strip() or 'manual'
+    if 'max_items' in data:
+        max_items, error = _parse_positive_int_value(data.get('max_items'), 'max_items', min_value=1, max_value=50)
+        if error:
+            return jsonify({'error': error}), 400
+        row.max_items = max_items
+    if 'is_active' in data:
+        row.is_active = _parse_bool_value(data.get('is_active'), row.is_active)
+    if 'sort_order' in data:
+        sort_order, error = _parse_positive_int_value(data.get('sort_order'), 'sort_order', min_value=0)
+        if error:
+            return jsonify({'error': error}), 400
+        row.sort_order = sort_order
+
+    db.session.commit()
+    return jsonify({'message': 'placement updated', 'item': row.to_dict()}), 200
+
+
+@bp.route('/recommendation-placements/<int:placement_id>', methods=['DELETE'])
+@admin_required
+@business_log_aspect('admin.recommendation_placement.delete', tags=['admin', 'recommendation', 'business', 'aop'])
+def delete_recommendation_placement(current_user, placement_id):
+    row = RecommendationPlacement.query.get(placement_id)
+    if not row:
+        return jsonify({'error': 'placement not found'}), 404
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({'message': 'placement deleted'}), 200
+
+
+@bp.route('/ranking-configs', methods=['GET'])
+@admin_required
+def get_ranking_configs(current_user):
+    rank_type = (request.args.get('type') or 'hot').strip()
+    snapshot_date_text = (request.args.get('snapshot_date') or datetime.utcnow().date().isoformat()).strip()
+    try:
+        snapshot_date = datetime.strptime(snapshot_date_text, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'error': 'invalid snapshot_date'}), 400
+    available_types = {item['key'] for item in RANKING_TYPE_OPTIONS}
+    if rank_type not in available_types:
+        return jsonify({'error': 'invalid type', 'available_types': RANKING_TYPE_OPTIONS}), 400
+
+    rows = (
+        BookRanking.query.filter_by(type=rank_type, snapshot_date=snapshot_date)
+        .order_by(BookRanking.rank_no.asc(), BookRanking.id.asc())
+        .all()
+    )
+    book_map = {}
+    if rows:
+        book_ids = [row.book_id for row in rows]
+        books = Book.query.filter(Book.id.in_(book_ids), Book.tenant_id == _tenant_id(current_user)).all()
+        book_map = {book.id: book for book in books}
+    return jsonify({
+        'type': rank_type,
+        'snapshot_date': snapshot_date.isoformat(),
+        'available_types': RANKING_TYPE_OPTIONS,
+        'items': [_serialize_ranking_row(row, book_map.get(row.book_id)) for row in rows],
+    }), 200
+
+
+@bp.route('/ranking-configs', methods=['POST'])
+@admin_required
+@business_log_aspect('admin.ranking_config.save', tags=['admin', 'ranking', 'business', 'aop'])
+def save_ranking_config(current_user):
+    data = request.get_json() or {}
+    rank_type = (data.get('type') or '').strip()
+    available_types = {item['key'] for item in RANKING_TYPE_OPTIONS}
+    if rank_type not in available_types:
+        return jsonify({'error': 'invalid type', 'available_types': RANKING_TYPE_OPTIONS}), 400
+    snapshot_date_text = (data.get('snapshot_date') or datetime.utcnow().date().isoformat()).strip()
+    try:
+        snapshot_date = datetime.strptime(snapshot_date_text, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'error': 'invalid snapshot_date'}), 400
+
+    raw_book_ids = data.get('book_ids') or []
+    if not isinstance(raw_book_ids, list):
+        return jsonify({'error': 'book_ids must be an array'}), 400
+    book_ids = []
+    for raw_book_id in raw_book_ids[:50]:
+        book_id, error = _parse_positive_int_value(raw_book_id, 'book_id')
+        if error:
+            return jsonify({'error': error}), 400
+        if book_id not in book_ids:
+            book_ids.append(book_id)
+
+    books = Book.query.filter(Book.tenant_id == _tenant_id(current_user), Book.id.in_(book_ids)).all() if book_ids else []
+    found_ids = {book.id for book in books}
+    missing_ids = [book_id for book_id in book_ids if book_id not in found_ids]
+    if missing_ids:
+        return jsonify({'error': f'books not found: {missing_ids}'}), 404
+
+    BookRanking.query.filter_by(type=rank_type, snapshot_date=snapshot_date).delete()
+    for index, book_id in enumerate(book_ids, start=1):
+        db.session.add(BookRanking(type=rank_type, snapshot_date=snapshot_date, rank_no=index, book_id=book_id))
+    db.session.commit()
+
+    book_map = {book.id: book for book in books}
+    rows = (
+        BookRanking.query.filter_by(type=rank_type, snapshot_date=snapshot_date)
+        .order_by(BookRanking.rank_no.asc(), BookRanking.id.asc())
+        .all()
+    )
+    return jsonify({
+        'message': 'ranking config saved',
+        'type': rank_type,
+        'snapshot_date': snapshot_date.isoformat(),
+        'items': [_serialize_ranking_row(row, book_map.get(row.book_id)) for row in rows],
     }), 200
 
 

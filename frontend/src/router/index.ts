@@ -21,6 +21,7 @@ import AdminLayout from '@/views/admin/AdminLayout.vue'
 import AdminDashboard from '@/views/admin/AdminDashboard.vue'
 import AdminComments from '@/views/admin/AdminComments.vue'
 import AdminBooks from '@/views/admin/AdminBooks.vue'
+import AdminRecommendationConfig from '@/views/admin/AdminRecommendationConfig.vue'
 import AdminWorksReview from '@/views/admin/AdminWorksReview.vue'
 import AdminChaptersReview from '@/views/admin/AdminChaptersReview.vue'
 import AdminUsers from '@/views/admin/AdminUsers.vue'
@@ -182,6 +183,11 @@ const routes: RouteRecordRaw[] = [
         path: 'books',
         name: 'AdminBooks',
         component: AdminBooks,
+      },
+      {
+        path: 'recommendation-config',
+        name: 'AdminRecommendationConfig',
+        component: AdminRecommendationConfig,
       },
       {
         path: 'works/review',

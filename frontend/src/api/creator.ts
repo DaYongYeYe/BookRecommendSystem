@@ -298,8 +298,18 @@ export interface CreatorBookAnalyticsItem {
   age_distribution: CreatorBookDistributionItem[]
 }
 
-export function getCreatorBookAnalytics(params?: { limit?: number }) {
-  return request.get<{ items: CreatorBookAnalyticsItem[] }, { items: CreatorBookAnalyticsItem[] }>(
+export interface CreatorBookAnalyticsTrendItem {
+  date: string
+  impressions: number
+  reads: number
+  read_users: number
+}
+
+export function getCreatorBookAnalytics(params?: { limit?: number; days?: number }) {
+  return request.get<
+    { items: CreatorBookAnalyticsItem[]; trend?: { dates: string[]; series: CreatorBookAnalyticsTrendItem[] } },
+    { items: CreatorBookAnalyticsItem[]; trend?: { dates: string[]; series: CreatorBookAnalyticsTrendItem[] } }
+  >(
     '/creator/books/analytics',
     { params }
   )

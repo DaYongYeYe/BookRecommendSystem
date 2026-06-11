@@ -286,6 +286,41 @@ export interface AdminCreatorApplicationItem {
   reviewed_at?: string | null
 }
 
+export interface AdminRecommendationPlacementItem {
+  id: number
+  code: string
+  name: string
+  description?: string | null
+  scene: string
+  strategy: string
+  max_items: number
+  is_active: boolean
+  sort_order: number
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface AdminRankingConfigItem {
+  id: number
+  type: string
+  rank_no: number
+  book_id: number
+  snapshot_date: string
+  book?: {
+    id: number
+    title: string
+    author?: string | null
+    cover?: string | null
+    status?: string
+    shelf_status?: string
+  }
+}
+
+export interface AdminRankingTypeOption {
+  key: string
+  label: string
+}
+
 export function adminLogin(data: AdminLoginPayload) {
   return request.post<AdminLoginResponse, AdminLoginResponse>('/admin/auth/login', data)
 }
@@ -439,4 +474,46 @@ export function reviewAdminCreatorApplication(
   data: { action: 'approve' | 'reject'; review_comment?: string }
 ) {
   return request.post(`/admin/creator-applications/${applicationId}/review`, data)
+}
+
+export function getAdminRecommendationPlacements(params?: { scene?: string }) {
+  return request.get<{ items: AdminRecommendationPlacementItem[] }, { items: AdminRecommendationPlacementItem[] }>(
+    '/admin/recommendation-placements',
+    { params }
+  )
+}
+
+export function createAdminRecommendationPlacement(data: Omit<AdminRecommendationPlacementItem, 'id' | 'created_at' | 'updated_at'>) {
+  return request.post<{ item: AdminRecommendationPlacementItem }, { item: AdminRecommendationPlacementItem }>(
+    '/admin/recommendation-placements',
+    data
+  )
+}
+
+export function updateAdminRecommendationPlacement(
+  placementId: number,
+  data: Partial<Omit<AdminRecommendationPlacementItem, 'id' | 'created_at' | 'updated_at'>>
+) {
+  return request.put<{ item: AdminRecommendationPlacementItem }, { item: AdminRecommendationPlacementItem }>(
+    `/admin/recommendation-placements/${placementId}`,
+    data
+  )
+}
+
+export function deleteAdminRecommendationPlacement(placementId: number) {
+  return request.delete(`/admin/recommendation-placements/${placementId}`)
+}
+
+export function getAdminRankingConfigs(params: { type: string; snapshot_date: string }) {
+  return request.get<
+    { type: string; snapshot_date: string; available_types: AdminRankingTypeOption[]; items: AdminRankingConfigItem[] },
+    { type: string; snapshot_date: string; available_types: AdminRankingTypeOption[]; items: AdminRankingConfigItem[] }
+  >('/admin/ranking-configs', { params })
+}
+
+export function saveAdminRankingConfig(data: { type: string; snapshot_date: string; book_ids: number[] }) {
+  return request.post<
+    { type: string; snapshot_date: string; items: AdminRankingConfigItem[] },
+    { type: string; snapshot_date: string; items: AdminRankingConfigItem[] }
+  >('/admin/ranking-configs', data)
 }
