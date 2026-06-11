@@ -11,6 +11,7 @@ from app.models import (
     BookAnalyticsEvent,
     BookList,
     BookListItem,
+    BookRanking,
     BookReview,
     BookReviewReaction,
     BookTag,
@@ -26,6 +27,7 @@ from app.models import (
     UserShelf,
 )
 from app.rbac.decorators import login_optional, login_required
+from app.services.recommendation.online import get_two_tower_recommendations
 
 DEFAULT_HOT_SEARCH_TERMS = [
     '悬疑',
@@ -506,7 +508,7 @@ def _category_name_map():
     return {item.id: item.name for item in Category.query.all()}
 
 
-def _feed_item(book: Book, *, reason: str, reason_type: str, source_section: str, current_user=None, category_names=None, shelf_ids=None, feedback_states=None):
+def _feed_item(book: Book, *, reason: str, reason_type: str, source_section: str, current_user=None, category_names=None, shelf_ids=None, feedback_states=None, extra=None):
     category_names = category_names or {}
     shelf_ids = shelf_ids or set()
     feedback_states = feedback_states or {}
@@ -528,6 +530,8 @@ def _feed_item(book: Book, *, reason: str, reason_type: str, source_section: str
             },
         }
     )
+    if extra:
+        payload.update(extra)
     return payload
 
 
@@ -547,6 +551,36 @@ def _choose_books(query, *, limit: int, hidden_ids: set[int], used_ids: set[int]
     result = picked[:limit]
     used_ids.update(book.id for book in result)
     return result
+
+
+def _two_tower_books(current_user, *, limit: int, hidden_ids: set[int], used_ids: set[int]):
+    candidates = get_two_tower_recommendations(
+        current_user.id if current_user else None,
+        limit=limit,
+        hidden_ids=hidden_ids,
+        used_ids=used_ids,
+        exclude_shelf=False,
+    )
+    if not candidates:
+        return [], {}
+
+    book_ids = [item.book_id for item in candidates]
+    books = Book.query.filter(Book.id.in_(book_ids)).all()
+    book_map = {int(book.id): book for book in books}
+    ordered_books = []
+    meta = {}
+    for item in candidates:
+        book = book_map.get(int(item.book_id))
+        if not book:
+            continue
+        ordered_books.append(book)
+        meta[int(book.id)] = {
+            'reason_type': 'two_tower',
+            'model_version': item.model_version,
+            'recall_score': round(float(item.score), 6),
+        }
+    used_ids.update(int(book.id) for book in ordered_books)
+    return ordered_books, meta
 
 
 def _build_recommendation_feed(current_user, limit_per_section: int = 6):
@@ -578,13 +612,23 @@ def _build_recommendation_feed(current_user, limit_per_section: int = 6):
         )
 
     base_query = _visible_books_query()
-    picked_books = _choose_books(
-        base_query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc()),
+    picked_books, picked_meta = _two_tower_books(
+        current_user,
         limit=limit_per_section,
         hidden_ids=hidden_ids,
         used_ids=used_ids,
-        boost_ids=boost_ids,
     )
+    if len(picked_books) < limit_per_section:
+        picked_books.extend(
+            _choose_books(
+                base_query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc()),
+                limit=limit_per_section - len(picked_books),
+                hidden_ids=hidden_ids,
+                used_ids=used_ids,
+                boost_ids=boost_ids,
+            )
+        )
+
     popular_books = _choose_books(
         base_query.order_by(Book.recent_reads.desc(), Book.rating.desc(), Book.id.desc()),
         limit=limit_per_section,
@@ -628,12 +672,13 @@ def _build_recommendation_feed(current_user, limit_per_section: int = 6):
             _feed_item(
                 book,
                 reason=_build_recommend_reason(book, current_user, context) if source == 'picked_for_you' else fallback_reason,
-                reason_type=reason_type,
+                reason_type=picked_meta.get(int(book.id), {}).get('reason_type', reason_type) if source == 'picked_for_you' else reason_type,
                 source_section=source,
                 current_user=current_user,
                 category_names=category_names,
                 shelf_ids=shelf_ids,
                 feedback_states=feedback_states,
+                extra=picked_meta.get(int(book.id)) if source == 'picked_for_you' else None,
             )
             for book in books
         ]
@@ -1267,17 +1312,32 @@ def api_get_personalized_recommendations(current_user):
 
     context = _build_recommendation_context(current_user)
     continue_item = _get_continue_reading(current_user)
+    feedback_states = _feedback_state_for_user(current_user)
+    hidden_ids = {book_id for book_id, action in feedback_states.items() if action == 'hide'}
+    used_ids = {continue_item['id']} if continue_item else set()
 
     query = _visible_books_query()
     if continue_item:
         query = query.filter(Book.id != continue_item['id'])
 
-    books = (
-        query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc())
-        .limit(limit)
-        .all()
-    )
-    items = [_book_payload(book, recommend_reason=_build_recommend_reason(book, current_user, context)) for book in books]
+    books, meta = _two_tower_books(current_user, limit=limit, hidden_ids=hidden_ids, used_ids=used_ids)
+    if len(books) < limit:
+        books.extend(
+            _choose_books(
+                query.order_by(Book.is_featured.desc(), Book.rating.desc(), Book.recent_reads.desc(), Book.id.desc()),
+                limit=limit - len(books),
+                hidden_ids=hidden_ids,
+                used_ids=used_ids,
+            )
+        )
+    items = [
+        _book_payload(
+            book,
+            recommend_reason=_build_recommend_reason(book, current_user, context),
+            extra=meta.get(int(book.id)),
+        )
+        for book in books
+    ]
     return jsonify({'items': items}), 200
 
 
@@ -1401,10 +1461,56 @@ def api_get_book_rankings():
         if not Category.query.get(category_id):
             return jsonify({'error': 'category not found'}), 404
 
+    snapshot_date = date.today()
+
     books, categories, shelf_counts, reading_users, recent_progress, recent_events = _collect_ranking_stats(
         window_days=_ranking_period_days(period),
         category_id=category_id,
     )
+    book_map = {book.id: book for book in books}
+
+    manual_rows = (
+        BookRanking.query.filter_by(type=rank_type, snapshot_date=snapshot_date)
+        .order_by(BookRanking.rank_no.asc(), BookRanking.id.asc())
+        .limit(limit)
+        .all()
+    )
+    if manual_rows:
+        manual_items = []
+        for row in manual_rows:
+            book = book_map.get(row.book_id)
+            if not book:
+                continue
+            context = _build_book_ranking_context(
+                book,
+                shelf_counts=shelf_counts,
+                reading_users=reading_users,
+                recent_progress=recent_progress,
+                recent_events=recent_events,
+            )
+            ranking = _score_book_for_ranking(book, rank_type, context) or {
+                'score': max(context['recent_reads'], context['reading_users'], context['shelf_count']),
+                'heat_label': RANKING_TYPE_CONFIG[rank_type]['primary_metric'],
+                'ranking_note': '后台手动配置榜单',
+            }
+            manual_items.append(_build_ranking_payload(book, categories.get(book.category_id), rank_type, row.rank_no, ranking, context))
+
+        return jsonify(
+            {
+                'type': rank_type,
+                'period': period,
+                'category_id': category_id,
+                'meta': {
+                    'key': rank_type,
+                    **RANKING_TYPE_CONFIG[rank_type],
+                    'period_hint': '当前展示后台手动配置榜单',
+                },
+                'available_types': _ranking_type_options(),
+                'available_periods': _ranking_period_options(),
+                'snapshot_date': snapshot_date.isoformat(),
+                'items': manual_items,
+            }
+        ), 200
 
     ranked_items = []
     for book in books:

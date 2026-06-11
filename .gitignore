@@ -38,6 +38,8 @@ htmlcov/
 .env.*
 !.env.example
 *.sqlite3
+instance/recommendation_models/
+instance/logs/
 
 ########################
 # Node / 前端 (Vite + Vue)

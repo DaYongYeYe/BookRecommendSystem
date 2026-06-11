@@ -7,3 +7,5 @@ PyMySQL==1.1.0
 cryptography==41.0.4
 PyJWT==2.8.0
 cos-python-sdk-v5==1.9.33
+numpy==2.4.6
+torch==2.12.0

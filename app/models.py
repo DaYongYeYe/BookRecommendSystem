@@ -648,6 +648,68 @@ class RecommendationPlacement(db.Model):
         }
 
 
+class RecommendationModelVersion(db.Model):
+    __tablename__ = 'recommendation_model_versions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    version = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    embedding_dim = db.Column(db.Integer, nullable=False, default=64)
+    artifact_dir = db.Column(db.String(500))
+    metrics_json = db.Column(db.Text)
+    is_active = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    trained_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    def metrics(self):
+        if not self.metrics_json:
+            return {}
+        try:
+            return json.loads(self.metrics_json)
+        except (TypeError, ValueError):
+            return {}
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'version': self.version,
+            'embedding_dim': int(self.embedding_dim or 0),
+            'artifact_dir': self.artifact_dir,
+            'metrics': self.metrics(),
+            'is_active': bool(self.is_active),
+            'trained_at': self.trained_at.isoformat() if self.trained_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class RecommendationCandidate(db.Model):
+    __tablename__ = 'recommendation_candidates'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    model_version = db.Column(db.String(64), nullable=False, index=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    rank_no = db.Column(db.Integer, nullable=False, default=0)
+    score = db.Column(db.Float, nullable=False, default=0)
+    reason_type = db.Column(db.String(64), nullable=False, default='two_tower')
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now(), index=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'model_version', 'book_id', name='uniq_recommendation_candidate_user_model_book'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'model_version': self.model_version,
+            'book_id': self.book_id,
+            'rank_no': int(self.rank_no or 0),
+            'score': float(self.score or 0),
+            'reason_type': self.reason_type or 'two_tower',
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class ReaderUserPreference(db.Model):
     __tablename__ = 'reader_user_preferences'
 

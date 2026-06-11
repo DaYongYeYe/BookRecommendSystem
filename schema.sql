@@ -27,6 +27,8 @@ DROP TABLE IF EXISTS `reader_highlight_comments`;
 DROP TABLE IF EXISTS `reader_highlights`;
 DROP TABLE IF EXISTS `reader_paragraphs`;
 DROP TABLE IF EXISTS `reader_sections`;
+DROP TABLE IF EXISTS `recommendation_candidates`;
+DROP TABLE IF EXISTS `recommendation_model_versions`;
 DROP TABLE IF EXISTS `recommendation_feedback`;
 DROP TABLE IF EXISTS `community_book_review_reactions`;
 DROP TABLE IF EXISTS `community_book_reviews`;
@@ -545,6 +547,40 @@ CREATE TABLE `recommendation_placements` (
   KEY `idx_recommendation_placements_scene` (`scene`),
   KEY `idx_recommendation_placements_active` (`is_active`),
   KEY `idx_recommendation_placements_sort` (`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `recommendation_model_versions` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `version`       VARCHAR(64) NOT NULL,
+  `embedding_dim` INT NOT NULL DEFAULT 64,
+  `artifact_dir`  VARCHAR(500) DEFAULT NULL,
+  `metrics_json`  TEXT DEFAULT NULL,
+  `is_active`     TINYINT(1) NOT NULL DEFAULT 0,
+  `trained_at`    DATETIME DEFAULT NULL,
+  `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_recommendation_model_version` (`version`),
+  KEY `idx_recommendation_model_versions_version` (`version`),
+  KEY `idx_recommendation_model_versions_active` (`is_active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `recommendation_candidates` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`       BIGINT UNSIGNED NOT NULL,
+  `model_version` VARCHAR(64) NOT NULL,
+  `book_id`       BIGINT UNSIGNED NOT NULL,
+  `rank_no`       INT NOT NULL DEFAULT 0,
+  `score`         DOUBLE NOT NULL DEFAULT 0,
+  `reason_type`   VARCHAR(64) NOT NULL DEFAULT 'two_tower',
+  `updated_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_recommendation_candidate_user_model_book` (`user_id`, `model_version`, `book_id`),
+  KEY `idx_recommendation_candidates_user` (`user_id`),
+  KEY `idx_recommendation_candidates_model` (`model_version`),
+  KEY `idx_recommendation_candidates_book` (`book_id`),
+  KEY `idx_recommendation_candidates_updated_at` (`updated_at`),
+  CONSTRAINT `fk_recommendation_candidates_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_recommendation_candidates_book` FOREIGN KEY (`book_id`) REFERENCES `books`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `user_interest_tags` (

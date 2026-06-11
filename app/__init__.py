@@ -611,6 +611,45 @@ def _apply_schema_compatibility_patches(app: Flask):
                 """
             )
 
+        if 'recommendation_model_versions' not in table_names:
+            patches.append(
+                """
+                CREATE TABLE recommendation_model_versions (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    version VARCHAR(64) NOT NULL UNIQUE,
+                    embedding_dim INT NOT NULL DEFAULT 64,
+                    artifact_dir VARCHAR(500) NULL,
+                    metrics_json TEXT NULL,
+                    is_active TINYINT(1) NOT NULL DEFAULT 0,
+                    trained_at DATETIME NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    KEY idx_recommendation_model_versions_version (version),
+                    KEY idx_recommendation_model_versions_active (is_active)
+                )
+                """
+            )
+
+        if 'recommendation_candidates' not in table_names and 'books' in table_names:
+            patches.append(
+                f"""
+                CREATE TABLE recommendation_candidates (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id {users_id_type} NOT NULL,
+                    model_version VARCHAR(64) NOT NULL,
+                    book_id {books_id_type} NOT NULL,
+                    rank_no INT NOT NULL DEFAULT 0,
+                    score DOUBLE NOT NULL DEFAULT 0,
+                    reason_type VARCHAR(64) NOT NULL DEFAULT 'two_tower',
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uniq_recommendation_candidate_user_model_book (user_id, model_version, book_id),
+                    KEY idx_recommendation_candidates_user (user_id),
+                    KEY idx_recommendation_candidates_model (model_version),
+                    KEY idx_recommendation_candidates_book (book_id),
+                    KEY idx_recommendation_candidates_updated_at (updated_at)
+                )
+                """
+            )
+
         if 'book_lists' not in table_names and 'books' in table_names:
             patches.append(
                 f"""
@@ -890,6 +929,43 @@ def create_app(config_class=Config):
         with app.app_context():
             result = rollback_chapter_migration()
         print(f"Chapter migration rollback finished: {result}")
+
+    @app.cli.command('train-two-tower')
+    @click.option('--epochs', default=20, show_default=True, help='Training epochs.')
+    @click.option('--dim', 'embedding_dim', default=64, show_default=True, help='Embedding dimension.')
+    @click.option('--top-k', default=100, show_default=True, help='Candidates to export per user.')
+    @click.option('--activate', is_flag=True, help='Activate this model version after training.')
+    def train_two_tower_command(epochs, embedding_dim, top_k, activate):
+        """Train and export the two-tower recommendation model."""
+        from app.services.recommendation.offline import train_two_tower
+
+        with app.app_context():
+            result = train_two_tower(
+                epochs=epochs,
+                embedding_dim=embedding_dim,
+                top_k=top_k,
+                activate=activate,
+            )
+        print(
+            'Two-tower training finished: '
+            f"version={result['version']}, artifact_dir={result['artifact_dir']}, "
+            f"loss={result['metrics'].get('loss')}"
+        )
+
+    @app.cli.command('refresh-recommendation-candidates')
+    @click.option('--model-version', default='latest', show_default=True, help='Model version to refresh; latest uses active/latest.')
+    @click.option('--top-k', default=100, show_default=True, help='Candidates to persist per user.')
+    def refresh_recommendation_candidates_command(model_version, top_k):
+        """Refresh persisted recommendation candidates from a trained model artifact."""
+        from app.services.recommendation.offline import refresh_recommendation_candidates
+
+        with app.app_context():
+            result = refresh_recommendation_candidates(version=model_version, top_k=top_k)
+            db.session.commit()
+        print(
+            'Recommendation candidates refreshed: '
+            f"version={result['version']}, users={result['user_count']}, candidates={result['candidate_count']}"
+        )
 
     @app.cli.command('import-book-source')
     @click.option('--source', 'source_location', default=None, help='Book source JSON URL, source page URL, local JSON file, or comma-separated locations.')
