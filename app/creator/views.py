@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta
 
 from flask import current_app, jsonify, request
-from sqlalchemy import func
+from sqlalchemy import case, func
 
 from app import db
 from app.creator import bp
@@ -12,6 +12,7 @@ from app.models import (
     BookAnalyticsEvent,
     BookChapter,
     BookChapterRevision,
+    BookReview,
     CreatorApplication,
     CreatorNotification,
     BookManuscript,
@@ -20,6 +21,8 @@ from app.models import (
     Category,
     ReaderParagraph,
     ReaderSection,
+    ReaderBookComment,
+    UserShelf,
     Tag,
     User,
     UserReadingProgress,
@@ -58,6 +61,8 @@ WORK_CREATION_TYPES = {'original', 'fanfic', 'derivative'}
 WORK_REQUIRED_TAG_MIN = 3
 WORK_REQUIRED_TAG_MAX = 8
 WORK_DESCRIPTION_MIN_LENGTH = 20
+CREATOR_OPERATIONS_DEFAULT_BOOK_LIMIT = 100
+CREATOR_OPERATIONS_MAX_BOOK_LIMIT = 200
 
 
 def _is_creator(user):
@@ -1054,7 +1059,7 @@ def get_creator_book_chapters(current_user, book_id: int):
         return jsonify({'error': 'book not found'}), 404
     if book.is_deleted:
         return jsonify({'error': 'book is in recycle bin'}), 400
-    if book.creator_id not in (None, current_user.id):
+    if book.creator_id != current_user.id:
         return jsonify({'error': 'cannot access this book'}), 403
 
     ensure_chapter_workflow_seed(book)
@@ -1067,7 +1072,7 @@ def _load_owned_book_for_chapter(current_user, book_id: int):
         return None, jsonify({'error': 'book not found'}), 404
     if book.is_deleted:
         return None, jsonify({'error': 'book is in recycle bin'}), 400
-    if book.creator_id not in (None, current_user.id):
+    if book.creator_id != current_user.id:
         return None, jsonify({'error': 'cannot edit this book'}), 403
     return book, None, None
 
@@ -1275,7 +1280,7 @@ def create_creator_manuscript(current_user):
             return jsonify({'error': 'book not found'}), 404
         if book.is_deleted:
             return jsonify({'error': 'book is in recycle bin'}), 400
-        if book.creator_id not in (None, current_user.id):
+        if book.creator_id != current_user.id:
             return jsonify({'error': 'cannot edit this book'}), 403
     else:
         title = payload.get('title')
@@ -1475,6 +1480,544 @@ def _seconds_to_label(seconds: float):
     if minutes <= 0:
         return f'{remain}s'
     return f'{minutes}m {remain}s'
+
+
+def _date_key(value):
+    if not value:
+        return None
+    if hasattr(value, 'date'):
+        return value.date().isoformat()
+    return str(value)[:10]
+
+
+def _status_label(status):
+    labels = {
+        'draft': '草稿',
+        'submitted': '待审',
+        'pending': '待审',
+        'approved': '已通过',
+        'rejected': '已驳回',
+        'published': '已发布',
+        'up': '已上架',
+        'down': '未上架',
+        'forced_down': '强制下架',
+    }
+    return labels.get(status or '', status or '未知')
+
+
+def _money(value):
+    return round(float(value or 0), 2)
+
+
+def _safe_rate(numerator, denominator):
+    denominator = int(denominator or 0)
+    if denominator <= 0:
+        return 0
+    return round(int(numerator or 0) * 100 / denominator, 1)
+
+
+def _bounded_int_arg(name, *, default, minimum, maximum):
+    try:
+        value = int(request.args.get(name, default))
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, minimum), maximum)
+
+
+@bp.route('/operations', methods=['GET'])
+@login_required
+def get_creator_operations(current_user):
+    if not _is_creator(current_user):
+        return jsonify({'error': 'creator role required'}), 403
+
+    days = _bounded_int_arg('days', default=30, minimum=1, maximum=180)
+    limit = _bounded_int_arg(
+        'limit',
+        default=CREATOR_OPERATIONS_DEFAULT_BOOK_LIMIT,
+        minimum=1,
+        maximum=CREATOR_OPERATIONS_MAX_BOOK_LIMIT,
+    )
+    offset = _bounded_int_arg('offset', default=0, minimum=0, maximum=10000)
+
+    tenant_id = _tenant_id(current_user)
+    book_query = _creator_book_query(current_user)
+    total_books = book_query.count()
+    books = (
+        book_query
+        .order_by(Book.updated_at.desc(), Book.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    book_ids = [book.id for book in books]
+    today = datetime.utcnow().date()
+    trend_start_date = today - timedelta(days=days - 1)
+    trend_start = datetime.combine(trend_start_date, datetime.min.time())
+
+    if not book_ids:
+        return jsonify(
+            {
+                'summary': {
+                    'favorites': 0,
+                    'comments': 0,
+                    'completion_rate': 0,
+                    'simulated_income': 0,
+                    'pending_reviews': 0,
+                },
+                'trend': {
+                    'dates': [(trend_start_date + timedelta(days=offset)).isoformat() for offset in range(days)],
+                    'series': [],
+                },
+                'income': {
+                    'total': 0,
+                    'ad_share': 0,
+                    'subscription': 0,
+                    'bonus': 0,
+                    'items': [],
+                    'rules': _creator_income_rules(),
+                },
+                'fans': {'top_readers': [], 'recent_feedback': []},
+                'calendar': [],
+                'assist': _creator_assist_payload([], {}, {}),
+                'scope': {
+                    'total_books': total_books,
+                    'included_books': 0,
+                    'limit': limit,
+                    'offset': offset,
+                    'has_more': total_books > offset,
+                },
+            }
+        ), 200
+
+    event_count_rows = (
+        db.session.query(
+            BookAnalyticsEvent.book_id,
+            BookAnalyticsEvent.event_type,
+            func.count(BookAnalyticsEvent.id).label('total'),
+        )
+        .filter(
+            BookAnalyticsEvent.book_id.in_(book_ids),
+            BookAnalyticsEvent.event_type.in_(('impression', 'reader_open')),
+            BookAnalyticsEvent.created_at >= trend_start,
+        )
+        .group_by(BookAnalyticsEvent.book_id, BookAnalyticsEvent.event_type)
+        .all()
+    )
+    event_counts = {}
+    for row in event_count_rows:
+        event_counts.setdefault(row.book_id, {})[row.event_type] = int(row.total or 0)
+
+    read_user_rows = (
+        db.session.query(
+            UserReadingProgress.book_id,
+            func.count(func.distinct(UserReadingProgress.user_id)).label('read_users'),
+            func.sum(case((UserReadingProgress.scroll_percent >= 80, 1), else_=0)).label('completed_users'),
+        )
+        .filter(
+            UserReadingProgress.book_id.in_(book_ids),
+            UserReadingProgress.updated_at >= trend_start,
+        )
+        .group_by(UserReadingProgress.book_id)
+        .all()
+    )
+    read_users_map = {row.book_id: int(row.read_users or 0) for row in read_user_rows}
+    completed_users_map = {row.book_id: int(row.completed_users or 0) for row in read_user_rows}
+
+    favorite_rows = (
+        db.session.query(UserShelf.book_id, func.count(func.distinct(UserShelf.user_id)).label('favorites'))
+        .filter(
+            UserShelf.book_id.in_(book_ids),
+            UserShelf.created_at >= trend_start,
+        )
+        .group_by(UserShelf.book_id)
+        .all()
+    )
+    favorite_map = {row.book_id: int(row.favorites or 0) for row in favorite_rows}
+
+    reader_comment_rows = (
+        db.session.query(ReaderBookComment.book_id, func.count(ReaderBookComment.id).label('total'))
+        .filter(
+            ReaderBookComment.book_id.in_(book_ids),
+            ReaderBookComment.tenant_id == tenant_id,
+            ReaderBookComment.is_violation.is_(False),
+            ReaderBookComment.created_at >= trend_start,
+        )
+        .group_by(ReaderBookComment.book_id)
+        .all()
+    )
+    review_rows = (
+        db.session.query(BookReview.book_id, func.count(BookReview.id).label('total'))
+        .filter(
+            BookReview.book_id.in_(book_ids),
+            BookReview.visibility == 'public',
+            BookReview.is_violation.is_(False),
+            BookReview.created_at >= trend_start,
+        )
+        .group_by(BookReview.book_id)
+        .all()
+    )
+    comment_map = {row.book_id: int(row.total or 0) for row in reader_comment_rows}
+    for row in review_rows:
+        comment_map[row.book_id] = comment_map.get(row.book_id, 0) + int(row.total or 0)
+
+    section_count_rows = (
+        db.session.query(ReaderSection.book_id, func.count(ReaderSection.id).label('total'))
+        .filter(ReaderSection.book_id.in_(book_ids))
+        .group_by(ReaderSection.book_id)
+        .all()
+    )
+    section_count_map = {row.book_id: int(row.total or 0) for row in section_count_rows}
+
+    trend_series = _creator_operation_trend(book_ids, tenant_id, trend_start_date, trend_start, days)
+    income_payload = _creator_income_payload(books, event_counts, read_users_map, section_count_map)
+    fans_payload = _creator_fans_payload(book_ids, tenant_id, trend_start)
+    calendar_payload = _creator_calendar_payload(book_ids, current_user.id, tenant_id)
+    assist_payload = _creator_assist_payload(books, section_count_map, event_counts)
+
+    total_read_users = sum(read_users_map.values())
+    total_completed_users = sum(completed_users_map.values())
+    pending_reviews = sum(
+        1
+        for item in calendar_payload
+        if item.get('status') in ('submitted', 'pending')
+    )
+
+    return jsonify(
+        {
+            'summary': {
+                'favorites': sum(favorite_map.values()),
+                'comments': sum(comment_map.values()),
+                'completion_rate': _safe_rate(total_completed_users, total_read_users),
+                'simulated_income': income_payload['total'],
+                'pending_reviews': pending_reviews,
+            },
+            'trend': {
+                'dates': [(trend_start_date + timedelta(days=offset)).isoformat() for offset in range(days)],
+                'series': trend_series,
+            },
+            'income': income_payload,
+            'fans': fans_payload,
+            'calendar': calendar_payload,
+            'assist': assist_payload,
+            'scope': {
+                'total_books': total_books,
+                'included_books': len(book_ids),
+                'limit': limit,
+                'offset': offset,
+                'has_more': offset + len(book_ids) < total_books,
+            },
+        }
+    ), 200
+
+
+def _creator_operation_trend(book_ids, tenant_id, trend_start_date, trend_start, days):
+    date_keys = [(trend_start_date + timedelta(days=offset)).isoformat() for offset in range(days)]
+    bucket = {
+        day: {
+            'date': day,
+            'favorites': 0,
+            'comments': 0,
+            'completion_rate': 0,
+            'completed_users': 0,
+            'read_users': 0,
+        }
+        for day in date_keys
+    }
+
+    favorite_rows = (
+        db.session.query(func.date(UserShelf.created_at).label('event_date'), func.count(UserShelf.id).label('total'))
+        .filter(UserShelf.book_id.in_(book_ids), UserShelf.created_at >= trend_start)
+        .group_by(func.date(UserShelf.created_at))
+        .all()
+    )
+    for row in favorite_rows:
+        day = str(row.event_date)
+        if day in bucket:
+            bucket[day]['favorites'] = int(row.total or 0)
+
+    comment_rows = (
+        db.session.query(func.date(ReaderBookComment.created_at).label('event_date'), func.count(ReaderBookComment.id).label('total'))
+        .filter(
+            ReaderBookComment.book_id.in_(book_ids),
+            ReaderBookComment.tenant_id == tenant_id,
+            ReaderBookComment.is_violation.is_(False),
+            ReaderBookComment.created_at >= trend_start,
+        )
+        .group_by(func.date(ReaderBookComment.created_at))
+        .all()
+    )
+    for row in comment_rows:
+        day = str(row.event_date)
+        if day in bucket:
+            bucket[day]['comments'] += int(row.total or 0)
+
+    review_rows = (
+        db.session.query(func.date(BookReview.created_at).label('event_date'), func.count(BookReview.id).label('total'))
+        .filter(
+            BookReview.book_id.in_(book_ids),
+            BookReview.visibility == 'public',
+            BookReview.is_violation.is_(False),
+            BookReview.created_at >= trend_start,
+        )
+        .group_by(func.date(BookReview.created_at))
+        .all()
+    )
+    for row in review_rows:
+        day = str(row.event_date)
+        if day in bucket:
+            bucket[day]['comments'] += int(row.total or 0)
+
+    progress_rows = (
+        db.session.query(
+            func.date(UserReadingProgress.updated_at).label('event_date'),
+            func.count(func.distinct(UserReadingProgress.user_id)).label('read_users'),
+            func.sum(case((UserReadingProgress.scroll_percent >= 80, 1), else_=0)).label('completed_users'),
+        )
+        .filter(UserReadingProgress.book_id.in_(book_ids), UserReadingProgress.updated_at >= trend_start)
+        .group_by(func.date(UserReadingProgress.updated_at))
+        .all()
+    )
+    for row in progress_rows:
+        day = str(row.event_date)
+        if day in bucket:
+            bucket[day]['read_users'] = int(row.read_users or 0)
+            bucket[day]['completed_users'] = int(row.completed_users or 0)
+            bucket[day]['completion_rate'] = _safe_rate(row.completed_users, row.read_users)
+
+    return [bucket[day] for day in date_keys]
+
+
+def _creator_income_rules():
+    return [
+        {'title': '广告分成模拟', 'desc': '按阅读打开次数估算，每次阅读折算 0.018 元。'},
+        {'title': '订阅收入模拟', 'desc': '免费作品按阅读量折算长尾收益，付费作品按独立读者折算订阅收益。'},
+        {'title': '勤更奖励模拟', 'desc': '作品字数达到 5 万且已发布章节不少于 7 章时计入基础奖励。'},
+        {'title': '签约扶持展示', 'desc': '资料完整、更新稳定、完读率较高的作品可进入签约/推荐资源候选。'},
+    ]
+
+
+def _creator_income_payload(books, event_counts, read_users_map, section_count_map):
+    items = []
+    totals = {'ad_share': 0, 'subscription': 0, 'bonus': 0}
+    for book in books:
+        reads = int(event_counts.get(book.id, {}).get('reader_open', 0))
+        read_users = int(read_users_map.get(book.id, 0))
+        sections = int(section_count_map.get(book.id, 0))
+        ad_share = reads * 0.018
+        subscription = read_users * 0.12 if (book.price_type or 'free') == 'paid' else reads * 0.004
+        bonus = 80 if int(book.word_count or 0) >= 50000 and sections >= 7 else 0
+        total = ad_share + subscription + bonus
+        totals['ad_share'] += ad_share
+        totals['subscription'] += subscription
+        totals['bonus'] += bonus
+        items.append(
+            {
+                'book_id': book.id,
+                'title': book.title,
+                'reads': reads,
+                'read_users': read_users,
+                'ad_share': _money(ad_share),
+                'subscription': _money(subscription),
+                'bonus': _money(bonus),
+                'total': _money(total),
+            }
+        )
+
+    return {
+        'total': _money(totals['ad_share'] + totals['subscription'] + totals['bonus']),
+        'ad_share': _money(totals['ad_share']),
+        'subscription': _money(totals['subscription']),
+        'bonus': _money(totals['bonus']),
+        'items': sorted(items, key=lambda item: item['total'], reverse=True)[:8],
+        'rules': _creator_income_rules(),
+    }
+
+
+def _creator_fans_payload(book_ids, tenant_id, trend_start):
+    top_rows = (
+        db.session.query(
+            User.id.label('user_id'),
+            User.username.label('username'),
+            func.count(func.distinct(UserReadingProgress.book_id)).label('book_count'),
+            func.max(UserReadingProgress.updated_at).label('last_read_at'),
+            func.avg(UserReadingProgress.scroll_percent).label('avg_progress'),
+        )
+        .join(UserReadingProgress, UserReadingProgress.user_id == User.id)
+        .filter(
+            UserReadingProgress.book_id.in_(book_ids),
+            UserReadingProgress.updated_at >= trend_start,
+        )
+        .group_by(User.id, User.username)
+        .order_by(func.count(func.distinct(UserReadingProgress.book_id)).desc(), func.max(UserReadingProgress.updated_at).desc())
+        .limit(8)
+        .all()
+    )
+    top_readers = [
+        {
+            'user_id': row.user_id,
+            'username': row.username or f'读者 {row.user_id}',
+            'book_count': int(row.book_count or 0),
+            'avg_progress': round(float(row.avg_progress or 0), 1),
+            'last_read_at': row.last_read_at.isoformat() if row.last_read_at else None,
+        }
+        for row in top_rows
+    ]
+
+    comments = [
+        {
+            'type': '章节/作品评论',
+            'book_id': row.book_id,
+            'author': row.author,
+            'content': row.content,
+            'created_at': row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in (
+            ReaderBookComment.query
+            .filter(
+                ReaderBookComment.book_id.in_(book_ids),
+                ReaderBookComment.tenant_id == tenant_id,
+                ReaderBookComment.is_violation.is_(False),
+                ReaderBookComment.created_at >= trend_start,
+            )
+            .order_by(ReaderBookComment.created_at.desc(), ReaderBookComment.id.desc())
+            .limit(8)
+            .all()
+        )
+    ]
+    reviews = [
+        {
+            'type': '书评',
+            'book_id': row.book_id,
+            'author': f'读者 {row.user_id}',
+            'content': f'{row.title}：{row.content}',
+            'created_at': row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in (
+            BookReview.query
+            .filter(
+                BookReview.book_id.in_(book_ids),
+                BookReview.visibility == 'public',
+                BookReview.is_violation.is_(False),
+                BookReview.created_at >= trend_start,
+            )
+            .order_by(BookReview.created_at.desc(), BookReview.id.desc())
+            .limit(8)
+            .all()
+        )
+    ]
+    feedback = sorted(comments + reviews, key=lambda item: item.get('created_at') or '', reverse=True)[:8]
+    return {'top_readers': top_readers, 'recent_feedback': feedback}
+
+
+def _creator_calendar_payload(book_ids, creator_id, tenant_id):
+    items = []
+    manuscripts = (
+        BookManuscript.query
+        .filter_by(creator_id=creator_id, tenant_id=tenant_id, is_deleted=False)
+        .order_by(BookManuscript.updated_at.desc(), BookManuscript.id.desc())
+        .limit(20)
+        .all()
+    )
+    for item in manuscripts:
+        plan_date = item.published_at or item.submitted_at or item.updated_at or item.created_at
+        items.append(
+            {
+                'id': f'manuscript-{item.id}',
+                'source': '稿件',
+                'title': item.title,
+                'status': item.status,
+                'status_label': _status_label(item.status),
+                'date': _date_key(plan_date),
+                'note': item.review_comment or ('等待后台审核' if item.status == 'submitted' else ''),
+            }
+        )
+
+    revisions = (
+        db.session.query(BookChapterRevision, BookChapter, Book)
+        .join(BookChapter, BookChapter.id == BookChapterRevision.chapter_id)
+        .join(Book, Book.id == BookChapter.book_id)
+        .filter(Book.id.in_(book_ids), BookChapterRevision.tenant_id == tenant_id)
+        .order_by(BookChapterRevision.updated_at.desc(), BookChapterRevision.id.desc())
+        .limit(20)
+        .all()
+    )
+    for revision, chapter, book in revisions:
+        plan_date = revision.published_at or revision.submitted_at or revision.updated_at or revision.created_at
+        items.append(
+            {
+                'id': f'chapter-{revision.id}',
+                'source': '章节',
+                'title': f'《{book.title}》{chapter.chapter_no}. {revision.title}',
+                'status': revision.status,
+                'status_label': _status_label(revision.status),
+                'date': _date_key(plan_date),
+                'note': revision.review_comment or ('已进入章节审核流' if revision.status in ('submitted', 'pending') else ''),
+            }
+        )
+
+    return sorted(items, key=lambda item: item.get('date') or '', reverse=True)[:16]
+
+
+def _creator_assist_payload(books, section_count_map, event_counts):
+    sensitive_words = ['暴力', '色情', '赌博', '诈骗', '自杀', '仇恨']
+    sensitive_hits = []
+    outline_cards = []
+    word_goal = {'target': 4000, 'current': 0, 'percent': 0, 'message': '今日可以从一个 4000 字章节目标开始。'}
+
+    if books:
+        latest_book = max(books, key=lambda item: item.updated_at or item.created_at or datetime.min)
+        current_words = int(latest_book.word_count or 0)
+        daily_target = 4000
+        word_goal = {
+            'target': daily_target,
+            'current': min(current_words % daily_target, daily_target),
+            'percent': round(min((current_words % daily_target) / daily_target * 100, 100), 1) if daily_target else 0,
+            'message': f'《{latest_book.title}》累计 {current_words} 字，下一章建议保持 3000-5000 字。',
+        }
+
+    for book in books[:6]:
+        text_pool = ' '.join(
+            [
+                book.title or '',
+                book.description or '',
+                book.protagonist or '',
+                book.worldview or '',
+                book.author_notice or '',
+                book.update_note or '',
+            ]
+        )
+        for word in sensitive_words:
+            if word in text_pool:
+                sensitive_hits.append({'book_id': book.id, 'title': book.title, 'word': word, 'suggestion': '提交审核前建议改写或补充上下文。'})
+        outline_cards.append(
+            {
+                'book_id': book.id,
+                'title': book.title,
+                'sections': int(section_count_map.get(book.id, 0)),
+                'reads': int(event_counts.get(book.id, {}).get('reader_open', 0)),
+                'has_protagonist': bool((book.protagonist or '').strip()),
+                'has_worldview': bool((book.worldview or '').strip()),
+                'suggestion': _outline_suggestion(book, section_count_map),
+            }
+        )
+
+    return {
+        'word_goal': word_goal,
+        'sensitive_hits': sensitive_hits[:8],
+        'outline_cards': outline_cards,
+    }
+
+
+def _outline_suggestion(book, section_count_map):
+    if not (book.protagonist or '').strip():
+        return '补一张主角人物卡，方便后续章节保持动机一致。'
+    if not (book.worldview or '').strip():
+        return '补充世界观/规则说明，提升新读者进入效率。'
+    if int(section_count_map.get(book.id, 0)) < 5:
+        return '章节数还少，可以先规划 5-10 章的小高潮。'
+    if int(book.word_count or 0) < 30000:
+        return '继续稳定更新，达到 3 万字后更适合做推荐资源评估。'
+    return '资料完整度不错，可以围绕读者反馈优化下一段剧情钩子。'
 
 
 @bp.route('/books/analytics', methods=['GET'])

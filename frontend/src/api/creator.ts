@@ -315,6 +315,122 @@ export function getCreatorBookAnalytics(params?: { limit?: number; days?: number
   )
 }
 
+export interface CreatorOperationTrendItem {
+  date: string
+  favorites: number
+  comments: number
+  completion_rate: number
+  completed_users: number
+  read_users: number
+}
+
+export interface CreatorIncomeBookItem {
+  book_id: number
+  title: string
+  reads: number
+  read_users: number
+  ad_share: number
+  subscription: number
+  bonus: number
+  total: number
+}
+
+export interface CreatorIncomeRuleItem {
+  title: string
+  desc: string
+}
+
+export interface CreatorFeedbackItem {
+  type: string
+  book_id: number
+  author: string
+  content: string
+  created_at?: string | null
+}
+
+export interface CreatorTopReaderItem {
+  user_id: number
+  username: string
+  book_count: number
+  avg_progress: number
+  last_read_at?: string | null
+}
+
+export interface CreatorCalendarItem {
+  id: string
+  source: string
+  title: string
+  status: string
+  status_label: string
+  date?: string | null
+  note?: string | null
+}
+
+export interface CreatorAssistOutlineItem {
+  book_id: number
+  title: string
+  sections: number
+  reads: number
+  has_protagonist: boolean
+  has_worldview: boolean
+  suggestion: string
+}
+
+export interface CreatorSensitiveHitItem {
+  book_id: number
+  title: string
+  word: string
+  suggestion: string
+}
+
+export interface CreatorOperationsResponse {
+  summary: {
+    favorites: number
+    comments: number
+    completion_rate: number
+    simulated_income: number
+    pending_reviews: number
+  }
+  trend: {
+    dates: string[]
+    series: CreatorOperationTrendItem[]
+  }
+  income: {
+    total: number
+    ad_share: number
+    subscription: number
+    bonus: number
+    items: CreatorIncomeBookItem[]
+    rules: CreatorIncomeRuleItem[]
+  }
+  fans: {
+    top_readers: CreatorTopReaderItem[]
+    recent_feedback: CreatorFeedbackItem[]
+  }
+  calendar: CreatorCalendarItem[]
+  assist: {
+    word_goal: {
+      target: number
+      current: number
+      percent: number
+      message: string
+    }
+    sensitive_hits: CreatorSensitiveHitItem[]
+    outline_cards: CreatorAssistOutlineItem[]
+  }
+  scope?: {
+    total_books: number
+    included_books: number
+    limit: number
+    offset: number
+    has_more: boolean
+  }
+}
+
+export function getCreatorOperations(params?: { days?: number; limit?: number; offset?: number }) {
+  return request.get<CreatorOperationsResponse, CreatorOperationsResponse>('/creator/operations', { params })
+}
+
 export interface CreatorNotificationItem {
   id: number
   type: string
