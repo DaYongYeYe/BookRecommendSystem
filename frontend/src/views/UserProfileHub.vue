@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getToken } from '@/api/request'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { clearToken, getToken } from '@/api/request'
 import { USER_PROFILE_ROUTE_NAME } from '@/constants/routes'
 import { useUserProfileStore } from '@/stores/userProfile'
 
@@ -25,6 +26,40 @@ function goReadingStats() {
 
 function goCreatorCenter() {
   router.push('/creator-center')
+}
+
+function clearCurrentAccount() {
+  clearToken('user')
+  userProfileStore.clearProfile()
+}
+
+async function logout() {
+  try {
+    await ElMessageBox.confirm('退出后需要重新登录才能访问个人阅读和账号资料。', '退出登录', {
+      confirmButtonText: '退出登录',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    clearCurrentAccount()
+    ElMessage.success('已退出登录')
+    router.push('/')
+  } catch {
+    // User cancelled.
+  }
+}
+
+async function switchAccount() {
+  try {
+    await ElMessageBox.confirm('将退出当前账号，并跳转到登录页以切换账号。', '切换账号', {
+      confirmButtonText: '去登录',
+      cancelButtonText: '取消',
+      type: 'info',
+    })
+    clearCurrentAccount()
+    router.push({ path: '/login', query: { redirect: '/user/profile-hub' } })
+  } catch {
+    // User cancelled.
+  }
 }
 
 onMounted(async () => {
@@ -70,6 +105,23 @@ onMounted(async () => {
             <p class="text-base font-semibold">创作者信息</p>
             <p class="mt-2 text-sm text-stone-500">申请创作者并进入创作中心</p>
           </button>
+        </div>
+
+        <div class="mt-6 rounded-2xl border border-stone-200 bg-stone-50 p-5">
+          <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p class="text-base font-semibold">账号选项</p>
+              <p class="mt-1 text-sm text-stone-500">退出当前登录状态，或切换到另一个账号继续使用。</p>
+            </div>
+            <div class="flex flex-wrap gap-3">
+              <button class="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm text-stone-700 hover:border-stone-500" @click="switchAccount">
+                切换账号
+              </button>
+              <button class="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 hover:border-red-300 hover:bg-red-100" @click="logout">
+                退出登录
+              </button>
+            </div>
+          </div>
         </div>
       </section>
     </div>

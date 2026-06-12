@@ -36,6 +36,7 @@ import CreatorManuscripts from '@/views/creator/CreatorManuscripts.vue'
 import CreatorBookChapters from '@/views/creator/CreatorBookChapters.vue'
 import CreatorWorks from '@/views/creator/CreatorWorks.vue'
 import Forbidden from '@/views/Forbidden.vue'
+import NotFound from '@/views/NotFound.vue'
 import { clearToken, getToken } from '@/api/request'
 import { USER_PROFILE_HUB_ROUTE_NAME, USER_PROFILE_ROUTE_NAME } from '@/constants/routes'
 import { isAdminToken, isCreatorToken, isSuperAdminToken } from '@/utils/auth'
@@ -330,6 +331,18 @@ const routes: RouteRecordRaw[] = [
         component: CreatorBookChapters,
       },
     ],
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: NotFound,
+    meta: {
+      seo: {
+        title: '页面不存在 | 阿书铺子',
+        description: '请求的页面不存在，请返回首页继续浏览。',
+        robots: 'noindex,nofollow',
+      },
+    },
   },
 ]
 
