@@ -17,6 +17,7 @@ from app.services.reader_service import (
     get_bookmarks,
     get_reader_preferences,
     react_highlight,
+    reader_section_offset_for_key,
     save_reader_preferences,
 )
 
@@ -57,7 +58,13 @@ def _track_book_event(
 @bp.route('/books/<int:book_id>/reader', methods=['GET'])
 @login_optional
 def api_get_book_reader(current_user, book_id: int):
-    payload = build_reader_payload(book_id, current_user, section_offset=0, section_limit=READER_SECTION_PAGE_SIZE)
+    section_offset = reader_section_offset_for_key(book_id, request.args.get('section_id'))
+    payload = build_reader_payload(
+        book_id,
+        current_user,
+        section_offset=section_offset,
+        section_limit=READER_SECTION_PAGE_SIZE,
+    )
     if not payload:
         return jsonify({'error': 'book not found'}), 404
 

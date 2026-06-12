@@ -179,6 +179,10 @@ export interface ReaderAnalyticsContext {
   age_group?: string
 }
 
+export interface ReaderRequestContext extends ReaderAnalyticsContext {
+  section_id?: string
+}
+
 export interface CreateHighlightPayload {
   paragraph_id: string
   start_offset: number
@@ -189,8 +193,8 @@ export interface CreateHighlightPayload {
   author?: string
 }
 
-export function getReader(bookId: string | number, analytics?: ReaderAnalyticsContext) {
-  return request.get<any, ReaderPayload>(`/api/books/${bookId}/reader`, { params: analytics })
+export function getReader(bookId: string | number, context?: ReaderRequestContext) {
+  return request.get<any, ReaderPayload>(`/api/books/${bookId}/reader`, { params: context })
 }
 
 export function getReaderSections(bookId: string | number, offset = 0, limit = 5) {

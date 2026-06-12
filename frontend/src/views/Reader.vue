@@ -10,6 +10,7 @@ import {
   createReaderBookmark,
   deleteReaderBookmark,
   getReader,
+  getReadingProgress,
   getReaderPreferences,
   getReaderSections,
   reactHighlight,
@@ -218,7 +219,25 @@ const relatedSections = computed(() => {
 async function loadReader() {
   loading.value = true
   try {
-    const payload = await getReader(bookId.value, getAnalyticsContext())
+    const resumeTarget =
+      route.query.resume === '1' && getToken()
+        ? await getReadingProgress(bookId.value)
+            .then((response) =>
+              response.has_progress && response.progress?.section_id
+                ? {
+                    sectionId: response.progress.section_id,
+                    paragraphId: response.progress.paragraph_id,
+                  }
+                : null
+            )
+            .catch(() => null)
+        : null
+    const requestedSectionId = typeof route.query.section === 'string' ? route.query.section : ''
+    const initialSectionId = requestedSectionId || resumeTarget?.sectionId || ''
+    const payload = await getReader(bookId.value, {
+      ...getAnalyticsContext(),
+      ...(initialSectionId ? { section_id: initialSectionId } : {}),
+    })
     reader.value = payload
     sectionPagination.value = payload.sections_pagination || null
     bookmarks.value = payload.bookmarks || []

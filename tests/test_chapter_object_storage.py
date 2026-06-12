@@ -5,7 +5,7 @@ from app import create_app, db
 from app.models import Book, BookChapter, BookChapterRevision, ReaderParagraph, ReaderSection
 from app.services.chapter_content import get_record_text
 from app.services.publishing_service import create_chapter_draft
-from app.services.reader_service import build_reader_payload, build_reader_sections_payload
+from app.services.reader_service import build_reader_payload, build_reader_sections_payload, reader_section_offset_for_key
 from scripts.migrate_chapter_content_to_cos import migrate_revisions
 
 
@@ -295,6 +295,29 @@ class ChapterObjectStorageTestCase(unittest.TestCase):
                 'https://cos.example/book_chapters/chapter-1.txt',
                 'https://cos.example/book_chapters/chapter-2.txt',
                 'https://cos.example/book_chapters/chapter-3.txt',
+            ],
+        )
+
+    def test_reader_payload_can_start_from_saved_chapter_without_fetching_first_chapter(self):
+        book = Book(id=51, title='Resume Reader Book', author='Author', status='published', shelf_status='up')
+        db.session.add(book)
+        db.session.flush()
+        for index in range(1, 6):
+            self._create_published_chapter(book, index, f'Chapter {index} paragraph.')
+
+        db.session.commit()
+        self.storage.fetched_urls.clear()
+
+        offset = reader_section_offset_for_key(book.id, 'chapter-4')
+        payload = build_reader_payload(book.id, section_offset=offset, section_limit=2)
+
+        self.assertEqual(offset, 3)
+        self.assertEqual([section['id'] for section in payload['sections']], ['chapter-4', 'chapter-5'])
+        self.assertEqual(
+            self.storage.fetched_urls,
+            [
+                'https://cos.example/book_chapters/cache-51-4.txt',
+                'https://cos.example/book_chapters/cache-51-5.txt',
             ],
         )
 

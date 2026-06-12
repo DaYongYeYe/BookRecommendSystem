@@ -373,6 +373,33 @@ def _build_reader_outline(book_id: int):
     return [{'id': s.section_key, 'title': s.title, 'level': s.level} for s in sections], len(sections)
 
 
+def reader_section_offset_for_key(book_id: int, section_key: str | None) -> int:
+    section_key = (section_key or '').strip()
+    if not section_key:
+        return 0
+
+    chapters = (
+        BookChapter.query.filter(
+            BookChapter.book_id == book_id,
+            BookChapter.published_revision_id.isnot(None),
+        )
+        .order_by(BookChapter.chapter_no.asc(), BookChapter.id.asc())
+        .all()
+    )
+    if chapters:
+        for index, chapter in enumerate(chapters):
+            candidate_key = chapter.chapter_key or f'chapter-{chapter.chapter_no}'
+            if candidate_key == section_key:
+                return index
+        return 0
+
+    sections = ReaderSection.query.filter_by(book_id=book_id).order_by(ReaderSection.order_no.asc()).all()
+    for index, section in enumerate(sections):
+        if section.section_key == section_key:
+            return index
+    return 0
+
+
 def _build_reader_sections(book_id: int, offset: int = 0, limit: int | None = None):
     offset, limit = _clamp_section_window(offset, limit)
     chapters = (
