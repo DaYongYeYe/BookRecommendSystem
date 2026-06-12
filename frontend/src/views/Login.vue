@@ -2,7 +2,10 @@
   <div class="auth-page">
     <div class="auth-shell">
       <section class="auth-side">
-        <p class="eyebrow">Book Recommend</p>
+        <p class="eyebrow">
+          <img src="/logo.png" alt="阿书铺子" class="brand-logo" />
+          <span>阿书铺子</span>
+        </p>
         <h1>先逛到想读的书，再决定要不要登录。</h1>
         <p class="side-copy">
           首次进入可以先浏览推荐、榜单和书籍详情。需要收藏、继续阅读、同步进度时，再回来登录也不迟。
@@ -407,11 +410,21 @@ const openForgotPassword = () => {
 }
 
 .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   margin: 0;
   font-size: 13px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: rgba(247, 244, 239, 0.75);
+}
+
+.brand-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  object-fit: cover;
 }
 
 .auth-side h1 {

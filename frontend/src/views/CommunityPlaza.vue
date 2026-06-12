@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getToken } from '@/api/request'
 import { getMoreRecommendations, type HomeBookItem } from '@/api/home'
+import AppLogo from '@/components/AppLogo.vue'
 import {
   addBookToCommunityBooklist,
   createCommunityBooklist,
@@ -177,7 +178,9 @@ onMounted(loadCommunity)
   <div class="min-h-screen bg-[#f5f3ef] text-stone-900">
     <header class="sticky top-0 z-30 border-b border-stone-200 bg-white/95 backdrop-blur">
       <div class="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
-        <button class="text-lg font-semibold" @click="router.push('/')">Book Recommend</button>
+        <button class="shrink-0" aria-label="返回阿书铺子首页" @click="router.push('/')">
+          <AppLogo />
+        </button>
         <button class="rounded-full border border-stone-300 px-4 py-2 text-sm text-stone-700" @click="router.push('/recommendations')">更多推荐</button>
         <button class="rounded-full border border-stone-300 px-4 py-2 text-sm text-stone-700" @click="router.push('/user/library')">我的阅读</button>
         <span class="flex-1" />

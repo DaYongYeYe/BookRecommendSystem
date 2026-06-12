@@ -7,6 +7,7 @@ import { USER_PROFILE_HUB_ROUTE_NAME } from '@/constants/routes'
 import { DEFAULT_AVATAR_URL } from '@/utils/profile'
 import { useUserProfileStore } from '@/stores/userProfile'
 import { isCreatorToken } from '@/utils/auth'
+import AppLogo from '@/components/AppLogo.vue'
 import CategoryEntryGrid from '@/components/home/CategoryEntryGrid.vue'
 import {
   getBookRankings,
@@ -202,8 +203,8 @@ onMounted(async () => {
   <div class="min-h-screen bg-[#f5f3ef] text-stone-900">
     <header class="sticky top-0 z-30 border-b border-stone-200 bg-white/95 backdrop-blur">
       <div class="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
-        <button class="shrink-0 text-lg font-semibold tracking-tight" @click="router.push('/')">
-          Book Recommend
+        <button class="shrink-0" aria-label="返回阿书铺子首页" @click="router.push('/')">
+          <AppLogo />
         </button>
         <button
           class="flex min-w-0 flex-1 items-center gap-3 rounded-full border border-stone-200 bg-stone-50 px-4 py-3 text-left transition hover:border-stone-300 hover:bg-white"

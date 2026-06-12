@@ -2,7 +2,10 @@
   <div class="auth-page">
     <div class="auth-shell">
       <section class="auth-side">
-        <p class="eyebrow">Start Reading</p>
+        <p class="eyebrow">
+          <img src="/logo.png" alt="阿书铺子" class="brand-logo" />
+          <span>阿书铺子</span>
+        </p>
         <h1>先建立账号，之后的阅读轨迹就都能被记住。</h1>
         <p class="side-copy">
           注册后你可以收藏书籍、保存阅读进度、维护个人偏好。若还不想立刻注册，也可以先逛逛推荐区再决定。
@@ -340,11 +343,21 @@ const goGuestExplore = () => {
 }
 
 .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   margin: 0;
   font-size: 13px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: rgba(248, 250, 252, 0.74);
+}
+
+.brand-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  object-fit: cover;
 }
 
 .auth-side h1 {
