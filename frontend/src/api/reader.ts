@@ -9,6 +9,7 @@ export interface ReaderComment {
 
 export interface ReaderHighlight {
   id: number
+  user_id?: number | null
   paragraph_id: string
   start_offset: number
   end_offset: number
@@ -17,6 +18,9 @@ export interface ReaderHighlight {
   note: string
   created_by: string
   created_at: string
+  is_mine?: boolean
+  likes_count?: number
+  liked_by_me?: boolean
   comments: ReaderComment[]
 }
 
@@ -207,6 +211,13 @@ export function createHighlightComment(
   return request.post<any, { comment: ReaderComment }>(
     `/api/books/${bookId}/highlights/${highlightId}/comments`,
     payload
+  )
+}
+
+export function reactHighlight(bookId: string | number, highlightId: number, liked: boolean) {
+  return request.post<any, { highlight: ReaderHighlight }>(
+    `/api/books/${bookId}/highlights/${highlightId}/reaction`,
+    { liked }
   )
 }
 

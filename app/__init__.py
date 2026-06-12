@@ -21,6 +21,7 @@ def _apply_schema_compatibility_patches(app: Flask):
     """
     with app.app_context():
         inspector = inspect(db.engine)
+        is_sqlite = db.engine.dialect.name == 'sqlite'
         table_names = set(inspector.get_table_names())
         if 'users' not in table_names:
             return
@@ -281,6 +282,45 @@ def _apply_schema_compatibility_patches(app: Flask):
                     books_id_type = 'INT'
                 if 'UNSIGNED' in raw_type:
                     books_id_type = f'{books_id_type} UNSIGNED'
+
+        if 'reader_highlights' in table_names:
+            rh_columns = {col['name'] for col in inspector.get_columns('reader_highlights')}
+            if 'user_id' not in rh_columns:
+                patches.append(f"ALTER TABLE reader_highlights ADD COLUMN user_id {users_id_type} NULL")
+            if 'likes_count' not in rh_columns:
+                patches.append("ALTER TABLE reader_highlights ADD COLUMN likes_count INT NOT NULL DEFAULT 0")
+
+        if 'reader_highlight_reactions' not in table_names:
+            if is_sqlite:
+                patches.append(
+                    """
+                    CREATE TABLE reader_highlight_reactions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        highlight_id INTEGER NOT NULL,
+                        user_id INTEGER NOT NULL,
+                        reaction VARCHAR(20) NOT NULL DEFAULT 'like',
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE (highlight_id, user_id)
+                    )
+                    """
+                )
+                patches.append("CREATE INDEX idx_reader_highlight_reactions_highlight ON reader_highlight_reactions (highlight_id)")
+                patches.append("CREATE INDEX idx_reader_highlight_reactions_user ON reader_highlight_reactions (user_id)")
+            else:
+                patches.append(
+                    f"""
+                    CREATE TABLE reader_highlight_reactions (
+                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        highlight_id BIGINT UNSIGNED NOT NULL,
+                        user_id {users_id_type} NOT NULL,
+                        reaction VARCHAR(20) NOT NULL DEFAULT 'like',
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY uniq_reader_highlight_reaction_user (highlight_id, user_id),
+                        KEY idx_reader_highlight_reactions_highlight (highlight_id),
+                        KEY idx_reader_highlight_reactions_user (user_id)
+                    )
+                    """
+                )
 
         if 'book_manuscripts' not in table_names:
             patches.append(

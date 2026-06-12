@@ -12,6 +12,7 @@ from app.models import (
     ReaderBookComment,
     ReaderHighlight,
     ReaderHighlightComment,
+    ReaderHighlightReaction,
     ReaderParagraph,
     ReaderSection,
     ReaderUserPreference,
@@ -163,6 +164,14 @@ def _display_name(user):
     if not user:
         return '当前读者'
     return (getattr(user, 'pen_name', None) or user.name or user.username or f'user-{user.id}').strip()
+
+
+def _is_highlight_mine(highlight: ReaderHighlight, user):
+    if not user:
+        return False
+    if getattr(highlight, 'user_id', None):
+        return int(highlight.user_id) == int(user.id)
+    return (highlight.created_by or '').strip() == _display_name(user)
 
 
 def _estimate_reading_minutes(word_count: int) -> int:
@@ -445,6 +454,7 @@ def build_reader_payload(book_id: int, current_user=None, section_offset: int = 
     highlights = ReaderHighlight.query.filter_by(book_id=book_id).order_by(ReaderHighlight.id.asc()).all()
     highlight_ids = [item.id for item in highlights]
     comments_map = {}
+    liked_highlight_ids = set()
     if highlight_ids:
         comments = (
             ReaderHighlightComment.query.filter(ReaderHighlightComment.highlight_id.in_(highlight_ids))
@@ -460,10 +470,20 @@ def build_reader_payload(book_id: int, current_user=None, section_offset: int = 
                     'created_at': _fmt(comment.created_at),
                 }
             )
+        if current_user:
+            liked_highlight_ids = {
+                row.highlight_id
+                for row in ReaderHighlightReaction.query.filter(
+                    ReaderHighlightReaction.highlight_id.in_(highlight_ids),
+                    ReaderHighlightReaction.user_id == current_user.id,
+                    ReaderHighlightReaction.reaction == 'like',
+                ).all()
+            }
 
     payload_highlights = [
         {
             'id': h.id,
+            'user_id': h.user_id,
             'paragraph_id': h.paragraph_key,
             'start_offset': h.start_offset,
             'end_offset': h.end_offset,
@@ -472,6 +492,9 @@ def build_reader_payload(book_id: int, current_user=None, section_offset: int = 
             'note': h.note or '',
             'created_by': h.created_by,
             'created_at': _fmt(h.created_at),
+            'is_mine': _is_highlight_mine(h, current_user),
+            'likes_count': int(h.likes_count or 0),
+            'liked_by_me': h.id in liked_highlight_ids,
             'comments': comments_map.get(h.id, []),
         }
         for h in highlights
@@ -741,6 +764,7 @@ def create_highlight(book_id: int, payload: dict, user=None):
 
     highlight = ReaderHighlight(
         book_id=book_id,
+        user_id=getattr(user, 'id', None),
         paragraph_key=paragraph_id,
         start_offset=start_offset,
         end_offset=end_offset,
@@ -754,6 +778,7 @@ def create_highlight(book_id: int, payload: dict, user=None):
 
     return {
         'id': highlight.id,
+        'user_id': highlight.user_id,
         'paragraph_id': highlight.paragraph_key,
         'start_offset': highlight.start_offset,
         'end_offset': highlight.end_offset,
@@ -762,6 +787,9 @@ def create_highlight(book_id: int, payload: dict, user=None):
         'note': highlight.note or '',
         'created_by': highlight.created_by,
         'created_at': _fmt(highlight.created_at),
+        'is_mine': True,
+        'likes_count': int(highlight.likes_count or 0),
+        'liked_by_me': False,
         'comments': [],
     }, None
 
@@ -791,6 +819,66 @@ def create_highlight_comment(book_id: int, highlight_id: int, payload: dict, use
         'author': comment.author,
         'content': comment.content,
         'created_at': _fmt(comment.created_at),
+    }, None
+
+
+def react_highlight(book_id: int, highlight_id: int, payload: dict, user=None):
+    if not user:
+        return None, 'login required'
+    ensure_seed(book_id)
+    highlight = ReaderHighlight.query.filter_by(id=highlight_id, book_id=book_id).first()
+    if not highlight:
+        return None, 'highlight not found'
+    if _is_highlight_mine(highlight, user):
+        return None, 'cannot like your own comment'
+
+    has_own_comment = ReaderHighlight.query.filter_by(
+        book_id=book_id,
+        paragraph_key=highlight.paragraph_key,
+        user_id=user.id,
+    ).first()
+    if not has_own_comment:
+        display_name = _display_name(user)
+        has_own_comment = ReaderHighlight.query.filter_by(
+            book_id=book_id,
+            paragraph_key=highlight.paragraph_key,
+            created_by=display_name,
+        ).first()
+    if not has_own_comment:
+        return None, 'comment first before liking'
+
+    liked = payload.get('liked', True)
+    if not isinstance(liked, bool):
+        return None, 'liked must be boolean'
+
+    existing = ReaderHighlightReaction.query.filter_by(highlight_id=highlight.id, user_id=user.id).first()
+    if liked and not existing:
+        db.session.add(ReaderHighlightReaction(highlight_id=highlight.id, user_id=user.id, reaction='like'))
+    if (not liked) and existing:
+        db.session.delete(existing)
+
+    db.session.flush()
+    highlight.likes_count = ReaderHighlightReaction.query.filter_by(
+        highlight_id=highlight.id,
+        reaction='like',
+    ).count()
+    db.session.commit()
+
+    return {
+        'id': highlight.id,
+        'user_id': highlight.user_id,
+        'paragraph_id': highlight.paragraph_key,
+        'start_offset': highlight.start_offset,
+        'end_offset': highlight.end_offset,
+        'selected_text': highlight.selected_text,
+        'color': highlight.color,
+        'note': highlight.note or '',
+        'created_by': highlight.created_by,
+        'created_at': _fmt(highlight.created_at),
+        'is_mine': False,
+        'likes_count': int(highlight.likes_count or 0),
+        'liked_by_me': liked,
+        'comments': [],
     }, None
 
 

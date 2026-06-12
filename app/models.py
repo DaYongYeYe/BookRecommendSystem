@@ -881,6 +881,7 @@ class ReaderHighlight(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), index=True)
     paragraph_key = db.Column(db.String(64), nullable=False, index=True)
     start_offset = db.Column(db.Integer, nullable=False)
     end_offset = db.Column(db.Integer, nullable=False)
@@ -888,7 +889,20 @@ class ReaderHighlight(db.Model):
     color = db.Column(db.String(32), nullable=False, default='amber')
     note = db.Column(db.Text)
     created_by = db.Column(db.String(64), nullable=False, default='当前读者')
+    likes_count = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+
+class ReaderHighlightReaction(db.Model):
+    __tablename__ = 'reader_highlight_reactions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    highlight_id = db.Column(db.Integer, db.ForeignKey('reader_highlights.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    reaction = db.Column(db.String(20), nullable=False, default='like')
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('highlight_id', 'user_id', name='uniq_reader_highlight_reaction_user'),)
 
 
 class ReaderHighlightComment(db.Model):

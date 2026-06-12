@@ -16,6 +16,7 @@ from app.services.reader_service import (
     delete_bookmark,
     get_bookmarks,
     get_reader_preferences,
+    react_highlight,
     save_reader_preferences,
 )
 
@@ -142,6 +143,17 @@ def api_create_highlight_comment(current_user, book_id: int, highlight_id: int):
     if error:
         return jsonify({'error': error}), 400
     return jsonify({'message': 'comment created', 'comment': comment}), 201
+
+
+@bp.route('/books/<int:book_id>/highlights/<int:highlight_id>/reaction', methods=['POST'])
+@login_required
+def api_react_highlight(current_user, book_id: int, highlight_id: int):
+    highlight, error = react_highlight(book_id, highlight_id, request.get_json() or {}, current_user)
+    if error == 'highlight not found':
+        return jsonify({'error': error}), 404
+    if error:
+        return jsonify({'error': error}), 400
+    return jsonify({'message': 'reaction saved', 'highlight': highlight}), 200
 
 
 @bp.route('/books/<int:book_id>/comments', methods=['POST'])
