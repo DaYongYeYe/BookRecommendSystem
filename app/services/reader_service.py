@@ -1,4 +1,7 @@
 from datetime import datetime
+from hashlib import md5
+
+from flask import current_app
 
 from app import db
 from app.models import (
@@ -20,6 +23,7 @@ from app.models import (
     UserReadingProgress,
     UserShelf,
 )
+from app.services.cache_service import get_json, set_json
 from app.services.chapter_content import get_record_text, store_text_on_record
 
 
@@ -474,6 +478,53 @@ def _build_reader_sections(book_id: int, offset: int = 0, limit: int | None = No
     return payload_outline, payload_sections, total, total_words
 
 
+def _reader_sections_cache_ttl() -> int:
+    try:
+        return int(current_app.config.get('READER_SECTIONS_CACHE_TTL', 1800))
+    except RuntimeError:
+        return 1800
+
+
+def _reader_sections_cache_key(book_id: int, offset: int, limit: int) -> str | None:
+    rows = (
+        db.session.query(
+            BookChapter.id,
+            BookChapter.chapter_key,
+            BookChapter.chapter_no,
+            BookChapter.published_revision_id,
+            BookChapterRevision.content_md5,
+            BookChapterRevision.content_url,
+            BookChapterRevision.updated_at,
+        )
+        .join(BookChapterRevision, BookChapter.published_revision_id == BookChapterRevision.id)
+        .filter(
+            BookChapter.book_id == book_id,
+            BookChapter.published_revision_id.isnot(None),
+        )
+        .order_by(BookChapter.chapter_no.asc(), BookChapter.id.asc())
+        .all()
+    )
+    if not rows:
+        return None
+
+    signature = '|'.join(
+        ':'.join(
+            [
+                str(row.id),
+                str(row.chapter_key or ''),
+                str(row.chapter_no or ''),
+                str(row.published_revision_id or ''),
+                str(row.content_md5 or ''),
+                str(row.content_url or ''),
+                row.updated_at.isoformat() if row.updated_at else '',
+            ]
+        )
+        for row in rows
+    )
+    digest = md5(signature.encode('utf-8')).hexdigest()
+    return f'book:reader-sections:v1:{book_id}:{offset}:{limit}:{digest}'
+
+
 def build_reader_sections_payload(book_id: int, offset: int = 0, limit: int = MAX_READER_SECTION_LIMIT):
     ensure_seed(book_id)
     book = Book.query.get(book_id)
@@ -481,9 +532,15 @@ def build_reader_sections_payload(book_id: int, offset: int = 0, limit: int = MA
         return None
 
     offset, limit = _clamp_section_window(offset, limit)
+    cache_key = _reader_sections_cache_key(book_id, offset, limit)
+    if cache_key:
+        cached_payload = get_json(cache_key)
+        if isinstance(cached_payload, dict):
+            return cached_payload
+
     _, payload_sections, total, _ = _build_reader_sections(book_id, offset=offset, limit=limit)
     next_offset = offset + len(payload_sections)
-    return {
+    payload = {
         'sections': payload_sections,
         'pagination': {
             'offset': offset,
@@ -493,6 +550,9 @@ def build_reader_sections_payload(book_id: int, offset: int = 0, limit: int = MA
             'has_more': next_offset < total,
         },
     }
+    if cache_key:
+        set_json(cache_key, payload, _reader_sections_cache_ttl())
+    return payload
 
 
 def build_reader_payload(

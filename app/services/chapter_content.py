@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+from hashlib import md5
 from typing import Any
 
+from flask import current_app
+
+from app.services.cache_service import get_text, set_text
 from app.services.tencent_cos import fetch_text, upload_text
 
 
@@ -34,11 +38,47 @@ def store_text_on_record(record: Any, content: str | None, *, folder: str, clear
     return text
 
 
+def _chapter_revision_cache_key(record: Any) -> str | None:
+    if not record or record.__class__.__name__ != 'BookChapterRevision':
+        return None
+    record_id = getattr(record, 'id', None)
+    if not record_id:
+        return None
+
+    inline_text = getattr(record, 'content_text', None)
+    if inline_text:
+        fingerprint = md5(inline_text.encode('utf-8')).hexdigest()
+    else:
+        fingerprint = (
+            (getattr(record, 'content_md5', None) or '').strip()
+            or (getattr(record, 'content_url', None) or '').strip()
+            or str(getattr(record, 'updated_at', '') or '')
+        )
+        fingerprint = md5(fingerprint.encode('utf-8')).hexdigest()
+    return f'book:chapter-content:v1:{record_id}:{fingerprint}'
+
+
+def _chapter_content_cache_ttl() -> int:
+    try:
+        return int(current_app.config.get('CHAPTER_CONTENT_CACHE_TTL', 86400))
+    except RuntimeError:
+        return 86400
+
+
 def get_record_text(record: Any) -> str:
     if not record:
         return ''
+
+    cache_key = _chapter_revision_cache_key(record)
+    if cache_key:
+        cached_text = get_text(cache_key)
+        if cached_text is not None:
+            return cached_text
+
     inline_text = getattr(record, 'content_text', None)
     if inline_text:
+        if cache_key:
+            set_text(cache_key, inline_text, _chapter_content_cache_ttl())
         return inline_text
 
     content_url = (getattr(record, 'content_url', None) or '').strip()
@@ -47,7 +87,10 @@ def get_record_text(record: Any) -> str:
     text, error = fetch_text(content_url, getattr(record, 'content_md5', None))
     if error:
         raise ContentStorageError(error)
-    return text or ''
+    text = text or ''
+    if cache_key and text:
+        set_text(cache_key, text, _chapter_content_cache_ttl())
+    return text
 
 
 def store_manuscript_chapters(manuscript: Any, chapters: list[dict] | None) -> None:

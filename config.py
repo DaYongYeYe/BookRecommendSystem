@@ -10,6 +10,8 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     REDIS_URL = os.environ.get('REDIS_URL')
+    CHAPTER_CONTENT_CACHE_TTL = int(os.environ.get('CHAPTER_CONTENT_CACHE_TTL', 86400))
+    READER_SECTIONS_CACHE_TTL = int(os.environ.get('READER_SECTIONS_CACHE_TTL', 1800))
     SITE_PUBLIC_URL = os.environ.get('SITE_PUBLIC_URL', '').rstrip('/')
 
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or SECRET_KEY
