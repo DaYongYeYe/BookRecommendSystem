@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from app import create_app, db
-from app.models import Book, BookChapter, BookChapterRevision
+from app.models import Book, BookChapter, BookChapterRevision, ReaderParagraph, ReaderSection
 from app.services.publishing_service import create_chapter_draft
 from app.services.reader_service import build_reader_payload
 from scripts.migrate_chapter_content_to_cos import migrate_revisions
@@ -200,6 +200,46 @@ class ChapterObjectStorageTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.get_json()['outline']), 3)
         self.assertEqual(self.storage.fetched_urls, [])
+
+    def test_legacy_reader_sections_page_without_chapter_revisions(self):
+        book = Book(
+            id=45,
+            title='Legacy Reader Book',
+            author='Author',
+            status='published',
+            shelf_status='up',
+        )
+        db.session.add(book)
+        db.session.flush()
+
+        for index in range(1, 5):
+            section = ReaderSection(
+                book_id=book.id,
+                section_key=f'legacy-{index}',
+                title=f'Legacy {index}',
+                summary=f'Summary {index}',
+                level=1,
+                order_no=index,
+            )
+            db.session.add(section)
+            db.session.flush()
+            db.session.add(
+                ReaderParagraph(
+                    section_id=section.id,
+                    paragraph_key=f'legacy-{index}-p1',
+                    text=f'Legacy paragraph {index}.',
+                    order_no=1,
+                )
+            )
+
+        db.session.commit()
+
+        payload = build_reader_payload(book.id, section_limit=3)
+
+        self.assertEqual(len(payload['outline']), 4)
+        self.assertEqual(len(payload['sections']), 3)
+        self.assertEqual(payload['sections_pagination']['next_offset'], 3)
+        self.assertEqual(payload['book']['total_words'], sum(len(f'Legacy paragraph {index}.') for index in range(1, 5)))
 
     def test_migration_uploads_revision_and_clears_inline_content(self):
         book = Book(title='Legacy Book', author='Author', status='published', shelf_status='up')

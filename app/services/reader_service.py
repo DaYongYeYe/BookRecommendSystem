@@ -465,11 +465,11 @@ def _build_reader_sections(book_id: int, offset: int = 0, limit: int | None = No
     if limit is None:
         total_words = sum(len(paragraph['text']) for section in payload_sections for paragraph in section['paragraphs'])
     elif all_section_ids:
-        total_words = sum(
-            len(text or '')
-            for (text,) in ReaderParagraph.query.with_entities(ReaderParagraph.text)
+        total_words = int(
+            db.session.query(db.func.coalesce(db.func.sum(db.func.length(ReaderParagraph.text)), 0))
             .filter(ReaderParagraph.section_id.in_(all_section_ids))
-            .all()
+            .scalar()
+            or 0
         )
     return payload_outline, payload_sections, total, total_words
 
