@@ -21,7 +21,7 @@ from app.services.reader_service import (
 )
 
 
-READER_SECTION_PAGE_SIZE = 5
+READER_SECTION_PAGE_SIZE = 3
 
 
 def _clean_text(value, max_len: int):
@@ -102,7 +102,7 @@ def api_get_book_reader_sections(current_user, book_id: int):
 @bp.route('/books/<int:book_id>/landing', methods=['GET'])
 @login_optional
 def api_get_book_landing(current_user, book_id: int):
-    payload = build_reader_payload(book_id, current_user)
+    payload = build_reader_payload(book_id, current_user, include_sections=False)
     if not payload:
         return jsonify({'error': 'book not found'}), 404
     _track_book_event(

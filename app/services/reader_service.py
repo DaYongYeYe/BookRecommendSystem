@@ -304,7 +304,7 @@ def ensure_seed(book_id: int):
     db.session.commit()
 
 
-MAX_READER_SECTION_LIMIT = 5
+MAX_READER_SECTION_LIMIT = 3
 
 
 def _clamp_section_window(offset: int = 0, limit: int | None = None):
@@ -334,6 +334,41 @@ def _split_revision_paragraphs(section_key: str, content_text: str | None):
     ]
 
 
+def _build_reader_outline(book_id: int):
+    chapters = (
+        BookChapter.query.filter(
+            BookChapter.book_id == book_id,
+            BookChapter.published_revision_id.isnot(None),
+        )
+        .order_by(BookChapter.chapter_no.asc(), BookChapter.id.asc())
+        .all()
+    )
+
+    if chapters:
+        revision_ids = [item.published_revision_id for item in chapters if item.published_revision_id]
+        revision_meta_rows = (
+            db.session.query(BookChapterRevision.id, BookChapterRevision.title)
+            .filter(BookChapterRevision.id.in_(revision_ids))
+            .all()
+            if revision_ids
+            else []
+        )
+        revision_title_map = {item.id: item.title for item in revision_meta_rows}
+        outline = [
+            {
+                'id': chapter.chapter_key or f'chapter-{chapter.chapter_no}',
+                'title': revision_title_map.get(chapter.published_revision_id) or chapter.title,
+                'level': 1,
+            }
+            for chapter in chapters
+            if chapter.published_revision_id in revision_title_map
+        ]
+        return outline, len(outline)
+
+    sections = ReaderSection.query.filter_by(book_id=book_id).order_by(ReaderSection.order_no.asc()).all()
+    return [{'id': s.section_key, 'title': s.title, 'level': s.level} for s in sections], len(sections)
+
+
 def _build_reader_sections(book_id: int, offset: int = 0, limit: int | None = None):
     offset, limit = _clamp_section_window(offset, limit)
     chapters = (
@@ -351,24 +386,45 @@ def _build_reader_sections(book_id: int, offset: int = 0, limit: int | None = No
 
     if chapters:
         revision_ids = [item.published_revision_id for item in chapters if item.published_revision_id]
-        revisions = (
-            BookChapterRevision.query.filter(BookChapterRevision.id.in_(revision_ids)).all()
+        revision_meta_rows = (
+            db.session.query(BookChapterRevision.id, BookChapterRevision.title, BookChapterRevision.summary)
+            .filter(BookChapterRevision.id.in_(revision_ids))
+            .all()
             if revision_ids
             else []
         )
-        revision_map = {item.id: item for item in revisions}
-        section_records = []
+        revision_meta_map = {
+            item.id: {
+                'title': item.title,
+                'summary': item.summary,
+            }
+            for item in revision_meta_rows
+        }
         for chapter in chapters:
-            revision = revision_map.get(chapter.published_revision_id)
+            revision_meta = revision_meta_map.get(chapter.published_revision_id)
+            if not revision_meta:
+                continue
+            section_key = chapter.chapter_key or f'chapter-{chapter.chapter_no}'
+            payload_outline.append({'id': section_key, 'title': revision_meta['title'] or chapter.title, 'level': 1})
+
+        selected_chapters = chapters[offset:] if limit is None else chapters[offset:offset + limit]
+        selected_revision_ids = [item.published_revision_id for item in selected_chapters if item.published_revision_id]
+        selected_revisions = (
+            BookChapterRevision.query.filter(BookChapterRevision.id.in_(selected_revision_ids)).all()
+            if selected_revision_ids
+            else []
+        )
+        selected_revision_map = {item.id: item for item in selected_revisions}
+        selected_records = []
+        for chapter in selected_chapters:
+            revision = selected_revision_map.get(chapter.published_revision_id)
             if not revision:
                 continue
             section_key = chapter.chapter_key or f'chapter-{chapter.chapter_no}'
             content_text = get_record_text(revision)
-            section_records.append((section_key, revision, content_text))
-            payload_outline.append({'id': section_key, 'title': revision.title, 'level': 1})
+            selected_records.append((section_key, revision, content_text))
             total_words += len(content_text or '')
 
-        selected_records = section_records[offset:] if limit is None else section_records[offset:offset + limit]
         payload_sections = [
             {
                 'id': section_key,
@@ -378,7 +434,7 @@ def _build_reader_sections(book_id: int, offset: int = 0, limit: int | None = No
             }
             for section_key, revision, content_text in selected_records
         ]
-        return payload_outline, payload_sections, len(section_records), total_words
+        return payload_outline, payload_sections, len(payload_outline), total_words
 
     sections = ReaderSection.query.filter_by(book_id=book_id).order_by(ReaderSection.order_no.asc()).all()
     payload_outline = [{'id': s.section_key, 'title': s.title, 'level': s.level} for s in sections]
@@ -439,17 +495,28 @@ def build_reader_sections_payload(book_id: int, offset: int = 0, limit: int = MA
     }
 
 
-def build_reader_payload(book_id: int, current_user=None, section_offset: int = 0, section_limit: int | None = None):
+def build_reader_payload(
+    book_id: int,
+    current_user=None,
+    section_offset: int = 0,
+    section_limit: int | None = MAX_READER_SECTION_LIMIT,
+    include_sections: bool = True,
+):
     ensure_seed(book_id)
     book = Book.query.get(book_id)
     if not book or (book.status or 'published') != 'published' or (book.shelf_status or 'down') != 'up':
         return None
 
-    payload_outline, payload_sections, total_sections, computed_total_words = _build_reader_sections(
-        book_id,
-        offset=section_offset,
-        limit=section_limit,
-    )
+    if include_sections:
+        payload_outline, payload_sections, total_sections, computed_total_words = _build_reader_sections(
+            book_id,
+            offset=section_offset,
+            limit=section_limit,
+        )
+    else:
+        payload_outline, total_sections = _build_reader_outline(book_id)
+        payload_sections = []
+        computed_total_words = 0
 
     highlights = ReaderHighlight.query.filter_by(book_id=book_id).order_by(ReaderHighlight.id.asc()).all()
     highlight_ids = [item.id for item in highlights]

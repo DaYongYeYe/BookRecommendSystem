@@ -25,6 +25,7 @@ class TestConfig:
 class FakeTextStorage:
     def __init__(self):
         self.items: dict[str, str] = {}
+        self.fetched_urls: list[str] = []
 
     def upload_text(self, content: str, *, folder: str = 'book_chapters'):
         url = f'https://cos.example/{folder}/{len(self.items) + 1}.txt'
@@ -32,6 +33,7 @@ class FakeTextStorage:
         return {'url': url, 'md5': 'f' * 32}, None
 
     def fetch_text(self, url: str, expected_md5: str | None = None):
+        self.fetched_urls.append(url)
         return self.items.get(url, ''), None
 
 
@@ -99,6 +101,105 @@ class ChapterObjectStorageTestCase(unittest.TestCase):
         self.assertEqual(payload['sections'][0]['paragraphs'][0]['text'], 'First paragraph.')
         self.assertEqual(payload['sections'][0]['paragraphs'][1]['text'], 'Second paragraph.')
         self.assertEqual(payload['book']['total_words'], len('First paragraph.\n\nSecond paragraph.'))
+
+    def test_reader_payload_fetches_only_current_page_sections(self):
+        book = Book(
+            id=43,
+            title='Paged Reader Book',
+            author='Author',
+            status='published',
+            shelf_status='up',
+            word_count=1000,
+        )
+        db.session.add(book)
+        db.session.flush()
+
+        for index in range(1, 6):
+            chapter = BookChapter(
+                book_id=book.id,
+                chapter_key=f'chapter-{index}',
+                chapter_no=index,
+                title=f'Chapter {index}',
+                status='published',
+            )
+            db.session.add(chapter)
+            db.session.flush()
+            content_url = f'https://cos.example/book_chapters/chapter-{index}.txt'
+            revision = BookChapterRevision(
+                chapter_id=chapter.id,
+                version_no=1,
+                title=f'Chapter {index}',
+                content_text=None,
+                content_url=content_url,
+                content_md5='f' * 32,
+                status='published',
+            )
+            self.storage.items[content_url] = f'Chapter {index} paragraph.'
+            db.session.add(revision)
+            db.session.flush()
+            chapter.published_revision_id = revision.id
+
+        db.session.commit()
+        self.storage.fetched_urls.clear()
+
+        payload = build_reader_payload(book.id, section_limit=3)
+
+        self.assertEqual(len(payload['outline']), 5)
+        self.assertEqual(len(payload['sections']), 3)
+        self.assertEqual(
+            self.storage.fetched_urls,
+            [
+                'https://cos.example/book_chapters/chapter-1.txt',
+                'https://cos.example/book_chapters/chapter-2.txt',
+                'https://cos.example/book_chapters/chapter-3.txt',
+            ],
+        )
+
+    def test_landing_endpoint_does_not_fetch_chapter_content(self):
+        book = Book(
+            id=44,
+            title='Landing Reader Book',
+            author='Author',
+            status='published',
+            shelf_status='up',
+            word_count=1000,
+        )
+        db.session.add(book)
+        db.session.flush()
+
+        for index in range(1, 4):
+            chapter = BookChapter(
+                book_id=book.id,
+                chapter_key=f'chapter-{index}',
+                chapter_no=index,
+                title=f'Chapter {index}',
+                status='published',
+            )
+            db.session.add(chapter)
+            db.session.flush()
+            content_url = f'https://cos.example/book_chapters/landing-{index}.txt'
+            revision = BookChapterRevision(
+                chapter_id=chapter.id,
+                version_no=1,
+                title=f'Chapter {index}',
+                content_text=None,
+                content_url=content_url,
+                content_md5='f' * 32,
+                status='published',
+            )
+            self.storage.items[content_url] = f'Landing chapter {index} paragraph.'
+            db.session.add(revision)
+            db.session.flush()
+            chapter.published_revision_id = revision.id
+
+        db.session.commit()
+        self.storage.fetched_urls.clear()
+
+        response = self.app.test_client().get(f'/api/books/{book.id}/landing')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.get_json()['outline']), 3)
+        self.assertEqual(self.storage.fetched_urls, [])
 
     def test_migration_uploads_revision_and_clears_inline_content(self):
         book = Book(title='Legacy Book', author='Author', status='published', shelf_status='up')
