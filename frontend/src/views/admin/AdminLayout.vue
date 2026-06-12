@@ -73,7 +73,7 @@ const route = useRoute()
 const router = useRouter()
 
 const activeMenu = computed(() => route.path)
-const showRbacMenu = computed(() => isSuperAdminToken())
+const showRbacMenu = computed(() => isSuperAdminToken('admin'))
 
 const pageTitle = computed(() => {
   if (route.path.startsWith('/manage/comments')) return '评论管理'
@@ -91,7 +91,7 @@ const pageTitle = computed(() => {
 })
 
 const onLogout = () => {
-  clearToken()
+  clearToken('admin')
   router.push('/manage/login')
 }
 </script>

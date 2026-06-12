@@ -392,7 +392,7 @@ router.beforeEach(async (to, _from, next) => {
   }
 
   if (to.meta.requiresAdmin) {
-    const token = getToken()
+    const token = getToken('admin')
     if (!token) {
       next({
         path: '/manage/login',
@@ -401,14 +401,14 @@ router.beforeEach(async (to, _from, next) => {
       return
     }
 
-    if (!isAdminToken()) {
+    if (!isAdminToken('admin')) {
       next({ path: '/login' })
       return
     }
   }
 
   if (to.meta.requiresSuperAdmin) {
-    const token = getToken()
+    const token = getToken('admin')
     if (!token) {
       next({
         path: '/manage/login',
@@ -416,11 +416,11 @@ router.beforeEach(async (to, _from, next) => {
       })
       return
     }
-    if (!isAdminToken()) {
+    if (!isAdminToken('admin')) {
       next({ path: '/login' })
       return
     }
-    if (!isSuperAdminToken()) {
+    if (!isSuperAdminToken('admin')) {
       next({
         path: '/403',
         query: { redirect: to.fullPath },

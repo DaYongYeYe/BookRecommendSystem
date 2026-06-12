@@ -210,7 +210,7 @@ type CreatorApplicationItem = {
   created_at?: string | null
   reviewed_at?: string | null
 }
-const canManageSuperAdmin = isSuperAdminToken()
+const canManageSuperAdmin = isSuperAdminToken('admin')
 
 const users = ref<UserItem[]>([])
 const loading = ref(false)

@@ -1,7 +1,7 @@
 import axios, { AxiosError } from 'axios'
 import router from '@/router'
 
-type TokenScope = 'user' | 'admin'
+export type TokenScope = 'user' | 'admin'
 
 const USER_TOKEN_KEY = 'book_token_user'
 const ADMIN_TOKEN_KEY = 'book_token_admin'

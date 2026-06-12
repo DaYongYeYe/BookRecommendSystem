@@ -1,4 +1,4 @@
-import { getToken } from '@/api/request'
+import { getToken, type TokenScope } from '@/api/request'
 
 type JwtPayload = {
   is_admin?: boolean
@@ -26,32 +26,32 @@ function decodeJwtPayload(token: string): JwtPayload | null {
   }
 }
 
-export function isAdminToken(): boolean {
-  const token = getToken()
+export function isAdminToken(scope?: TokenScope): boolean {
+  const token = getToken(scope)
   if (!token) return false
   const payload = decodeJwtPayload(token)
   if (!payload) return false
   return payload.is_admin === true || payload.role === 'admin'
 }
 
-export function isCreatorToken(): boolean {
-  const token = getToken()
+export function isCreatorToken(scope?: TokenScope): boolean {
+  const token = getToken(scope)
   if (!token) return false
   const payload = decodeJwtPayload(token)
   if (!payload) return false
   return payload.is_creator === true || payload.role === 'creator'
 }
 
-export function isSuperAdminToken(): boolean {
-  const token = getToken()
+export function isSuperAdminToken(scope?: TokenScope): boolean {
+  const token = getToken(scope)
   if (!token) return false
   const payload = decodeJwtPayload(token)
   if (!payload) return false
   return payload.is_super_admin === true
 }
 
-export function getTenantIdFromToken(): number | null {
-  const token = getToken()
+export function getTenantIdFromToken(scope?: TokenScope): number | null {
+  const token = getToken(scope)
   if (!token) return null
   const payload = decodeJwtPayload(token)
   if (!payload) return null
