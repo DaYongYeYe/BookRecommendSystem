@@ -63,3 +63,5 @@ frontend/.vite/
 .vscode/
 *.iml
 
+/.chrome-test-profile/
+/.chrome-test-profile/**
