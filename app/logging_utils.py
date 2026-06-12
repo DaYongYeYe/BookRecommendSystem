@@ -98,6 +98,12 @@ def _build_timed_rotating_handler(log_path: str, level: int, backup_count: int) 
     return handler
 
 
+def _clear_logger_handlers(logger: logging.Logger) -> None:
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
+
+
 def setup_logging(app) -> None:
     log_level_name = (app.config.get("LOG_LEVEL") or "INFO").upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
@@ -106,7 +112,7 @@ def setup_logging(app) -> None:
 
     os.makedirs(log_dir, exist_ok=True)
 
-    app.logger.handlers.clear()
+    _clear_logger_handlers(app.logger)
     app.logger.setLevel(log_level)
     app.logger.propagate = False
 
