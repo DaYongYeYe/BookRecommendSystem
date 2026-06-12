@@ -39,67 +39,132 @@ import Forbidden from '@/views/Forbidden.vue'
 import { clearToken, getToken } from '@/api/request'
 import { USER_PROFILE_HUB_ROUTE_NAME, USER_PROFILE_ROUTE_NAME } from '@/constants/routes'
 import { isAdminToken, isCreatorToken, isSuperAdminToken } from '@/utils/auth'
+import { applyRouteSeo } from '@/utils/seo'
 
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
     name: 'Home',
     component: Home,
+    meta: {
+      seo: {
+        title: '阿书铺子 | 现代图书推荐系统',
+        description: '发现高分好书、热门榜单和个性化推荐，在阿书铺子开启沉浸式阅读。',
+      },
+    },
   },
   {
     path: '/search',
     name: 'Search',
     component: Search,
+    meta: {
+      seo: {
+        title: '搜索图书 | 阿书铺子',
+        description: '按书名、作者、分类和关键词搜索图书，快速找到适合当前阅读状态的作品。',
+      },
+    },
   },
   {
     path: '/categories',
     name: 'CategoryDiscovery',
     component: CategoryDiscovery,
+    meta: {
+      seo: {
+        title: '分类发现 | 阿书铺子',
+        description: '浏览玄幻、言情、现实、悬疑、科幻等图书分类，发现新的阅读方向。',
+      },
+    },
   },
   {
     path: '/recommendations',
     name: 'RecommendationsMore',
     component: RecommendationsMore,
+    meta: {
+      seo: {
+        title: '更多推荐 | 阿书铺子',
+        description: '查看更多精选图书推荐，按热度、口碑和阅读偏好扩展你的候选书单。',
+      },
+    },
   },
   {
     path: '/rankings',
     name: 'Rankings',
     component: Rankings,
+    meta: {
+      seo: {
+        title: '图书排行榜 | 阿书铺子',
+        description: '查看热门榜、新书榜、飙升榜、完结榜、收藏榜和追更榜，发现近期值得读的书。',
+      },
+    },
   },
   {
     path: '/community',
     name: 'CommunityPlaza',
     component: CommunityPlaza,
+    meta: {
+      seo: {
+        title: '社区书单与书评 | 阿书铺子',
+        description: '浏览读者创建的公开书单和书评，从真实阅读反馈里找到下一本好书。',
+      },
+    },
   },
   {
     path: '/login',
     name: 'Login',
     component: Login,
+    meta: {
+      seo: {
+        title: '登录 | 阿书铺子',
+        description: '登录阿书铺子，同步书架、阅读进度和个性化推荐。',
+        robots: 'noindex,nofollow',
+      },
+    },
   },
   {
     path: '/register',
     name: 'Register',
     component: Register,
+    meta: {
+      seo: {
+        title: '注册 | 阿书铺子',
+        description: '注册阿书铺子账号，建立个人书架并获得更贴合兴趣的图书推荐。',
+        robots: 'noindex,nofollow',
+      },
+    },
   },
   {
     path: '/reader/:bookId',
     name: 'Reader',
     component: Reader,
+    meta: { seo: { title: '阅读器 | 阿书铺子', robots: 'noindex,nofollow' } },
   },
   {
     path: '/books/:bookId',
     name: 'BookDetail',
     component: BookDetail,
+    meta: {
+      seo: {
+        title: '图书详情 | 阿书铺子',
+        description: '查看图书简介、评分、目录和相关推荐，判断是否适合现在开读。',
+      },
+    },
   },
   {
     path: '/books/:bookId/entry',
     name: 'BookEntry',
     component: BookEntry,
+    meta: { seo: { title: '图书入口 | 阿书铺子', robots: 'noindex,nofollow' } },
   },
   {
     path: '/creator-center',
     name: 'CreatorEntry',
     component: CreatorEntry,
+    meta: {
+      seo: {
+        title: '创作者入口 | 阿书铺子',
+        description: '了解阿书铺子创作者能力，提交作品并管理自己的原创内容。',
+      },
+    },
   },
   {
     path: '/user/profile-hub',
@@ -411,6 +476,10 @@ router.beforeEach(async (to, _from, next) => {
     }
   }
   next()
+})
+
+router.afterEach((to) => {
+  applyRouteSeo(to)
 })
 
 export default router

@@ -10,6 +10,7 @@ import {
   type ReadingProgress,
 } from '@/api/reader'
 import { getToken } from '@/api/request'
+import { applyBookSeo, applySeo } from '@/utils/seo'
 
 const route = useRoute()
 const router = useRouter()
@@ -82,7 +83,14 @@ async function loadData() {
   loading.value = true
   try {
     landing.value = await getBookLanding(bookId.value, getLandingAnalytics())
+    applyBookSeo(landing.value.book, `/books/${bookId.value}`)
   } catch (_error) {
+    applySeo({
+      title: '图书未找到 | 阿书铺子',
+      description: '这本书暂时无法访问，返回阿书铺子继续发现其他好书。',
+      path: `/books/${bookId.value}`,
+      robots: 'noindex,nofollow',
+    })
     ElMessage.error('书籍详情加载失败，请稍后重试')
   } finally {
     loading.value = false

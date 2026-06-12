@@ -897,6 +897,9 @@ def create_app(config_class=Config):
     from app.api import bp as api_bp
     app.register_blueprint(api_bp, url_prefix='/api')
 
+    from app.seo import register_seo_routes
+    register_seo_routes(app)
+
     @app.route('/uploads/<path:filename>', methods=['GET'])
     def uploaded_files(filename):
         upload_root = app.config.get('UPLOAD_DIR') or os.path.join(app.instance_path, 'uploads')
