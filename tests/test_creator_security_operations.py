@@ -8,6 +8,7 @@ from app.models import (
     Book,
     BookAnalyticsEvent,
     BookReview,
+    CreatorApplication,
     CreatorProfile,
     ReaderBookComment,
     User,
@@ -39,14 +40,17 @@ class CreatorSecurityOperationsTestCase(unittest.TestCase):
 
             creator = User(username='creator_test', name='Creator', pen_name='Creator Pen', email='creator@test.local')
             creator.set_password('123456')
+            admin = User(username='admin_test', name='Admin', email='admin@test.local', role='admin')
+            admin.set_password('123456')
             reader = User(username='reader_test', name='Reader', email='reader@test.local')
             reader.set_password('123456')
             old_reader = User(username='old_reader', name='Old Reader', email='old-reader@test.local')
             old_reader.set_password('123456')
-            db.session.add_all([creator, reader, old_reader])
+            db.session.add_all([creator, admin, reader, old_reader])
             db.session.flush()
 
             self.creator_id = creator.id
+            self.admin_id = admin.id
             self.reader_id = reader.id
             self.old_reader_id = old_reader.id
             db.session.add(CreatorProfile(user_id=creator.id, tenant_id=1, status='active'))
@@ -121,6 +125,64 @@ class CreatorSecurityOperationsTestCase(unittest.TestCase):
             algorithm=TestConfig.JWT_ALGORITHM,
         )
         return {'Authorization': f'Bearer {token}'}
+
+    def _reader_headers(self):
+        token = jwt.encode(
+            {
+                'user_id': self.reader_id,
+                'username': 'reader_test',
+                'role': 'user',
+                'tenant_id': 1,
+                'exp': datetime.utcnow() + timedelta(hours=1),
+            },
+            TestConfig.JWT_SECRET_KEY,
+            algorithm=TestConfig.JWT_ALGORITHM,
+        )
+        return {'Authorization': f'Bearer {token}'}
+
+    def _admin_headers(self):
+        token = jwt.encode(
+            {
+                'user_id': self.admin_id,
+                'username': 'admin_test',
+                'role': 'admin',
+                'tenant_id': 1,
+                'exp': datetime.utcnow() + timedelta(hours=1),
+            },
+            TestConfig.JWT_SECRET_KEY,
+            algorithm=TestConfig.JWT_ALGORITHM,
+        )
+        return {'Authorization': f'Bearer {token}'}
+
+    def test_creator_application_requires_admin_review_before_access(self):
+        submit_response = self.client.post(
+            '/creator/application',
+            json={'apply_reason': 'I plan to write long-form original stories every week.'},
+            headers=self._reader_headers(),
+        )
+        self.assertEqual(submit_response.status_code, 201)
+        submit_payload = submit_response.get_json()
+        self.assertEqual(submit_payload['application']['status'], 'pending')
+        self.assertTrue(submit_payload['requires_review'])
+
+        with self.app.app_context():
+            application = CreatorApplication.query.filter_by(user_id=self.reader_id).first()
+            self.assertIsNotNone(application)
+            self.assertEqual(application.status, 'pending')
+            self.assertIsNone(CreatorProfile.query.filter_by(user_id=self.reader_id, status='active').first())
+
+        denied_response = self.client.get('/creator/books', headers=self._reader_headers())
+        self.assertEqual(denied_response.status_code, 403)
+
+        review_response = self.client.post(
+            f'/admin/creator-applications/{submit_payload["application"]["id"]}/review',
+            json={'action': 'approve', 'review_comment': 'Approved'},
+            headers=self._admin_headers(),
+        )
+        self.assertEqual(review_response.status_code, 200)
+
+        allowed_response = self.client.get('/creator/books', headers=self._reader_headers())
+        self.assertEqual(allowed_response.status_code, 200)
 
     def test_creator_cannot_manage_unclaimed_legacy_book(self):
         headers = self._creator_headers()

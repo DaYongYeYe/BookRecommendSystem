@@ -15,18 +15,19 @@ const applicationLoading = ref(false)
 const applySubmitting = ref(false)
 const applyReason = ref('')
 const application = ref<CreatorApplicationItem | null>(null)
+const serverCanApply = ref(false)
 
 const hasLogin = computed(() => Boolean(getToken()))
 const canOpenCreator = computed(() => {
   if (profile.value) return profile.value.is_creator === true
   return isCreatorToken()
 })
-const canApply = computed(() => hasLogin.value && profile.value?.role === 'user' && !canOpenCreator.value && (!application.value || application.value.status !== 'pending'))
+const canApply = computed(() => hasLogin.value && profile.value?.role === 'user' && !canOpenCreator.value && serverCanApply.value)
 
 const currentStep = computed(() => {
   if (canOpenCreator.value) return 3
-  if (application.value?.status === 'approved') return 3
   if (application.value?.status === 'pending') return 2
+  if (application.value?.status === 'approved') return 2
   if (hasLogin.value) return 1
   return 0
 })
@@ -50,6 +51,7 @@ async function loadApplication() {
   try {
     const res = await getCreatorApplication()
     application.value = res.application || null
+    serverCanApply.value = Boolean(res.can_apply)
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载申请状态失败')
   } finally {
@@ -72,6 +74,7 @@ async function submitApply() {
   try {
     const res = await submitCreatorApplication({ apply_reason: reason })
     application.value = res.application
+    serverCanApply.value = false
     ElMessage.success('申请已提交，请等待审核')
     applyReason.value = ''
   } catch (error: any) {

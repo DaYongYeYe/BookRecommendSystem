@@ -626,11 +626,14 @@ def get_creator_application(current_user):
         .order_by(CreatorApplication.id.desc())
         .first()
     )
+    already_creator = _is_creator(current_user)
+    has_pending_application = bool(latest and latest.status == 'pending')
     return jsonify(
         {
             'application': _serialize_creator_application(latest),
-            'can_apply': bool(current_user.role == 'user' and not _is_creator(current_user) and (latest is None or latest.status in ('rejected', 'approved'))),
-            'already_creator': _is_creator(current_user),
+            'can_apply': bool(current_user.role == 'user' and not already_creator and not has_pending_application),
+            'already_creator': already_creator,
+            'requires_review': True,
         }
     ), 200
 
@@ -652,6 +655,8 @@ def submit_creator_application(current_user):
     )
     if latest and latest.status == 'pending':
         return jsonify({'error': 'application is pending'}), 400
+    if latest and latest.status == 'approved':
+        return jsonify({'error': 'application is already approved, please wait for creator access to refresh'}), 400
 
     payload = request.get_json() or {}
     apply_reason = (payload.get('apply_reason') or '').strip()
@@ -668,7 +673,14 @@ def submit_creator_application(current_user):
     )
     db.session.add(application)
     db.session.commit()
-    return jsonify({'message': 'creator application submitted', 'application': _serialize_creator_application(application)}), 201
+    return jsonify(
+        {
+            'message': 'creator application submitted for review',
+            'application': _serialize_creator_application(application),
+            'already_creator': False,
+            'requires_review': True,
+        }
+    ), 201
 
 
 @bp.route('/books', methods=['GET'])

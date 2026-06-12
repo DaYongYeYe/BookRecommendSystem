@@ -41,13 +41,16 @@ export interface CreatorApplicationItem {
 
 export function getCreatorApplication() {
   return request.get<
-    { application: CreatorApplicationItem | null; can_apply: boolean; already_creator: boolean },
-    { application: CreatorApplicationItem | null; can_apply: boolean; already_creator: boolean }
+    { application: CreatorApplicationItem | null; can_apply: boolean; already_creator: boolean; requires_review: boolean },
+    { application: CreatorApplicationItem | null; can_apply: boolean; already_creator: boolean; requires_review: boolean }
   >('/creator/application')
 }
 
 export function submitCreatorApplication(data: { apply_reason: string }) {
-  return request.post<{ application: CreatorApplicationItem }, { application: CreatorApplicationItem }>('/creator/application', data)
+  return request.post<
+    { application: CreatorApplicationItem; already_creator: boolean; requires_review: boolean },
+    { application: CreatorApplicationItem; already_creator: boolean; requires_review: boolean }
+  >('/creator/application', data)
 }
 
 export interface CreatorBookItem {
