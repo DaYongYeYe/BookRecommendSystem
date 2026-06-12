@@ -23,6 +23,9 @@ const savingRanking = ref(false)
 const placements = ref<AdminRecommendationPlacementItem[]>([])
 const books = ref<AdminBookItem[]>([])
 const rankingItems = ref<AdminRankingConfigItem[]>([])
+const placementPage = ref(1)
+const placementPageSize = ref(10)
+const placementTotal = ref(0)
 const rankingTypes = ref<AdminRankingTypeOption[]>([
   { key: 'hot', label: '热门榜' },
   { key: 'new_book', label: '新书榜' },
@@ -93,13 +96,28 @@ function openEditPlacement(row: AdminRecommendationPlacementItem) {
 async function loadPlacements() {
   placementLoading.value = true
   try {
-    const res = await getAdminRecommendationPlacements()
+    const res = await getAdminRecommendationPlacements({
+      page: placementPage.value,
+      page_size: placementPageSize.value,
+    })
     placements.value = res.items || []
+    placementTotal.value = res.pagination?.total || 0
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载推荐位失败')
   } finally {
     placementLoading.value = false
   }
+}
+
+function onPlacementCurrentPageChange(value: number) {
+  placementPage.value = value
+  loadPlacements()
+}
+
+function onPlacementPageSizeChange(value: number) {
+  placementPageSize.value = value
+  placementPage.value = 1
+  loadPlacements()
 }
 
 async function submitPlacement() {
@@ -233,6 +251,17 @@ onMounted(async () => {
               </template>
             </el-table-column>
           </el-table>
+          <div class="pagination">
+            <el-pagination
+              :current-page="placementPage"
+              :page-size="placementPageSize"
+              :total="placementTotal"
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="[10, 20, 50]"
+              @current-change="onPlacementCurrentPageChange"
+              @size-change="onPlacementPageSizeChange"
+            />
+          </div>
         </el-card>
       </el-tab-pane>
 
@@ -370,5 +399,11 @@ onMounted(async () => {
 
 .shelf-tag {
   margin-left: 6px;
+}
+
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 </style>

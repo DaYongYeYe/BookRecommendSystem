@@ -3,7 +3,7 @@
     <div class="toolbar">
       <h2>稿件审核</h2>
       <div class="actions">
-        <el-select v-model="statusFilter" style="width: 170px" @change="loadManuscripts">
+        <el-select v-model="statusFilter" style="width: 170px" @change="onFilterChange">
           <el-option label="全部状态" value="" />
           <el-option label="待审核" value="submitted" />
           <el-option label="已通过" value="approved" />
@@ -11,7 +11,7 @@
           <el-option label="已发布" value="published" />
           <el-option label="草稿" value="draft" />
         </el-select>
-        <el-button @click="loadManuscripts">刷新</el-button>
+        <el-button @click="onFilterChange">刷新</el-button>
       </div>
     </div>
 
@@ -39,6 +39,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pagination">
+        <el-pagination
+          :current-page="page"
+          :page-size="pageSize"
+          :total="total"
+          layout="total, sizes, prev, pager, next"
+          :page-sizes="[10, 20, 50]"
+          @current-change="onCurrentPageChange"
+          @size-change="onPageSizeChange"
+        />
+      </div>
     </el-card>
 
     <el-dialog v-model="reviewDialogVisible" :title="reviewAction === 'approve' ? '审核通过' : '审核驳回'" width="560px">
@@ -91,6 +102,9 @@ const loading = ref(false)
 const reviewLoading = ref(false)
 const manuscripts = ref<AdminManuscriptItem[]>([])
 const statusFilter = ref('')
+const page = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
 
 const detailVisible = ref(false)
 const activeManuscript = ref<AdminManuscriptItem | null>(null)
@@ -113,13 +127,34 @@ const statusTagType = (status: string) => {
 const loadManuscripts = async () => {
   loading.value = true
   try {
-    const res = await getAdminManuscripts({ status: statusFilter.value || undefined })
+    const res = await getAdminManuscripts({
+      page: page.value,
+      page_size: pageSize.value,
+      status: statusFilter.value || undefined,
+    })
     manuscripts.value = res.items || []
+    total.value = res.pagination?.total || 0
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载稿件失败')
   } finally {
     loading.value = false
   }
+}
+
+const onFilterChange = () => {
+  page.value = 1
+  loadManuscripts()
+}
+
+const onCurrentPageChange = (value: number) => {
+  page.value = value
+  loadManuscripts()
+}
+
+const onPageSizeChange = (value: number) => {
+  pageSize.value = value
+  page.value = 1
+  loadManuscripts()
 }
 
 const onViewDetail = (row: AdminManuscriptItem) => {
@@ -185,6 +220,12 @@ onMounted(() => {
 .actions {
   display: flex;
   gap: 12px;
+}
+
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 
 .detail {

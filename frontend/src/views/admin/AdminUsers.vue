@@ -57,13 +57,13 @@
         <div class="toolbar">
           <h3>创作者入驻申请</h3>
           <div class="actions">
-            <el-input v-model="appKeyword" placeholder="搜索申请人用户名或邮箱" clearable style="width: 240px" @keyup.enter="loadCreatorApplications" />
-            <el-select v-model="appStatus" placeholder="状态筛选" clearable style="width: 140px" @change="loadCreatorApplications">
+            <el-input v-model="appKeyword" placeholder="搜索申请人用户名或邮箱" clearable style="width: 240px" @keyup.enter="onAppFilterChange" />
+            <el-select v-model="appStatus" placeholder="状态筛选" clearable style="width: 140px" @change="onAppFilterChange">
               <el-option label="待审核" value="pending" />
               <el-option label="已通过" value="approved" />
               <el-option label="已驳回" value="rejected" />
             </el-select>
-            <el-button @click="loadCreatorApplications">刷新</el-button>
+            <el-button @click="onAppFilterChange">刷新</el-button>
           </div>
         </div>
       </template>
@@ -95,6 +95,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pagination">
+        <el-pagination
+          :current-page="appPage"
+          :page-size="appPageSize"
+          :total="appTotal"
+          layout="total, sizes, prev, pager, next"
+          :page-sizes="[10, 20, 50]"
+          @current-change="onAppCurrentPageChange"
+          @size-change="onAppPageSizeChange"
+        />
+      </div>
     </el-card>
 
     <el-dialog v-model="createDialogVisible" title="新增用户" width="500px">
@@ -211,6 +222,9 @@ const appLoading = ref(false)
 const appStatus = ref('')
 const appKeyword = ref('')
 const creatorApplications = ref<CreatorApplicationItem[]>([])
+const appPage = ref(1)
+const appPageSize = ref(10)
+const appTotal = ref(0)
 
 const createDialogVisible = ref(false)
 const createLoading = ref(false)
@@ -298,15 +312,34 @@ const loadCreatorApplications = async () => {
   appLoading.value = true
   try {
     const res = await getAdminCreatorApplications({
+      page: appPage.value,
+      page_size: appPageSize.value,
       status: appStatus.value || undefined,
       keyword: appKeyword.value || undefined,
     })
     creatorApplications.value = res.items || []
+    appTotal.value = res.pagination?.total || 0
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载创作者申请失败')
   } finally {
     appLoading.value = false
   }
+}
+
+const onAppFilterChange = () => {
+  appPage.value = 1
+  loadCreatorApplications()
+}
+
+const onAppCurrentPageChange = (value: number) => {
+  appPage.value = value
+  loadCreatorApplications()
+}
+
+const onAppPageSizeChange = (value: number) => {
+  appPageSize.value = value
+  appPage.value = 1
+  loadCreatorApplications()
 }
 
 const onCurrentPageChange = (value: number) => {

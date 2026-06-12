@@ -3,15 +3,15 @@
     <div class="toolbar">
       <h2>作品资料审核</h2>
       <div class="actions">
-        <el-input v-model="keyword" placeholder="搜索作品名或作者" clearable style="width: 240px" @keyup.enter="loadItems" />
-        <el-select v-model="auditStatus" style="width: 160px" @change="loadItems">
+        <el-input v-model="keyword" placeholder="搜索作品名或作者" clearable style="width: 240px" @keyup.enter="onFilterChange" />
+        <el-select v-model="auditStatus" style="width: 160px" @change="onFilterChange">
           <el-option label="全部审核状态" value="" />
           <el-option label="草稿" value="draft" />
           <el-option label="待审核" value="pending" />
           <el-option label="已通过" value="approved" />
           <el-option label="已驳回" value="rejected" />
         </el-select>
-        <el-button @click="loadItems">刷新</el-button>
+        <el-button @click="onFilterChange">刷新</el-button>
       </div>
     </div>
 
@@ -53,6 +53,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pagination">
+        <el-pagination
+          :current-page="page"
+          :page-size="pageSize"
+          :total="total"
+          layout="total, sizes, prev, pager, next"
+          :page-sizes="[10, 20, 50]"
+          @current-change="onCurrentPageChange"
+          @size-change="onPageSizeChange"
+        />
+      </div>
     </el-card>
 
     <el-dialog v-model="reviewDialogVisible" :title="reviewAction === 'approve' ? '审核通过' : '审核驳回'" width="560px">
@@ -104,6 +115,9 @@ const reviewLoading = ref(false)
 const items = ref<AdminWorkReviewItem[]>([])
 const keyword = ref('')
 const auditStatus = ref('')
+const page = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
 
 const detailVisible = ref(false)
 const activeItem = ref<AdminWorkReviewItem | null>(null)
@@ -159,15 +173,34 @@ const loadItems = async () => {
   loading.value = true
   try {
     const res = await getAdminWorkReviews({
+      page: page.value,
+      page_size: pageSize.value,
       keyword: keyword.value || undefined,
       audit_status: auditStatus.value || undefined,
     })
     items.value = res.items || []
+    total.value = res.pagination?.total || 0
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载作品审核列表失败')
   } finally {
     loading.value = false
   }
+}
+
+const onFilterChange = () => {
+  page.value = 1
+  loadItems()
+}
+
+const onCurrentPageChange = (value: number) => {
+  page.value = value
+  loadItems()
+}
+
+const onPageSizeChange = (value: number) => {
+  pageSize.value = value
+  page.value = 1
+  loadItems()
 }
 
 const onView = (row: AdminWorkReviewItem) => {
@@ -231,5 +264,11 @@ onMounted(loadItems)
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 </style>

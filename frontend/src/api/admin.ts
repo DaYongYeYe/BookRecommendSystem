@@ -159,6 +159,18 @@ export interface AdminManuscriptItem {
   updated_at?: string | null
 }
 
+export interface AdminListPagination {
+  total: number
+  page: number
+  page_size: number
+  pages?: number
+}
+
+export interface AdminManuscriptsResponse {
+  items: AdminManuscriptItem[]
+  pagination?: AdminListPagination
+}
+
 export interface AdminWorkReviewItem {
   id: number
   title: string
@@ -183,6 +195,11 @@ export interface AdminWorkReviewItem {
   creator_id?: number | null
   created_at?: string | null
   updated_at?: string | null
+}
+
+export interface AdminWorkReviewsResponse {
+  items: AdminWorkReviewItem[]
+  pagination?: AdminListPagination
 }
 
 export interface AdminChapterReviewItem {
@@ -215,6 +232,11 @@ export interface AdminChapterReviewItem {
     published_at?: string | null
     updated_at?: string | null
   }
+}
+
+export interface AdminChapterReviewsResponse {
+  items: AdminChapterReviewItem[]
+  pagination?: AdminListPagination
 }
 
 export interface AdminChapterCompareResponse {
@@ -286,6 +308,11 @@ export interface AdminCreatorApplicationItem {
   reviewed_at?: string | null
 }
 
+export interface AdminCreatorApplicationsResponse {
+  items: AdminCreatorApplicationItem[]
+  pagination?: AdminListPagination
+}
+
 export interface AdminRecommendationPlacementItem {
   id: number
   code: string
@@ -298,6 +325,11 @@ export interface AdminRecommendationPlacementItem {
   sort_order: number
   created_at?: string | null
   updated_at?: string | null
+}
+
+export interface AdminRecommendationPlacementsResponse {
+  items: AdminRecommendationPlacementItem[]
+  pagination?: AdminListPagination
 }
 
 export interface AdminRankingConfigItem {
@@ -383,8 +415,8 @@ export function uploadAdminBookCover(file: File) {
   return request.post<any, { cover: string }>('/admin/books/cover/upload', formData)
 }
 
-export function getAdminManuscripts(params?: { status?: string; creator_id?: number }) {
-  return request.get<{ items: AdminManuscriptItem[] }, { items: AdminManuscriptItem[] }>('/admin/manuscripts', {
+export function getAdminManuscripts(params?: { page?: number; page_size?: number; status?: string; creator_id?: number }) {
+  return request.get<AdminManuscriptsResponse, AdminManuscriptsResponse>('/admin/manuscripts', {
     params,
   })
 }
@@ -400,8 +432,8 @@ export function publishAdminManuscript(manuscriptId: number) {
   return request.post(`/admin/manuscripts/${manuscriptId}/publish`)
 }
 
-export function getAdminWorkReviews(params?: { audit_status?: string; shelf_status?: string; keyword?: string }) {
-  return request.get<{ items: AdminWorkReviewItem[] }, { items: AdminWorkReviewItem[] }>('/admin/works/reviews', {
+export function getAdminWorkReviews(params?: { page?: number; page_size?: number; audit_status?: string; shelf_status?: string; keyword?: string }) {
+  return request.get<AdminWorkReviewsResponse, AdminWorkReviewsResponse>('/admin/works/reviews', {
     params,
   })
 }
@@ -410,8 +442,8 @@ export function reviewAdminWork(bookId: number, data: { action: 'approve' | 'rej
   return request.post(`/admin/works/${bookId}/review`, data)
 }
 
-export function getAdminChapterReviews(params?: { status?: 'pending' | 'rejected'; keyword?: string }) {
-  return request.get<{ items: AdminChapterReviewItem[] }, { items: AdminChapterReviewItem[] }>('/admin/chapters/reviews', {
+export function getAdminChapterReviews(params?: { page?: number; page_size?: number; status?: 'pending' | 'rejected'; keyword?: string }) {
+  return request.get<AdminChapterReviewsResponse, AdminChapterReviewsResponse>('/admin/chapters/reviews', {
     params,
   })
 }
@@ -463,8 +495,8 @@ export function getAdminDashboardOverview() {
   return request.get<AdminDashboardOverviewResponse, AdminDashboardOverviewResponse>('/admin/dashboard/overview')
 }
 
-export function getAdminCreatorApplications(params?: { status?: string; keyword?: string }) {
-  return request.get<{ items: AdminCreatorApplicationItem[] }, { items: AdminCreatorApplicationItem[] }>('/admin/creator-applications', {
+export function getAdminCreatorApplications(params?: { page?: number; page_size?: number; status?: string; keyword?: string }) {
+  return request.get<AdminCreatorApplicationsResponse, AdminCreatorApplicationsResponse>('/admin/creator-applications', {
     params,
   })
 }
@@ -476,8 +508,8 @@ export function reviewAdminCreatorApplication(
   return request.post(`/admin/creator-applications/${applicationId}/review`, data)
 }
 
-export function getAdminRecommendationPlacements(params?: { scene?: string }) {
-  return request.get<{ items: AdminRecommendationPlacementItem[] }, { items: AdminRecommendationPlacementItem[] }>(
+export function getAdminRecommendationPlacements(params?: { page?: number; page_size?: number; scene?: string }) {
+  return request.get<AdminRecommendationPlacementsResponse, AdminRecommendationPlacementsResponse>(
     '/admin/recommendation-placements',
     { params }
   )

@@ -8,9 +8,9 @@
           placeholder="搜索书名/章节名"
           clearable
           style="width: 220px"
-          @keyup.enter="loadItems"
+          @keyup.enter="onFilterChange"
         />
-        <el-select v-model="statusFilter" style="width: 160px" @change="loadItems">
+        <el-select v-model="statusFilter" style="width: 160px" @change="onFilterChange">
           <el-option label="待审核" value="pending" />
           <el-option label="已驳回" value="rejected" />
         </el-select>
@@ -28,7 +28,7 @@
         >
           批量驳回
         </el-button>
-        <el-button @click="loadItems">刷新</el-button>
+        <el-button @click="onFilterChange">刷新</el-button>
       </div>
     </div>
 
@@ -72,6 +72,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <div class="pagination">
+        <el-pagination
+          :current-page="page"
+          :page-size="pageSize"
+          :total="total"
+          layout="total, sizes, prev, pager, next"
+          :page-sizes="[10, 20, 50]"
+          @current-change="onCurrentPageChange"
+          @size-change="onPageSizeChange"
+        />
+      </div>
     </el-card>
 
     <el-drawer v-model="detailVisible" title="章节送审详情" size="52%">
@@ -126,6 +137,9 @@ const loading = ref(false)
 const items = ref<AdminChapterReviewItem[]>([])
 const keyword = ref('')
 const statusFilter = ref<'pending' | 'rejected'>('pending')
+const page = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
 
 const detailVisible = ref(false)
 const activeItem = ref<AdminChapterReviewItem | null>(null)
@@ -153,15 +167,35 @@ const loadItems = async () => {
   loading.value = true
   try {
     const res = await getAdminChapterReviews({
+      page: page.value,
+      page_size: pageSize.value,
       status: statusFilter.value,
       keyword: keyword.value || undefined,
     })
     items.value = res.items || []
+    total.value = res.pagination?.total || 0
+    selectedRows.value = []
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error || '加载章节审核列表失败')
   } finally {
     loading.value = false
   }
+}
+
+const onFilterChange = () => {
+  page.value = 1
+  loadItems()
+}
+
+const onCurrentPageChange = (value: number) => {
+  page.value = value
+  loadItems()
+}
+
+const onPageSizeChange = (value: number) => {
+  pageSize.value = value
+  page.value = 1
+  loadItems()
 }
 
 const onSelectionChange = (rows: AdminChapterReviewItem[]) => {
@@ -296,6 +330,12 @@ onMounted(loadItems)
 .actions {
   display: flex;
   gap: 12px;
+}
+
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 
 .book-title {

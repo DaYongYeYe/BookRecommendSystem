@@ -528,6 +528,15 @@ def get_creator_applications(current_user):
     tenant_id = _tenant_id(current_user)
     status = (request.args.get('status') or '').strip().lower()
     keyword = (request.args.get('keyword') or '').strip()
+    try:
+        page = max(int(request.args.get('page', 1)), 1)
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.args.get('page_size', 10))
+    except ValueError:
+        page_size = 10
+    page_size = min(max(page_size, 1), 100)
 
     query = CreatorApplication.query.filter_by(tenant_id=tenant_id)
     if status:
@@ -537,9 +546,22 @@ def get_creator_applications(current_user):
             (User.username.like(f'%{keyword}%')) | (User.email.like(f'%{keyword}%'))
         )
 
-    rows = query.order_by(CreatorApplication.created_at.desc(), CreatorApplication.id.desc()).all()
+    total = query.count()
+    rows = (
+        query.order_by(CreatorApplication.created_at.desc(), CreatorApplication.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
     if not rows:
-        return jsonify({'items': []}), 200
+        return jsonify({
+            'items': [],
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total': total,
+            }
+        }), 200
 
     user_ids = list({row.user_id for row in rows})
     reviewer_ids = list({row.reviewed_by for row in rows if row.reviewed_by})
@@ -557,7 +579,14 @@ def get_creator_applications(current_user):
         item['is_creator'] = applicant.is_creator() if applicant else False
         item['reviewed_by_name'] = reviewer.username if reviewer else None
         items.append(item)
-    return jsonify({'items': items}), 200
+    return jsonify({
+        'items': items,
+        'pagination': {
+            'page': page,
+            'page_size': page_size,
+            'total': total,
+        }
+    }), 200
 
 
 @bp.route('/creator-applications/<int:application_id>/review', methods=['POST'])
@@ -871,11 +900,34 @@ def get_book_options(current_user):
 @admin_required
 def get_recommendation_placements(current_user):
     scene = (request.args.get('scene') or '').strip()
+    try:
+        page = max(int(request.args.get('page', 1)), 1)
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.args.get('page_size', 10))
+    except ValueError:
+        page_size = 10
+    page_size = min(max(page_size, 1), 100)
+
     query = RecommendationPlacement.query
     if scene:
         query = query.filter(RecommendationPlacement.scene == scene)
-    rows = query.order_by(RecommendationPlacement.sort_order.asc(), RecommendationPlacement.id.asc()).all()
-    return jsonify({'items': [row.to_dict() for row in rows]}), 200
+    total = query.count()
+    rows = (
+        query.order_by(RecommendationPlacement.sort_order.asc(), RecommendationPlacement.id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return jsonify({
+        'items': [row.to_dict() for row in rows],
+        'pagination': {
+            'page': page,
+            'page_size': page_size,
+            'total': total,
+        }
+    }), 200
 
 
 @bp.route('/recommendation-placements', methods=['POST'])
@@ -1171,6 +1223,15 @@ def get_work_reviews(current_user):
     audit_status = (request.args.get('audit_status') or '').strip().lower()
     shelf_status = (request.args.get('shelf_status') or '').strip().lower()
     keyword = (request.args.get('keyword') or '').strip()
+    try:
+        page = max(int(request.args.get('page', 1)), 1)
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.args.get('page_size', 10))
+    except ValueError:
+        page_size = 10
+    page_size = min(max(page_size, 1), 100)
 
     query = Book.query.filter_by(tenant_id=tenant_id, is_deleted=False)
     if audit_status:
@@ -1180,9 +1241,22 @@ def get_work_reviews(current_user):
     if keyword:
         query = query.filter((Book.title.like(f'%{keyword}%')) | (Book.author.like(f'%{keyword}%')))
 
-    books = query.order_by(Book.audit_submitted_at.desc(), Book.updated_at.desc(), Book.id.desc()).all()
+    total = query.count()
+    books = (
+        query.order_by(Book.audit_submitted_at.desc(), Book.updated_at.desc(), Book.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
     if not books:
-        return jsonify({'items': []}), 200
+        return jsonify({
+            'items': [],
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total': total,
+            }
+        }), 200
 
     book_ids = [book.id for book in books]
     category_ids = list({item.category_id for item in books if item.category_id})
@@ -1201,7 +1275,14 @@ def get_work_reviews(current_user):
         item['tag_ids'] = [entry['id'] for entry in item['tags']]
         items.append(item)
 
-    return jsonify({'items': items}), 200
+    return jsonify({
+        'items': items,
+        'pagination': {
+            'page': page,
+            'page_size': page_size,
+            'total': total,
+        }
+    }), 200
 
 
 @bp.route('/works/<int:book_id>/review', methods=['POST'])
@@ -1231,6 +1312,15 @@ def get_manuscripts(current_user):
     tenant_id = _tenant_id(current_user)
     status = (request.args.get('status') or '').strip()
     creator_id = request.args.get('creator_id')
+    try:
+        page = max(int(request.args.get('page', 1)), 1)
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.args.get('page_size', 10))
+    except ValueError:
+        page_size = 10
+    page_size = min(max(page_size, 1), 100)
 
     query = BookManuscript.query.filter_by(tenant_id=tenant_id, is_deleted=False)
     if status:
@@ -1241,8 +1331,21 @@ def get_manuscripts(current_user):
         except (TypeError, ValueError):
             return jsonify({'error': 'invalid creator_id'}), 400
 
-    manuscripts = query.order_by(BookManuscript.updated_at.desc(), BookManuscript.id.desc()).all()
-    return jsonify({'items': [serialize_manuscript_with_content(row) for row in manuscripts]}), 200
+    total = query.count()
+    manuscripts = (
+        query.order_by(BookManuscript.updated_at.desc(), BookManuscript.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return jsonify({
+        'items': [serialize_manuscript_with_content(row) for row in manuscripts],
+        'pagination': {
+            'page': page,
+            'page_size': page_size,
+            'total': total,
+        }
+    }), 200
 
 
 @bp.route('/manuscripts/<int:manuscript_id>/review', methods=['POST'])
@@ -1321,6 +1424,15 @@ def get_chapter_reviews(current_user):
     tenant_id = _tenant_id(current_user)
     status = (request.args.get('status') or 'pending').strip().lower()
     keyword = (request.args.get('keyword') or '').strip()
+    try:
+        page = max(int(request.args.get('page', 1)), 1)
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.args.get('page_size', 10))
+    except ValueError:
+        page_size = 10
+    page_size = min(max(page_size, 1), 100)
 
     if status and status not in ('pending', 'rejected'):
         return jsonify({'error': 'status must be pending or rejected'}), 400
@@ -1369,7 +1481,18 @@ def get_chapter_reviews(current_user):
             'latest_revision': serialize_revision_with_content(latest),
         })
 
-    return jsonify({'items': items}), 200
+    total = len(items)
+    start = (page - 1) * page_size
+    paged_items = items[start:start + page_size]
+
+    return jsonify({
+        'items': paged_items,
+        'pagination': {
+            'page': page,
+            'page_size': page_size,
+            'total': total,
+        }
+    }), 200
 
 
 @bp.route('/chapters/review/batch', methods=['POST'])
