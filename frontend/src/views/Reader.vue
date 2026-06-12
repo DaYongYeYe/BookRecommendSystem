@@ -10,26 +10,29 @@ import {
   createReaderBookmark,
   deleteReaderBookmark,
   getReader,
-  getReaderSections,
   getReaderPreferences,
+  getReaderSections,
+  reactHighlight,
   saveReaderPreferences,
   type ReaderBookmark,
+  type ReaderHighlight,
   type ReaderPayload,
   type ReaderSectionsPagination,
 } from '@/api/reader'
 import { getToken } from '@/api/request'
 import { getUserFavorites } from '@/api/user'
-import { useReaderPreferences, type ReaderTheme, type ReaderMargin } from '@/composables/useReaderPreferences'
+import { useReaderPreferences, type ReaderMargin, type ReaderTheme } from '@/composables/useReaderPreferences'
 import { useReadingProgress } from '@/composables/useReadingProgress'
 
-type SelectionDraft = {
+type CommentDraft = {
   paragraphId: string
+  sectionId: string
+  selectedText: string
   startOffset: number
   endOffset: number
-  selectedText: string
 }
 
-type PanelType = 'none' | 'outline' | 'settings' | 'notes' | 'bookmarks' | 'stats'
+type PanelType = 'none' | 'catalog' | 'settings' | 'comments' | 'bookmarks'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,102 +44,95 @@ const loadingMoreSections = ref(false)
 const sectionPagination = ref<ReaderSectionsPagination | null>(null)
 const addingToShelf = ref(false)
 const isInShelf = ref(false)
-
-const selectionDraft = ref<SelectionDraft | null>(null)
-const draftNote = ref('')
-const draftColor = ref('amber')
-const activeHighlightId = ref<number | null>(null)
-const highlightCommentDraft = ref('')
+const activeSectionId = ref('')
+const activeParagraphId = ref('')
+const activePanel = ref<PanelType>('none')
+const commentDraft = ref<CommentDraft | null>(null)
+const commentDraftContent = ref('')
+const replyDrafts = ref<Record<number, string>>({})
+const reactingHighlightIds = ref<Set<number>>(new Set())
 const bookCommentDraft = ref('')
-const activeSectionId = ref<string>('')
-const activeParagraphId = ref<string>('')
 const bookmarks = ref<ReaderBookmark[]>([])
 const bookmarkNoteDraft = ref('')
-
-const activePanel = ref<PanelType>('none')
-const highlightModeEnabled = ref(false)
-const showComments = ref(true)
+const showTopChrome = ref(true)
 const preferenceLoaded = ref(false)
-const immersiveMode = ref(false)
 const postReadSectionId = 'reader-post-read'
 const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window
 const isSpeaking = ref(false)
 const isSpeechPaused = ref(false)
 const speechStatus = ref('')
 const speechRunId = ref(0)
+let selectionCaptureTimer: ReturnType<typeof window.setTimeout> | null = null
 
-const { readerTheme, readerFontSize, readerLineHeight, readerMargin, setTheme, setFontSize, setLineHeight, setMargin } = useReaderPreferences()
-const { resumeIfNeeded, syncReadingProgress, getAnalyticsContext } = useReadingProgress(bookId, activeSectionId, activeParagraphId)
+const { readerTheme, readerFontSize, readerLineHeight, readerMargin, setTheme, setFontSize, setLineHeight, setMargin } =
+  useReaderPreferences()
+const { resumeIfNeeded, syncReadingProgress, getAnalyticsContext } = useReadingProgress(
+  bookId,
+  activeSectionId,
+  activeParagraphId
+)
 
-const colorMap: Record<string, string> = {
-  amber: 'bg-amber-200/80 decoration-amber-500',
-  sky: 'bg-sky-200/80 decoration-sky-500',
-  rose: 'bg-rose-200/80 decoration-rose-500',
-}
-
-// Theme styles
-const themeStyles: Record<ReaderTheme, { root: string; card: string; panel: string; text: string; textSecondary: string; textMuted: string; border: string; hover: string }> = {
+const themeStyles: Record<
+  ReaderTheme,
+  {
+    root: string
+    page: string
+    text: string
+    textSecondary: string
+    textMuted: string
+    border: string
+    panel: string
+    subtle: string
+  }
+> = {
   light: {
     root: 'min-h-screen bg-stone-100 text-stone-900',
-    card: 'rounded-[1.5rem] bg-white shadow-sm',
-    panel: 'border border-stone-200 bg-white text-stone-800',
+    page: 'bg-white',
     text: 'text-stone-900',
-    textSecondary: 'text-stone-500',
+    textSecondary: 'text-stone-600',
     textMuted: 'text-stone-400',
-    border: 'border-stone-100',
-    hover: 'hover:bg-stone-50',
+    border: 'border-stone-200',
+    panel: 'border-stone-200 bg-white text-stone-900',
+    subtle: 'bg-stone-100',
   },
   dark: {
-    root: 'min-h-screen bg-[#0f1720] text-stone-100',
-    card: 'rounded-[1.5rem] bg-[#111b28] shadow-sm',
-    panel: 'border border-white/10 bg-[#1a2533] text-stone-100',
-    text: 'text-stone-100',
-    textSecondary: 'text-stone-300',
-    textMuted: 'text-stone-400',
+    root: 'min-h-screen bg-[#111418] text-[#d8d3ca]',
+    page: 'bg-[#171b20]',
+    text: 'text-[#d8d3ca]',
+    textSecondary: 'text-[#aaa49a]',
+    textMuted: 'text-[#79736c]',
     border: 'border-white/10',
-    hover: 'hover:bg-white/5',
+    panel: 'border-white/10 bg-[#20252b] text-[#d8d3ca]',
+    subtle: 'bg-white/10',
   },
   green: {
-    root: 'min-h-screen bg-[#e8f0e4] text-[#2d3a2a]',
-    card: 'rounded-[1.5rem] bg-[#f0f5ec] shadow-sm',
-    panel: 'border border-[#c5d6bc] bg-[#f0f5ec] text-[#2d3a2a]',
-    text: 'text-[#2d3a2a]',
-    textSecondary: 'text-[#4a5d42]',
-    textMuted: 'text-[#6b7d63]',
-    border: 'border-[#d4e0cd]',
-    hover: 'hover:bg-[#dce6d6]',
+    root: 'min-h-screen bg-[#dfead8] text-[#293525]',
+    page: 'bg-[#edf5e8]',
+    text: 'text-[#293525]',
+    textSecondary: 'text-[#4d5f45]',
+    textMuted: 'text-[#718168]',
+    border: 'border-[#c8d8bf]',
+    panel: 'border-[#c8d8bf] bg-[#f3faef] text-[#293525]',
+    subtle: 'bg-[#d6e5ce]',
   },
   parchment: {
-    root: 'min-h-screen bg-[#f5eed5] text-[#3d3429]',
-    card: 'rounded-[1.5rem] bg-[#faf6e8] shadow-sm',
-    panel: 'border border-[#e0d9bf] bg-[#faf6e8] text-[#3d3429]',
-    text: 'text-[#3d3429]',
-    textSecondary: 'text-[#6b5d4a]',
-    textMuted: 'text-[#8a7d6b]',
-    border: 'border-[#e8e0ca]',
-    hover: 'hover:bg-[#f0ead3]',
+    root: 'min-h-screen bg-[#efe1c5] text-[#3b2e20]',
+    page: 'bg-[#f8edcf]',
+    text: 'text-[#3b2e20]',
+    textSecondary: 'text-[#685744]',
+    textMuted: 'text-[#8b7964]',
+    border: 'border-[#dfcfac]',
+    panel: 'border-[#dfcfac] bg-[#fff4d8] text-[#3b2e20]',
+    subtle: 'bg-[#eadbb9]',
   },
 }
 
 const ts = computed(() => themeStyles[readerTheme.value] || themeStyles.light)
 
-const rootClass = computed(() => ts.value.root)
-const cardClass = computed(() => ts.value.card)
-const panelCardClass = computed(() => ts.value.panel)
-
-const contentMaxWidth = computed(() => {
-  switch (readerMargin.value) {
-    case 'narrow': return 'max-w-[800px]'
-    case 'wide': return 'max-w-[1400px]'
-    default: return 'max-w-[1100px]'
-  }
-})
-
-const activeHighlight = computed(() => {
-  if (!reader.value || activeHighlightId.value == null) {
-    return null
-  }
-  return reader.value.highlights.find((item) => item.id === activeHighlightId.value) || null
+const contentWidthClass = computed(() => {
+  if (readerMargin.value === 'narrow') return 'max-w-[680px]'
+  if (readerMargin.value === 'wide') return 'max-w-[980px]'
+  return 'max-w-[780px]'
 })
 
 const currentSectionIndex = computed(() => {
@@ -147,24 +143,18 @@ const currentSectionIndex = computed(() => {
   )
 })
 
+const currentSectionTitle = computed(() => reader.value?.outline[currentSectionIndex.value]?.title || '')
+const hasPrevChapter = computed(() => currentSectionIndex.value > 0)
+const hasNextChapter = computed(() => (reader.value ? currentSectionIndex.value < reader.value.outline.length - 1 : false))
+const loadedSectionCount = computed(() => reader.value?.sections.length || 0)
+
 const progressPercent = computed(() => {
   if (!reader.value) return 0
-  const totalSections = reader.value.outline.length || reader.value.sections.length || 1
-  return Math.min(100, Math.round(((currentSectionIndex.value + 1) / totalSections) * 100))
+  const total = reader.value.outline.length || reader.value.sections.length || 1
+  return Math.min(100, Math.round(((currentSectionIndex.value + 1) / total) * 100))
 })
 
-const currentSectionTitle = computed(() => {
-  if (!reader.value) return ''
-  return reader.value.outline[currentSectionIndex.value]?.title || ''
-})
-
-const currentSectionText = computed(() => {
-  if (!reader.value) return ''
-  const section = reader.value.sections.find((item) => item.id === activeSectionId.value)
-  if (!section) return ''
-  const paragraphs = section.paragraphs.map((paragraph) => paragraph.text).join('\n')
-  return `${section.title}\n${paragraphs}`.trim()
-})
+const currentBookmark = computed(() => bookmarks.value.find((item) => item.section_id === activeSectionId.value) || null)
 
 const sectionTitleById = computed(() => {
   const map: Record<string, string> = {}
@@ -174,19 +164,38 @@ const sectionTitleById = computed(() => {
   return map
 })
 
-const currentBookmark = computed(() => {
-  return bookmarks.value.find((item) => item.section_id === activeSectionId.value) || null
+const paragraphCommentMap = computed(() => {
+  const map: Record<string, ReaderHighlight[]> = {}
+  ;(reader.value?.highlights || []).forEach((item) => {
+    if (!map[item.paragraph_id]) map[item.paragraph_id] = []
+    map[item.paragraph_id].push(item)
+  })
+  return map
 })
 
-const readingStats = computed(() => {
-  const stats = reader.value?.reading_stats || {}
-  return {
-    last_read_at: stats.last_read_at || '暂无记录',
-    total_read_minutes: Number(stats.total_read_minutes || 0),
-    bookmark_count: bookmarks.value.length,
-    highlight_count: reader.value?.highlights.length || 0,
-    comment_count: reader.value?.book_comments.length || 0,
-  }
+const activeParagraphMeta = computed(() => (activeParagraphId.value ? getParagraphMeta(activeParagraphId.value) : null))
+const activeParagraphComments = computed(() => {
+  if (!activeParagraphId.value) return []
+  return paragraphCommentMap.value[activeParagraphId.value] || []
+})
+const otherParagraphComments = computed(() => activeParagraphComments.value.filter((item) => !item.is_mine))
+const myParagraphComments = computed(() => activeParagraphComments.value.filter((item) => item.is_mine))
+const orderedParagraphComments = computed(() => [...otherParagraphComments.value, ...myParagraphComments.value])
+const activeParagraphCommentCount = computed(() => activeParagraphComments.value.length)
+const hasMyParagraphComment = computed(() => myParagraphComments.value.length > 0)
+const highlightedBookComments = computed(() => (reader.value?.book_comments || []).slice(0, 4))
+
+const currentSectionText = computed(() => {
+  if (!reader.value) return ''
+  const section = reader.value.sections.find((item) => item.id === activeSectionId.value)
+  if (!section) return ''
+  return [section.title, ...section.paragraphs.map((paragraph) => paragraph.text)].join('\n').trim()
+})
+
+const estimatedMinutesLeft = computed(() => {
+  const totalWords = reader.value?.book.total_words || reader.value?.book.word_count || 0
+  if (!totalWords) return 0
+  return Math.max(1, Math.round((totalWords * (1 - progressPercent.value / 100)) / 400))
 })
 
 const relatedSections = computed(() => {
@@ -197,42 +206,14 @@ const relatedSections = computed(() => {
     return [
       {
         key: 'related',
-        title: '相关推荐',
-        description: '读完这本后，可以顺手看看这些同题材或同热度作品。',
+        title: '读完这本还可以看',
+        description: '同题材、同热度和相近口味的作品。',
         items: reader.value.related_books,
       },
     ]
   }
   return []
 })
-
-const highlightedBookComments = computed(() => (reader.value?.book_comments || []).slice(0, 4))
-
-const estimatedMinutesLeft = computed(() => {
-  if (!reader.value) return 0
-  const totalWords = reader.value.book.total_words || reader.value.book.word_count || 0
-  if (totalWords <= 0) return 0
-  const remainingPercent = 1 - progressPercent.value / 100
-  const remainingWords = Math.round(totalWords * remainingPercent)
-  return Math.max(1, Math.round(remainingWords / 400))
-})
-
-const hasPrevChapter = computed(() => currentSectionIndex.value > 0)
-const hasNextChapter = computed(() => reader.value ? currentSectionIndex.value < reader.value.outline.length - 1 : false)
-const loadedSectionCount = computed(() => reader.value?.sections.length || 0)
-
-const toolbarStickyTop = computed(() => {
-  const theme = readerTheme.value
-  if (theme === 'dark') return 'bg-[#111b28]/92 border-white/10'
-  if (theme === 'green') return 'bg-[#f0f5ec]/92 border-[#c5d6bc]'
-  if (theme === 'parchment') return 'bg-[#faf6e8]/92 border-[#e0d9bf]'
-  return 'bg-white/92 border-white/70'
-})
-
-const topBarClass = computed(() => [
-  toolbarStickyTop.value,
-  immersiveMode.value ? 'opacity-50 hover:opacity-100' : 'opacity-100',
-])
 
 async function loadReader() {
   loading.value = true
@@ -242,16 +223,18 @@ async function loadReader() {
     sectionPagination.value = payload.sections_pagination || null
     bookmarks.value = payload.bookmarks || []
     activeSectionId.value = payload.sections[0]?.id || ''
-    activeHighlightId.value = payload.highlights[0]?.id ?? null
     loading.value = false
     await nextTick()
+    if (typeof route.query.section === 'string') {
+      await scrollToSection(route.query.section)
+    }
     await resumeIfNeeded(route.query.resume === '1', async (target) => {
       await loadMoreReaderSections(target.sectionId)
       await nextTick()
       return true
     })
     if (route.query.listen === '1') {
-      setTimeout(startListening, 300)
+      window.setTimeout(startListening, 300)
     }
   } catch (_error) {
     ElMessage.error('阅读内容加载失败，请稍后重试')
@@ -267,8 +250,7 @@ async function loadShelfState() {
   }
   try {
     const favorites = await getUserFavorites()
-    const currentBookId = Number(bookId.value)
-    isInShelf.value = favorites.items.some((item) => item.id === currentBookId)
+    isInShelf.value = favorites.items.some((item) => item.id === Number(bookId.value))
   } catch (_error) {
     isInShelf.value = false
   }
@@ -279,74 +261,108 @@ async function loadReaderPreferences() {
     const data = await getReaderPreferences()
     setTheme(data.theme === 'dark' ? 'dark' : data.theme === 'green' ? 'green' : data.theme === 'parchment' ? 'parchment' : 'light')
     setFontSize(Number(data.font_size) || 20)
-    setLineHeight(Number(data.line_height) || 2.0)
+    setLineHeight(Number(data.line_height) || 1.9)
     setMargin((data.margin as ReaderMargin) || 'medium')
-    showComments.value = data.show_comments !== false
   } catch (_error) {
-    // Keep defaults when preference loading fails.
+    // Local defaults are good enough when the reader preference endpoint is unavailable.
   } finally {
     preferenceLoaded.value = true
   }
 }
 
 async function persistReaderPreferences() {
-  if (!preferenceLoaded.value || !getToken()) {
-    return
-  }
+  if (!preferenceLoaded.value || !getToken()) return
   try {
     await saveReaderPreferences({
       theme: readerTheme.value,
       font_size: readerFontSize.value,
       line_height: readerLineHeight.value,
       margin: readerMargin.value,
-      show_highlights: true,
-      show_comments: showComments.value,
+      show_highlights: false,
+      show_comments: true,
     })
   } catch (_error) {
-    // Do not block reading flow on preference save failures.
+    // Preference sync should never block reading.
   }
 }
 
-function clearSelectionDraft() {
-  selectionDraft.value = null
-  draftNote.value = ''
-  draftColor.value = 'amber'
-  const selection = window.getSelection()
-  selection?.removeAllRanges()
+function focusActiveParagraphForComments() {
+  if (!reader.value) return
+  if (activeParagraphId.value && getParagraphMeta(activeParagraphId.value)) {
+    if (!hasMyCommentForParagraph(activeParagraphId.value) && !commentDraft.value) {
+      const meta = getParagraphMeta(activeParagraphId.value)
+      if (meta) {
+        commentDraft.value = {
+          paragraphId: activeParagraphId.value,
+          sectionId: meta.section.id,
+          selectedText: meta.paragraph.text,
+          startOffset: 0,
+          endOffset: meta.paragraph.text.length,
+        }
+      }
+    }
+    return
+  }
+
+  const currentSection = reader.value.sections.find((section) => section.id === activeSectionId.value)
+  const fallbackParagraph = currentSection?.paragraphs[0] || reader.value.sections[0]?.paragraphs[0]
+  if (fallbackParagraph) {
+    activeParagraphId.value = fallbackParagraph.id
+    if (!hasMyCommentForParagraph(fallbackParagraph.id)) {
+      const meta = getParagraphMeta(fallbackParagraph.id)
+      if (meta) {
+        commentDraft.value = {
+          paragraphId: fallbackParagraph.id,
+          sectionId: meta.section.id,
+          selectedText: meta.paragraph.text,
+          startOffset: 0,
+          endOffset: meta.paragraph.text.length,
+        }
+      }
+    }
+  }
+}
+
+function hasMyCommentForParagraph(paragraphId: string) {
+  return (paragraphCommentMap.value[paragraphId] || []).some((item) => item.is_mine)
+}
+
+function updateHighlight(updated: ReaderHighlight) {
+  if (!reader.value) return
+  const index = reader.value.highlights.findIndex((item) => item.id === updated.id)
+  if (index === -1) return
+  reader.value.highlights[index] = {
+    ...reader.value.highlights[index],
+    ...updated,
+    comments: updated.comments?.length ? updated.comments : reader.value.highlights[index].comments,
+  }
 }
 
 function togglePanel(panel: PanelType) {
+  if (panel === 'comments') focusActiveParagraphForComments()
   activePanel.value = activePanel.value === panel ? 'none' : panel
+  showTopChrome.value = true
 }
 
-function toggleHighlightMode() {
-  highlightModeEnabled.value = !highlightModeEnabled.value
-  if (!highlightModeEnabled.value) {
-    clearSelectionDraft()
-  } else {
-    ElMessage.info('划线模式已开启，请在正文里选中同一段内的文字')
-  }
+function closePanel() {
+  activePanel.value = 'none'
 }
 
-function toggleCommentVisibility() {
-  showComments.value = !showComments.value
-  if (!showComments.value && activePanel.value === 'notes') {
-    activePanel.value = 'none'
+function toggleChrome() {
+  if (activePanel.value !== 'none') {
+    closePanel()
+    return
   }
+  showTopChrome.value = !showTopChrome.value
 }
 
 async function scrollToSection(sectionId: string) {
   await loadMoreReaderSections(sectionId)
   activeSectionId.value = sectionId
   await nextTick()
-  const element = document.getElementById(sectionId)
-  if (element) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    return true
-  } else {
-    ElMessage.info('这一章还在加载队列中，请稍后再试')
-    return false
-  }
+  document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  closePanel()
+  return true
 }
 
 function scrollToPostRead() {
@@ -367,6 +383,234 @@ async function goToNextChapter() {
   }
   const next = reader.value.outline[currentSectionIndex.value + 1]
   return next ? scrollToSection(next.id) : false
+}
+
+async function loadMoreReaderSections(targetSectionId?: string) {
+  if (!reader.value || loadingMoreSections.value) return false
+  if (targetSectionId && reader.value.sections.some((section) => section.id === targetSectionId)) return true
+
+  let pagination = sectionPagination.value
+  let loadedTarget = false
+  while (pagination?.has_more) {
+    loadingMoreSections.value = true
+    try {
+      const nextOffset = pagination.next_offset ?? reader.value.sections.length
+      const payload = await getReaderSections(bookId.value, nextOffset, 5)
+      const existingIds = new Set(reader.value.sections.map((section) => section.id))
+      reader.value.sections.push(...payload.sections.filter((section) => !existingIds.has(section.id)))
+      sectionPagination.value = payload.pagination
+      pagination = payload.pagination
+      if (!targetSectionId || reader.value.sections.some((section) => section.id === targetSectionId)) {
+        loadedTarget = true
+        break
+      }
+    } catch (_error) {
+      ElMessage.error('后续章节加载失败，请稍后重试')
+      break
+    } finally {
+      loadingMoreSections.value = false
+    }
+  }
+  return loadedTarget || !targetSectionId || reader.value.sections.some((section) => section.id === targetSectionId)
+}
+
+function getParagraphMeta(paragraphId: string) {
+  if (!reader.value) return null
+  for (const section of reader.value.sections) {
+    const paragraph = section.paragraphs.find((item) => item.id === paragraphId)
+    if (paragraph) return { section, paragraph }
+  }
+  return null
+}
+
+function openParagraphComment(paragraphId: string) {
+  const meta = getParagraphMeta(paragraphId)
+  if (!meta) return
+  activeSectionId.value = meta.section.id
+  activeParagraphId.value = paragraphId
+  if (hasMyCommentForParagraph(paragraphId)) {
+    clearCommentDraft()
+    activePanel.value = 'comments'
+    showTopChrome.value = true
+    return
+  }
+  commentDraft.value = {
+    paragraphId,
+    sectionId: meta.section.id,
+    selectedText: meta.paragraph.text,
+    startOffset: 0,
+    endOffset: meta.paragraph.text.length,
+  }
+  commentDraftContent.value = ''
+  activePanel.value = 'comments'
+  showTopChrome.value = true
+}
+
+function captureSelectionComment() {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return
+
+  const range = selection.getRangeAt(0)
+  const startParagraph = (range.startContainer.nodeType === Node.TEXT_NODE
+    ? range.startContainer.parentElement
+    : (range.startContainer as Element)
+  )?.closest?.('[data-paragraph-id]') as HTMLElement | null
+  const endParagraph = (range.endContainer.nodeType === Node.TEXT_NODE
+    ? range.endContainer.parentElement
+    : (range.endContainer as Element)
+  )?.closest?.('[data-paragraph-id]') as HTMLElement | null
+
+  if (!startParagraph || !endParagraph || startParagraph !== endParagraph) return
+  const paragraphId = startParagraph.dataset.paragraphId
+  const meta = paragraphId ? getParagraphMeta(paragraphId) : null
+  if (!paragraphId || !meta) return
+
+  const selectedText = range.toString().trim()
+  if (!selectedText) return
+  const preSelectionRange = range.cloneRange()
+  preSelectionRange.selectNodeContents(startParagraph)
+  preSelectionRange.setEnd(range.startContainer, range.startOffset)
+  const startOffset = preSelectionRange.toString().length
+
+  commentDraft.value = {
+    paragraphId,
+    sectionId: meta.section.id,
+    selectedText,
+    startOffset,
+    endOffset: startOffset + selectedText.length,
+  }
+  commentDraftContent.value = ''
+  activeSectionId.value = meta.section.id
+  activeParagraphId.value = paragraphId
+  if (hasMyCommentForParagraph(paragraphId)) {
+    clearCommentDraft()
+    activePanel.value = 'comments'
+    showTopChrome.value = true
+    return
+  }
+  activePanel.value = 'comments'
+  showTopChrome.value = true
+}
+
+function scheduleSelectionCapture() {
+  if (selectionCaptureTimer) window.clearTimeout(selectionCaptureTimer)
+  selectionCaptureTimer = window.setTimeout(() => {
+    selectionCaptureTimer = null
+    captureSelectionComment()
+  }, 180)
+}
+
+function clearCommentDraft() {
+  commentDraft.value = null
+  commentDraftContent.value = ''
+  window.getSelection()?.removeAllRanges()
+}
+
+async function submitParagraphComment() {
+  if (!commentDraft.value || !reader.value || !commentDraftContent.value.trim()) return
+  if (hasMyCommentForParagraph(commentDraft.value.paragraphId)) {
+    ElMessage.info('你已经评论过这一段了，可以先看看并点赞其他人的评论')
+    clearCommentDraft()
+    return
+  }
+  try {
+    const response = await createHighlight(bookId.value, {
+      paragraph_id: commentDraft.value.paragraphId,
+      start_offset: commentDraft.value.startOffset,
+      end_offset: commentDraft.value.endOffset,
+      selected_text: commentDraft.value.selectedText,
+      note: commentDraftContent.value.trim(),
+      color: 'comment',
+    })
+    reader.value.highlights.unshift(response.highlight)
+    activeParagraphId.value = response.highlight.paragraph_id
+    clearCommentDraft()
+    activePanel.value = 'comments'
+    ElMessage.success('评论已发布')
+  } catch (_error) {
+    ElMessage.error('评论发布失败，请先登录后再试')
+  }
+}
+
+async function toggleHighlightReaction(item: ReaderHighlight) {
+  if (item.is_mine || !hasMyParagraphComment.value || reactingHighlightIds.value.has(item.id)) return
+  reactingHighlightIds.value = new Set([...reactingHighlightIds.value, item.id])
+  try {
+    const response = await reactHighlight(bookId.value, item.id, !item.liked_by_me)
+    updateHighlight(response.highlight)
+  } catch (_error) {
+    ElMessage.error('点赞失败，请先发表本段评论后再试')
+  } finally {
+    const next = new Set(reactingHighlightIds.value)
+    next.delete(item.id)
+    reactingHighlightIds.value = next
+  }
+}
+
+async function submitCommentReply(item: ReaderHighlight) {
+  const content = replyDrafts.value[item.id]?.trim()
+  if (!content) return
+  try {
+    const response = await createHighlightComment(bookId.value, item.id, { content })
+    item.comments.push(response.comment)
+    replyDrafts.value[item.id] = ''
+    ElMessage.success('回复已发布')
+  } catch (_error) {
+    ElMessage.error('回复失败，请先登录后再试')
+  }
+}
+
+async function submitBookComment() {
+  if (!bookCommentDraft.value.trim() || !reader.value) return
+  try {
+    const response = await createBookComment(bookId.value, { content: bookCommentDraft.value.trim() })
+    reader.value.book_comments.unshift(response.comment)
+    bookCommentDraft.value = ''
+    ElMessage.success('书评发布成功')
+  } catch (_error) {
+    ElMessage.error('书评发布失败，请先登录后再试')
+  }
+}
+
+async function saveBookmark() {
+  if (!reader.value || !activeSectionId.value) return
+  try {
+    const response = await createReaderBookmark(bookId.value, {
+      section_id: activeSectionId.value,
+      paragraph_id: activeParagraphId.value || null,
+      note: bookmarkNoteDraft.value || currentSectionTitle.value,
+    })
+    bookmarks.value = [response.bookmark, ...bookmarks.value.filter((item) => item.id !== response.bookmark.id)]
+    bookmarkNoteDraft.value = ''
+    activePanel.value = 'bookmarks'
+    ElMessage.success('书签已保存')
+  } catch (_error) {
+    ElMessage.error('书签保存失败，请先登录后再试')
+  }
+}
+
+async function removeBookmark(bookmarkId: number) {
+  try {
+    await deleteReaderBookmark(bookId.value, bookmarkId)
+    bookmarks.value = bookmarks.value.filter((item) => item.id !== bookmarkId)
+    ElMessage.success('书签已删除')
+  } catch (_error) {
+    ElMessage.error('书签删除失败')
+  }
+}
+
+async function handleAddToShelf() {
+  if (isInShelf.value) return
+  addingToShelf.value = true
+  try {
+    await addBookToShelf(bookId.value)
+    isInShelf.value = true
+    ElMessage.success('已加入书架')
+  } catch (_error) {
+    ElMessage.error('加入书架失败，请先登录')
+  } finally {
+    addingToShelf.value = false
+  }
 }
 
 function stopListening() {
@@ -403,12 +647,7 @@ function startListening() {
     if (runId !== speechRunId.value) return
     isSpeaking.value = false
     isSpeechPaused.value = false
-    if (hasNextChapter.value) {
-      speechStatus.value = '本章朗读完成，正在切换下一章'
-      void listenNextChapter()
-      return
-    }
-    speechStatus.value = '本章朗读完成'
+    speechStatus.value = hasNextChapter.value ? '本章朗读完成' : '已读到最后一章'
   }
   utterance.onerror = () => {
     if (runId !== speechRunId.value) return
@@ -439,257 +678,36 @@ function toggleListening() {
   }
 }
 
-async function loadMoreReaderSections(targetSectionId?: string) {
-  if (!reader.value || loadingMoreSections.value) return false
-
-  if (targetSectionId && reader.value.sections.some((section) => section.id === targetSectionId)) {
-    return true
-  }
-
-  let pagination = sectionPagination.value
-  let loadedTarget = false
-  while (pagination?.has_more) {
-    loadingMoreSections.value = true
-    try {
-      const nextOffset = pagination.next_offset ?? reader.value.sections.length
-      const payload = await getReaderSections(bookId.value, nextOffset, 5)
-      const existingIds = new Set(reader.value.sections.map((section) => section.id))
-      reader.value.sections.push(...payload.sections.filter((section) => !existingIds.has(section.id)))
-      sectionPagination.value = payload.pagination
-      pagination = payload.pagination
-      if (!targetSectionId || reader.value.sections.some((section) => section.id === targetSectionId)) {
-        loadedTarget = true
-        break
-      }
-    } catch (_error) {
-      ElMessage.error('后续章节加载失败，请稍后重试')
-      break
-    } finally {
-      loadingMoreSections.value = false
-    }
-  }
-
-  return loadedTarget || !targetSectionId || reader.value.sections.some((section) => section.id === targetSectionId)
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
-
-async function listenPrevChapter() {
-  if (!hasPrevChapter.value) return
-  const moved = await goToPrevChapter()
-  if (moved) {
-    await delay(250)
-    startListening()
-  }
-}
-
-async function listenNextChapter() {
-  if (!hasNextChapter.value) return
-  const moved = await goToNextChapter()
-  if (moved) {
-    await delay(250)
-    startListening()
-  }
-}
-
-function goBook(targetBookId: number) {
-  router.push(`/books/${targetBookId}`)
-}
-
 function formatCount(value?: number | null) {
   const num = Number(value || 0)
-  if (num >= 10000) {
-    return `${(num / 10000).toFixed(1)} 万`
-  }
+  if (num >= 10000) return `${(num / 10000).toFixed(1)}万`
   return String(num)
 }
 
 function formatWordCount(value?: number | null) {
   const num = Number(value || 0)
   if (!num) return '未标注'
-  if (num >= 10000) {
-    return `${(num / 10000).toFixed(1)} 万字`
-  }
-  return `${num} 字`
+  if (num >= 10000) return `${(num / 10000).toFixed(1)}万字`
+  return `${num}字`
 }
 
-function handleSelection() {
-  if (!highlightModeEnabled.value) {
-    return
-  }
-
-  const selection = window.getSelection()
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    return
-  }
-
-  const range = selection.getRangeAt(0)
-  const startParagraph = (range.startContainer.nodeType === Node.TEXT_NODE
-    ? range.startContainer.parentElement
-    : (range.startContainer as Element)
-  )?.closest?.('[data-paragraph-id]') as HTMLElement | null
-  const endParagraph = (range.endContainer.nodeType === Node.TEXT_NODE
-    ? range.endContainer.parentElement
-    : (range.endContainer as Element)
-  )?.closest?.('[data-paragraph-id]') as HTMLElement | null
-
-  if (!startParagraph || !endParagraph || startParagraph !== endParagraph) {
-    ElMessage.info('当前只支持在同一段落内划线')
-    clearSelectionDraft()
-    return
-  }
-
-  const paragraphId = startParagraph.dataset.paragraphId
-  if (!paragraphId) {
-    clearSelectionDraft()
-    return
-  }
-
-  const preSelectionRange = range.cloneRange()
-  preSelectionRange.selectNodeContents(startParagraph)
-  preSelectionRange.setEnd(range.startContainer, range.startOffset)
-
-  const startOffset = preSelectionRange.toString().length
-  const selectedText = range.toString().trim()
-  const endOffset = startOffset + selectedText.length
-  if (!selectedText) {
-    clearSelectionDraft()
-    return
-  }
-
-  selectionDraft.value = { paragraphId, startOffset, endOffset, selectedText }
-  activeHighlightId.value = null
-}
-
-async function submitHighlight() {
-  if (!selectionDraft.value) {
-    return
-  }
-
-  try {
-    const response = await createHighlight(bookId.value, {
-      paragraph_id: selectionDraft.value.paragraphId,
-      start_offset: selectionDraft.value.startOffset,
-      end_offset: selectionDraft.value.endOffset,
-      selected_text: selectionDraft.value.selectedText,
-      note: draftNote.value,
-      color: draftColor.value,
-    })
-    reader.value?.highlights.push(response.highlight)
-    activeHighlightId.value = response.highlight.id
-    activePanel.value = 'notes'
-    clearSelectionDraft()
-    ElMessage.success('划线已保存')
-  } catch (_error) {
-    ElMessage.error('划线保存失败，请先登录后重试')
-  }
-}
-
-async function saveBookmark() {
-  if (!reader.value || !activeSectionId.value) return
-  try {
-    const response = await createReaderBookmark(bookId.value, {
-      section_id: activeSectionId.value,
-      note: bookmarkNoteDraft.value || currentSectionTitle.value,
-    })
-    const next = response.bookmark
-    bookmarks.value = [next, ...bookmarks.value.filter((item) => item.id !== next.id)]
-    bookmarkNoteDraft.value = ''
-    activePanel.value = 'bookmarks'
-    ElMessage.success('书签已保存')
-  } catch (_error) {
-    ElMessage.error('书签保存失败，请先登录后重试')
-  }
-}
-
-async function removeBookmark(bookmarkId: number) {
-  try {
-    await deleteReaderBookmark(bookId.value, bookmarkId)
-    bookmarks.value = bookmarks.value.filter((item) => item.id !== bookmarkId)
-    ElMessage.success('书签已删除')
-  } catch (_error) {
-    ElMessage.error('书签删除失败')
-  }
-}
-
-function toggleImmersiveMode() {
-  immersiveMode.value = !immersiveMode.value
-}
-
-async function submitHighlightComment() {
-  if (!activeHighlight.value || !highlightCommentDraft.value.trim()) {
-    return
-  }
-
-  try {
-    const response = await createHighlightComment(bookId.value, activeHighlight.value.id, {
-      content: highlightCommentDraft.value,
-    })
-    activeHighlight.value.comments.push(response.comment)
-    highlightCommentDraft.value = ''
-    ElMessage.success('评论已发布')
-  } catch (_error) {
-    ElMessage.error('评论发布失败，请先登录后重试')
-  }
-}
-
-async function submitBookComment() {
-  if (!bookCommentDraft.value.trim() || !reader.value) {
-    return
-  }
-  try {
-    const response = await createBookComment(bookId.value, { content: bookCommentDraft.value })
-    reader.value.book_comments.unshift(response.comment)
-    bookCommentDraft.value = ''
-    ElMessage.success('书评发布成功')
-  } catch (_error) {
-    ElMessage.error('书评发布失败，请先登录后重试')
-  }
-}
-
-async function handleAddToShelf() {
-  if (isInShelf.value) {
-    return
-  }
-  addingToShelf.value = true
-  try {
-    await addBookToShelf(bookId.value)
-    isInShelf.value = true
-    ElMessage.success('已加入书架')
-  } catch (_error) {
-    ElMessage.error('加入书架失败，请先登录')
-  } finally {
-    addingToShelf.value = false
-  }
+function goBook(targetBookId: number) {
+  router.push(`/books/${targetBookId}`)
 }
 
 function handleScroll() {
-  if (!reader.value) {
-    return
-  }
-
+  if (!reader.value) return
   let currentSection = reader.value.sections[0]?.id || ''
   let currentParagraph = ''
   reader.value.sections.forEach((section) => {
     const element = document.getElementById(section.id)
-    if (element && element.getBoundingClientRect().top <= 140) {
-      currentSection = section.id
-    }
+    if (element && element.getBoundingClientRect().top <= 120) currentSection = section.id
   })
   document.querySelectorAll<HTMLElement>('[data-paragraph-id]').forEach((paragraph) => {
-    if (paragraph.getBoundingClientRect().top <= 180) {
-      currentParagraph = paragraph.dataset.paragraphId || ''
-    }
+    if (paragraph.getBoundingClientRect().top <= 180) currentParagraph = paragraph.dataset.paragraphId || ''
   })
-
-  if (currentSection !== activeSectionId.value) {
-    activeSectionId.value = currentSection
-  }
-  if (currentParagraph !== activeParagraphId.value) {
-    activeParagraphId.value = currentParagraph
-  }
+  activeSectionId.value = currentSection
+  activeParagraphId.value = currentParagraph
   const doc = document.documentElement
   if (sectionPagination.value?.has_more && doc.scrollHeight - (doc.scrollTop + doc.clientHeight) < 900) {
     void loadMoreReaderSections()
@@ -698,13 +716,9 @@ function handleScroll() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'ArrowLeft') {
-    goToPrevChapter()
-  } else if (e.key === 'ArrowRight') {
-    goToNextChapter()
-  } else if (e.key === 'Escape' && activePanel.value !== 'none') {
-    activePanel.value = 'none'
-  }
+  if (e.key === 'ArrowLeft') void goToPrevChapter()
+  if (e.key === 'ArrowRight') void goToNextChapter()
+  if (e.key === 'Escape') closePanel()
 }
 
 onMounted(async () => {
@@ -712,15 +726,20 @@ onMounted(async () => {
   await loadShelfState()
   await loadReader()
   window.addEventListener('scroll', handleScroll, { passive: true })
-  document.addEventListener('mouseup', handleSelection)
+  document.addEventListener('mouseup', captureSelectionComment)
+  document.addEventListener('touchend', scheduleSelectionCapture, { passive: true })
+  document.addEventListener('selectionchange', scheduleSelectionCapture)
   document.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
   syncReadingProgress(true)
   stopListening()
+  if (selectionCaptureTimer) window.clearTimeout(selectionCaptureTimer)
   window.removeEventListener('scroll', handleScroll)
-  document.removeEventListener('mouseup', handleSelection)
+  document.removeEventListener('mouseup', captureSelectionComment)
+  document.removeEventListener('touchend', scheduleSelectionCapture)
+  document.removeEventListener('selectionchange', scheduleSelectionCapture)
   document.removeEventListener('keydown', handleKeydown)
 })
 
@@ -728,8 +747,8 @@ watch(
   () => route.params.bookId,
   async () => {
     stopListening()
-    clearSelectionDraft()
-    activePanel.value = 'none'
+    clearCommentDraft()
+    closePanel()
     bookmarks.value = []
     sectionPagination.value = null
     await nextTick()
@@ -738,625 +757,388 @@ watch(
   }
 )
 
-watch([readerTheme, readerFontSize, readerLineHeight, readerMargin, showComments], () => {
-  persistReaderPreferences()
+watch([readerTheme, readerFontSize, readerLineHeight, readerMargin], () => {
+  void persistReaderPreferences()
 })
 </script>
 
 <template>
-  <div :class="rootClass" class="pb-14">
-    <main class="mx-auto px-4 py-6 md:px-8" :class="contentMaxWidth">
-      <div v-if="loading" :class="[cardClass, ts.textSecondary]" class="p-10 text-center">正在加载正文...</div>
+  <div :class="[ts.root, 'pb-24']">
+    <header
+      v-if="reader && showTopChrome"
+      class="fixed inset-x-0 top-0 z-40 border-b px-4 py-3 backdrop-blur-xl transition md:px-8"
+      :class="[ts.panel, ts.border]"
+    >
+      <div class="mx-auto flex max-w-3xl items-center gap-3">
+        <button class="rounded-full px-2 py-1 text-xl leading-none" :class="ts.text" @click="router.push(`/books/${bookId}`)">‹</button>
+        <div class="min-w-0 flex-1 text-center">
+          <p class="truncate text-sm font-semibold">{{ reader.book.title }}</p>
+          <p class="mt-0.5 truncate text-xs" :class="ts.textMuted">{{ currentSectionTitle || reader.book.author }}</p>
+        </div>
+        <button class="rounded-full px-2 py-1 text-sm" :class="ts.textSecondary" @click="togglePanel('catalog')">
+          目录
+        </button>
+      </div>
+    </header>
+
+    <main class="mx-auto px-0 pt-0 md:px-6" :class="contentWidthClass">
+      <div v-if="loading" class="mx-4 mt-8 rounded-2xl p-8 text-center" :class="[ts.page, ts.textMuted]">
+        正在加载正文...
+      </div>
 
       <template v-else-if="reader">
-        <!-- Top info bar -->
-        <section
-          class="sticky top-3 z-30 mb-6 overflow-hidden rounded-[1.25rem] border px-5 py-4 shadow-lg backdrop-blur-xl md:top-4 md:px-6"
-          :class="topBarClass"
+        <article
+          class="min-h-screen px-5 pb-10 pt-12 shadow-sm md:mt-6 md:rounded-2xl md:px-10 md:pt-16"
+          :class="ts.page"
+          @click.self="toggleChrome"
         >
-          <div class="min-w-0">
-            <h1 class="truncate text-xl font-semibold">{{ reader.book.title }}</h1>
-            <p class="text-sm" :class="ts.textSecondary">{{ reader.book.author }}</p>
-            <p class="mt-1 text-xs" :class="ts.textMuted">
-              <span v-if="currentSectionTitle">正在阅读：{{ currentSectionTitle }} · </span>
-              进度约 {{ progressPercent }}%
-              <span v-if="estimatedMinutesLeft > 0"> · 预计 {{ estimatedMinutesLeft }} 分钟读完</span>
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center gap-2 lg:justify-end">
-            <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="router.push('/')">回到首页</button>
-            <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="router.push(`/books/${bookId}`)">返回详情</button>
-            <button
-              class="rounded-full border px-4 py-2 text-sm"
-              :class="isSpeaking ? 'border-emerald-500 bg-emerald-500 text-white' : ts.border"
-              @click="toggleListening"
-            >
-              {{ !speechSupported ? '不支持听书' : isSpeaking && !isSpeechPaused ? '暂停听书' : isSpeechPaused ? '继续听书' : '听书' }}
-            </button>
-            <button
-              class="rounded-full border px-3 py-2 text-sm disabled:opacity-40"
-              :class="ts.border"
-              :disabled="!speechSupported || !hasPrevChapter"
-              @click="listenPrevChapter"
-            >
-              上一章
-            </button>
-            <button
-              class="rounded-full border px-3 py-2 text-sm disabled:opacity-40"
-              :class="ts.border"
-              :disabled="!speechSupported || !hasNextChapter"
-              @click="listenNextChapter"
-            >
-              下一章
-            </button>
-            <button
-              v-if="isSpeaking || isSpeechPaused"
-              class="rounded-full border px-3 py-2 text-sm"
-              :class="ts.border"
-              @click="stopListening"
-            >
-              停止
-            </button>
-            <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="saveBookmark">
-              {{ currentBookmark ? '更新书签' : '加书签' }}
-            </button>
-            <button class="rounded-full border px-4 py-2 text-sm" :class="ts.border" @click="router.push('/user/library')">我的书架</button>
-            <button
-              class="rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-              :disabled="addingToShelf || isInShelf"
-              @click="handleAddToShelf"
-            >
-              {{ addingToShelf ? '加入中...' : isInShelf ? '已在书架' : '加入书架' }}
-            </button>
-          </div>
-          <div class="mt-4 flex items-center gap-3">
-            <div
-              class="h-2 flex-1 overflow-hidden rounded-full"
-              :class="readerTheme === 'dark' ? 'bg-white/10' : readerTheme === 'green' ? 'bg-[#c5d6bc]' : readerTheme === 'parchment' ? 'bg-[#e0d9bf]' : 'bg-stone-200'"
-            >
-              <div
-                class="h-full rounded-full bg-emerald-500 transition-all duration-300"
-                :style="{ width: `${progressPercent}%` }"
-              />
-            </div>
-            <span class="text-xs font-medium tabular-nums text-emerald-600" :class="readerTheme === 'dark' ? 'text-emerald-300' : ''">
-              {{ progressPercent }}%
-            </span>
-          </div>
-          <p v-if="speechStatus" class="mt-3 text-xs text-emerald-600" :class="readerTheme === 'dark' ? 'text-emerald-300' : ''">
-            {{ speechStatus }}
-          </p>
-        </section>
-
-        <!-- Content area -->
-        <article :class="cardClass" class="p-6 md:p-8">
-          <!-- Selection draft -->
-          <div
-            v-if="selectionDraft"
-            class="mb-8 rounded-[1.2rem] border border-amber-200 bg-amber-50 p-5 text-stone-900"
-          >
-            <p class="text-xs uppercase tracking-[0.3em] text-amber-700">新建划线</p>
-            <p class="mt-3 rounded-2xl bg-white px-4 py-4 text-lg leading-8 shadow-sm">"{{ selectionDraft.selectedText }}"</p>
-            <div class="mt-4 flex flex-wrap gap-2">
-              <button
-                v-for="option in ['amber', 'sky', 'rose']"
-                :key="option"
-                :class="[
-                  'rounded-full px-3 py-2 text-xs font-medium uppercase tracking-[0.25em]',
-                  draftColor === option ? 'bg-stone-900 text-white' : 'bg-white text-stone-500',
-                ]"
-                @click="draftColor = option"
-              >
-                {{ option }}
-              </button>
-            </div>
-            <textarea
-              v-model="draftNote"
-              class="mt-4 min-h-24 w-full rounded-2xl border border-amber-100 bg-white px-4 py-3 outline-none focus:border-stone-400"
-              placeholder="写下你对这段文字的感受..."
-            />
-            <div class="mt-4 flex flex-wrap gap-3">
-              <button class="rounded-full bg-stone-900 px-5 py-2.5 text-sm font-medium text-white" @click="submitHighlight">
-                保存划线
-              </button>
-              <button class="rounded-full bg-white px-5 py-2.5 text-sm font-medium text-stone-500" @click="clearSelectionDraft">
-                取消
-              </button>
-            </div>
-          </div>
-
-          <!-- Sections -->
           <section
             v-for="(section, sectionIdx) in reader.sections"
             :id="section.id"
             :key="section.id"
-            class="scroll-mt-40 border-b py-7 first:pt-0 last:border-b-0 md:scroll-mt-44"
+            class="scroll-mt-20 border-b py-8 last:border-b-0"
             :class="ts.border"
           >
-            <p class="text-xs uppercase tracking-[0.35em]" :class="ts.textMuted">
-              {{ sectionIdx === 0 ? '起始' : `第 ${sectionIdx + 1} 章` }}
-            </p>
-            <h3 class="mt-3 text-3xl font-semibold">{{ section.title }}</h3>
-            <p class="mt-3 max-w-2xl text-sm leading-7" :class="ts.textSecondary">
+            <p class="text-center text-xs" :class="ts.textMuted">第 {{ sectionIdx + 1 }} 章</p>
+            <h1 class="mt-3 text-center text-2xl font-semibold leading-snug" :class="ts.text">{{ section.title }}</h1>
+            <p v-if="section.summary" class="mx-auto mt-4 max-w-xl text-center text-sm leading-7" :class="ts.textSecondary">
               {{ section.summary }}
             </p>
 
-            <div class="mt-6 space-y-6">
-              <p
+            <div class="mt-8 space-y-4">
+              <div
                 v-for="paragraph in section.paragraphs"
                 :key="paragraph.id"
                 :data-paragraph-id="paragraph.id"
-                class="rounded-3xl px-3 py-3 transition"
-                :class="[ts.text, ts.hover]"
-                :style="{ fontSize: `${readerFontSize}px`, lineHeight: String(readerLineHeight) }"
+                class="group relative rounded-lg px-1 py-1"
+                :class="activeParagraphId === paragraph.id ? ts.subtle : ''"
               >
-                {{ paragraph.text }}
-              </p>
+                <p
+                  class="whitespace-pre-wrap text-justify transition"
+                  :class="ts.text"
+                  :style="{ fontSize: `${readerFontSize}px`, lineHeight: String(readerLineHeight) }"
+                  @click.stop="toggleChrome"
+                >
+                  {{ paragraph.text }}
+                </p>
+                <button
+                  class="mt-2 rounded-full px-3 py-1 text-xs opacity-80 transition active:scale-95 md:opacity-0 md:group-hover:opacity-100"
+                  :class="[ts.subtle, ts.textSecondary]"
+                  @click.stop="openParagraphComment(paragraph.id)"
+                >
+                  评 {{ paragraphCommentMap[paragraph.id]?.length || '' }}
+                </button>
+              </div>
             </div>
           </section>
 
-          <div
-            v-if="sectionPagination?.has_more || loadingMoreSections"
-            class="mt-6 flex justify-center"
-          >
+          <div v-if="sectionPagination?.has_more || loadingMoreSections" class="mt-6 flex justify-center">
             <button
-              class="rounded-full border px-5 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
+              class="rounded-full border px-5 py-3 text-sm font-medium disabled:opacity-50"
               :class="[ts.border, ts.text]"
               :disabled="loadingMoreSections"
               @click="loadMoreReaderSections()"
             >
-              {{ loadingMoreSections ? '正在加载后续章节...' : `继续加载（已加载 ${loadedSectionCount} / ${reader.outline.length} 章）` }}
+              {{ loadingMoreSections ? '正在加载后续章节...' : `继续加载 ${loadedSectionCount} / ${reader.outline.length}` }}
             </button>
           </div>
 
-          <!-- Chapter navigation -->
-          <div class="mt-8 flex items-center justify-between gap-4">
+          <div class="mt-8 flex items-center justify-between gap-3">
             <button
-              class="flex items-center gap-2 rounded-full border px-5 py-3 text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
+              class="rounded-full border px-5 py-3 text-sm disabled:opacity-40"
               :class="[ts.border, ts.text]"
               :disabled="!hasPrevChapter"
               @click="goToPrevChapter"
             >
-              <span>&larr;</span>
-              <span>上一章</span>
+              上一章
             </button>
             <span class="text-xs" :class="ts.textMuted">{{ currentSectionIndex + 1 }} / {{ reader.outline.length }}</span>
-            <button
-              class="flex items-center gap-2 rounded-full border px-5 py-3 text-sm font-medium transition"
-              :class="[ts.border, ts.text]"
-              @click="goToNextChapter"
-            >
-              <span>{{ hasNextChapter ? '下一章' : '读完了，继续发现' }}</span>
-              <span>&rarr;</span>
+            <button class="rounded-full border px-5 py-3 text-sm" :class="[ts.border, ts.text]" @click="goToNextChapter">
+              {{ hasNextChapter ? '下一章' : '读完了' }}
             </button>
           </div>
         </article>
 
-        <!-- Post-read recommendations -->
-        <section
-          :id="postReadSectionId"
-          :class="cardClass"
-          class="mt-6 scroll-mt-32 p-6 md:p-8"
-        >
-          <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div>
-              <p class="text-xs uppercase tracking-[0.32em]" :class="ts.textMuted">Finished</p>
-              <h2 class="mt-3 text-3xl font-semibold" :class="ts.text">读完了，继续发现下一本</h2>
-              <p class="mt-3 max-w-2xl text-sm leading-7" :class="ts.textSecondary">
-                你已经读到这本书的末尾。可以留下书评，也可以接着看同分类、同主题和近期热读的作品。
-              </p>
+        <section :id="postReadSectionId" class="mx-4 mt-5 rounded-2xl p-5 md:mx-0" :class="[ts.page, ts.text]">
+          <p class="text-xs" :class="ts.textMuted">读完之后</p>
+          <h2 class="mt-2 text-xl font-semibold">留下书评，或者继续发现下一本</h2>
+          <textarea
+            v-model="bookCommentDraft"
+            class="mt-4 min-h-24 w-full rounded-2xl border bg-transparent px-4 py-3 text-sm outline-none focus:border-orange-400"
+            :class="ts.border"
+            placeholder="写下你读完这本书后的感受..."
+          />
+          <div class="mt-3 flex gap-3">
+            <button class="rounded-full bg-[#ff5a2a] px-5 py-2.5 text-sm font-medium text-white" @click="submitBookComment">
+              发布书评
+            </button>
+            <button class="rounded-full border px-5 py-2.5 text-sm" :class="[ts.border, ts.text]" @click="router.push(`/books/${bookId}`)">
+              返回详情
+            </button>
+          </div>
 
-              <div class="mt-6 grid gap-3 sm:grid-cols-3">
-                <div class="rounded-2xl border p-4" :class="ts.border">
-                  <p class="text-xs" :class="ts.textMuted">读者评分</p>
-                  <p class="mt-2 text-2xl font-semibold" :class="ts.text">{{ reader.book.rating || '-' }}</p>
-                </div>
-                <div class="rounded-2xl border p-4" :class="ts.border">
-                  <p class="text-xs" :class="ts.textMuted">评分人数</p>
-                  <p class="mt-2 text-2xl font-semibold" :class="ts.text">{{ formatCount(reader.book.rating_count) }}</p>
-                </div>
-                <div class="rounded-2xl border p-4" :class="ts.border">
-                  <p class="text-xs" :class="ts.textMuted">最近在读</p>
-                  <p class="mt-2 text-2xl font-semibold" :class="ts.text">{{ formatCount(reader.book.recent_reads) }}</p>
-                </div>
+          <div v-if="relatedSections.length" class="mt-6 space-y-4">
+            <section v-for="section in relatedSections" :key="section.key">
+              <h3 class="text-base font-semibold">{{ section.title }}</h3>
+              <div class="mt-3 flex gap-3 overflow-x-auto pb-2">
+                <button
+                  v-for="item in section.items"
+                  :key="`${section.key}-${item.id}`"
+                  class="w-28 shrink-0 text-left"
+                  @click="goBook(item.id)"
+                >
+                  <img :src="item.cover || ''" :alt="item.title" class="h-36 w-24 rounded-md object-cover shadow" />
+                  <span class="mt-2 block line-clamp-2 text-sm font-medium">{{ item.title }}</span>
+                  <span class="mt-1 block truncate text-xs" :class="ts.textMuted">{{ item.author || '作者待补充' }}</span>
+                </button>
               </div>
-
-              <div class="mt-6 rounded-2xl border p-5" :class="ts.border">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 class="text-xl font-semibold" :class="ts.text">写下你的书评</h3>
-                    <p class="mt-1 text-sm" :class="ts.textSecondary">读后的判断会帮助后来者更快决定要不要开读。</p>
-                  </div>
-                  <span
-                    class="rounded-full px-3 py-1.5 text-xs"
-                    :class="readerTheme === 'dark' ? 'bg-white/10 text-stone-200' : 'bg-stone-100 text-stone-600'"
-                  >
-                    {{ reader.book_comments.length }} 条书评
-                  </span>
-                </div>
-                <textarea
-                  v-model="bookCommentDraft"
-                  class="mt-4 min-h-28 w-full rounded-2xl border bg-transparent px-4 py-3 text-sm outline-none transition focus:border-emerald-500"
-                  :class="ts.border"
-                  placeholder="写下你读完这本书后的感受..."
-                />
-                <div class="mt-3 flex flex-wrap items-center gap-3">
-                  <button class="rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-medium text-white" @click="submitBookComment">
-                    发布书评
-                  </button>
-                  <button class="rounded-full border px-5 py-2.5 text-sm" :class="[ts.border, ts.text]" @click="router.push(`/books/${bookId}`)">
-                    返回详情
-                  </button>
-                </div>
-              </div>
-
-              <div class="mt-6">
-                <div class="flex items-center justify-between gap-3">
-                  <h3 class="text-xl font-semibold" :class="ts.text">精选书评</h3>
-                  <span class="text-xs" :class="ts.textMuted">{{ reader.book_comments.length }} 条</span>
-                </div>
-                <div class="mt-4 grid gap-3 md:grid-cols-2">
-                  <div
-                    v-for="comment in highlightedBookComments"
-                    :key="comment.id"
-                    class="rounded-2xl border p-4"
-                    :class="ts.border"
-                  >
-                    <div class="flex items-center justify-between gap-3 text-xs" :class="ts.textMuted">
-                      <span class="truncate">{{ comment.author }}</span>
-                      <span class="shrink-0">{{ comment.created_at }}</span>
-                    </div>
-                    <p class="mt-2 line-clamp-3 text-sm leading-7" :class="ts.textSecondary">{{ comment.content }}</p>
-                  </div>
-                  <div v-if="highlightedBookComments.length === 0" class="rounded-2xl border p-5 text-sm" :class="[ts.border, ts.textSecondary]">
-                    还没有书评，读完后的第一条反馈可以从这里开始。
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <aside class="space-y-4">
-              <section
-                v-for="section in relatedSections"
-                :key="section.key"
-                class="rounded-2xl border p-4"
-                :class="ts.border"
-              >
-                <h3 class="text-lg font-semibold" :class="ts.text">{{ section.title }}</h3>
-                <p class="mt-1 text-sm leading-6" :class="ts.textSecondary">{{ section.description }}</p>
-                <div class="mt-4 space-y-3">
-                  <button
-                    v-for="item in section.items"
-                    :key="`${section.key}-${item.id}`"
-                    class="flex w-full gap-3 rounded-2xl border p-3 text-left transition"
-                    :class="[ts.border, ts.hover]"
-                    @click="goBook(item.id)"
-                  >
-                    <img :src="item.cover || ''" :alt="item.title" class="h-24 w-16 shrink-0 rounded-xl object-cover" />
-                    <span class="min-w-0 flex-1">
-                      <span class="block truncate text-sm font-semibold" :class="ts.text">{{ item.title }}</span>
-                      <span class="mt-1 block truncate text-xs" :class="ts.textMuted">{{ item.author || '作者待补充' }}</span>
-                      <span class="mt-2 block text-xs leading-5" :class="ts.textSecondary">
-                        评分 {{ item.rating || '-' }} · {{ formatWordCount(item.word_count) }}
-                      </span>
-                      <span class="mt-1 block line-clamp-2 text-xs leading-5" :class="ts.textMuted">
-                        {{ item.reason || item.category_name || '读完后可以继续探索。' }}
-                      </span>
-                    </span>
-                  </button>
-                </div>
-              </section>
-
-              <section v-if="relatedSections.length === 0" class="rounded-2xl border p-5 text-sm" :class="[ts.border, ts.textSecondary]">
-                暂时还没有相关推荐，可以先回到首页继续发现。
-              </section>
-            </aside>
+            </section>
           </div>
         </section>
       </template>
     </main>
 
-    <!-- Toolbar: desktop right side, mobile bottom -->
-    <div class="fixed bottom-4 right-3 z-40 md:right-5 md:top-1/2 md:-translate-y-1/2">
-      <div class="rounded-[1.2rem] bg-[#1b1f28] p-2 shadow-2xl">
-        <div class="flex gap-2 md:flex-col">
-          <button
-            class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="activePanel === 'outline' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
-            title="目录"
-            @click="togglePanel('outline')"
-          >
-            目录
-          </button>
-          <button
-            class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="activePanel === 'settings' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
-            title="设置"
-            @click="togglePanel('settings')"
-          >
-            设置
-          </button>
-          <button
-            class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="highlightModeEnabled ? 'bg-amber-500 text-white' : 'bg-[#101319] text-stone-200'"
-            title="划线"
-            @click="toggleHighlightMode"
-          >
-            划线
-          </button>
-          <button
-            class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="activePanel === 'notes' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
-            title="笔记"
-            @click="togglePanel('notes')"
-          >
-            笔记
-          </button>
-          <button
-            class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="activePanel === 'bookmarks' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
-            title="书签"
-            @click="togglePanel('bookmarks')"
-          >
-            书签
-          </button>
-          <button
-            class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="activePanel === 'stats' ? 'bg-emerald-500 text-white' : 'bg-[#101319] text-stone-200'"
-            title="统计"
-            @click="togglePanel('stats')"
-          >
-            统计
-          </button>
-          <button
-            class="h-11 w-11 rounded-full text-xs font-medium"
-            :class="immersiveMode ? 'bg-sky-500 text-white' : 'bg-[#101319] text-stone-200'"
-            title="沉浸"
-            @click="toggleImmersiveMode"
-          >
-            沉浸
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Panels -->
-    <div
-      v-if="activePanel !== 'none' && reader"
-      class="fixed left-4 right-4 bottom-20 z-40 rounded-[1.2rem] p-4 shadow-2xl md:left-auto md:right-20 md:top-1/2 md:w-[360px] md:-translate-y-1/2"
-      :class="panelCardClass"
+    <nav
+      v-if="reader && showTopChrome"
+      class="fixed inset-x-0 bottom-0 z-40 border-t px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl md:left-1/2 md:right-auto md:w-[420px] md:-translate-x-1/2 md:rounded-t-2xl md:border"
+      :class="[ts.panel, ts.border]"
     >
-      <!-- Outline panel -->
-      <template v-if="activePanel === 'outline'">
-        <h3 class="mb-3 text-lg font-semibold">目录</h3>
-        <div class="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
-          <button
-            v-for="item in reader.outline"
-            :key="item.id"
-            :class="[
-              'block w-full rounded-xl px-3 py-2 text-left text-sm transition',
-              item.level === 2 ? 'ml-3 w-[calc(100%-0.75rem)]' : 'font-medium',
-              activeSectionId === item.id ? 'bg-emerald-500 text-white' : 'bg-black/10 hover:bg-black/20',
-            ]"
-            @click="scrollToSection(item.id)"
-          >
-            {{ item.title }}
-          </button>
-        </div>
-      </template>
+      <div class="mx-auto flex max-w-md items-center justify-between">
+        <button class="grid min-w-12 gap-1 text-center text-xs" :class="activePanel === 'catalog' ? 'text-[#ff5a2a]' : ts.textSecondary" @click="togglePanel('catalog')">
+          <span class="text-lg">☰</span>
+          <span>目录</span>
+        </button>
+        <button class="grid min-w-12 gap-1 text-center text-xs" :class="activePanel === 'settings' ? 'text-[#ff5a2a]' : ts.textSecondary" @click="togglePanel('settings')">
+          <span class="text-lg">Aa</span>
+          <span>设置</span>
+        </button>
+        <button class="grid min-w-12 gap-1 text-center text-xs" :class="activePanel === 'comments' ? 'text-[#ff5a2a]' : ts.textSecondary" @click="togglePanel('comments')">
+          <span class="text-lg">评</span>
+          <span>评论</span>
+        </button>
+        <button class="grid min-w-12 gap-1 text-center text-xs" :class="activePanel === 'bookmarks' ? 'text-[#ff5a2a]' : ts.textSecondary" @click="togglePanel('bookmarks')">
+          <span class="text-lg">☆</span>
+          <span>书签</span>
+        </button>
+        <button class="grid min-w-12 gap-1 text-center text-xs" :class="isSpeaking ? 'text-[#ff5a2a]' : ts.textSecondary" @click="toggleListening">
+          <span class="text-lg">♫</span>
+          <span>{{ isSpeaking && !isSpeechPaused ? '暂停' : '听书' }}</span>
+        </button>
+      </div>
+      <div class="mt-2 h-1 overflow-hidden rounded-full" :class="ts.subtle">
+        <div class="h-full rounded-full bg-[#ff5a2a]" :style="{ width: `${progressPercent}%` }" />
+      </div>
+      <p v-if="speechStatus" class="mt-2 text-center text-xs text-[#ff5a2a]">{{ speechStatus }}</p>
+    </nav>
 
-      <!-- Settings panel -->
-      <template v-else-if="activePanel === 'settings'">
-        <h3 class="mb-4 text-lg font-semibold">阅读设置</h3>
-        <div class="space-y-5">
-          <!-- Theme -->
-          <div>
-            <p class="mb-2 text-sm font-medium">主题</p>
-            <div class="grid grid-cols-4 gap-2">
-              <button
-                v-for="opt in [
-                  { key: 'light', label: '浅色', bg: 'bg-stone-100', border: 'border-stone-300' },
-                  { key: 'dark', label: '深色', bg: 'bg-[#0f1720]', border: 'border-white/20' },
-                  { key: 'green', label: '护眼绿', bg: 'bg-[#e8f0e4]', border: 'border-[#c5d6bc]' },
-                  { key: 'parchment', label: '羊皮纸', bg: 'bg-[#f5eed5]', border: 'border-[#e0d9bf]' },
-                ]"
-                :key="opt.key"
-                :class="[
-                  'flex flex-col items-center gap-1 rounded-xl border-2 px-2 py-2 text-xs transition',
-                  readerTheme === opt.key ? 'border-emerald-500' : opt.border,
-                  opt.bg,
-                ]"
-                @click="setTheme(opt.key as ReaderTheme)"
-              >
-                <span class="block h-5 w-5 rounded-full" :class="opt.bg" />
-                <span :class="opt.key === 'dark' ? 'text-stone-200' : ''">{{ opt.label }}</span>
-              </button>
+    <div v-if="activePanel !== 'none' && reader" class="fixed inset-0 z-50 bg-black/30" @click="closePanel">
+      <section
+        class="absolute inset-x-0 bottom-0 max-h-[78vh] overflow-hidden rounded-t-3xl border p-5 shadow-2xl md:left-1/2 md:right-auto md:w-[420px] md:-translate-x-1/2"
+        :class="[ts.panel, ts.border]"
+        @click.stop
+      >
+        <div class="mx-auto mb-4 h-1 w-10 rounded-full" :class="ts.subtle" />
+
+        <template v-if="activePanel === 'catalog'">
+          <div class="mb-4 flex items-center justify-between">
+            <div>
+              <h3 class="text-lg font-semibold">目录</h3>
+              <p class="mt-1 text-xs" :class="ts.textMuted">共 {{ reader.outline.length }} 章，当前 {{ currentSectionIndex + 1 }} 章</p>
             </div>
+            <span class="text-sm text-[#ff5a2a]">{{ progressPercent }}%</span>
           </div>
-
-          <!-- Font size -->
-          <div>
-            <div class="mb-2 flex items-center justify-between">
-              <p class="text-sm font-medium">字号</p>
-              <span class="text-xs" :class="ts.textMuted">{{ readerFontSize }}px</span>
-            </div>
-            <input
-              class="w-full accent-emerald-500"
-              type="range"
-              min="16"
-              max="30"
-              :value="readerFontSize"
-              @input="setFontSize(Number(($event.target as HTMLInputElement).value))"
-            />
-          </div>
-
-          <!-- Line height -->
-          <div>
-            <div class="mb-2 flex items-center justify-between">
-              <p class="text-sm font-medium">行距</p>
-              <span class="text-xs" :class="ts.textMuted">{{ readerLineHeight }}</span>
-            </div>
-            <input
-              class="w-full accent-emerald-500"
-              type="range"
-              min="1.2"
-              max="3.0"
-              step="0.1"
-              :value="readerLineHeight"
-              @input="setLineHeight(Number(($event.target as HTMLInputElement).value))"
-            />
-            <div class="mt-1 flex justify-between text-xs" :class="ts.textMuted">
-              <span>紧凑</span>
-              <span>宽松</span>
-            </div>
-          </div>
-
-          <!-- Margin -->
-          <div>
-            <p class="mb-2 text-sm font-medium">页面宽度</p>
-            <div class="flex gap-2">
-              <button
-                v-for="opt in [
-                  { key: 'narrow', label: '窄' },
-                  { key: 'medium', label: '中' },
-                  { key: 'wide', label: '宽' },
-                ]"
-                :key="opt.key"
-                :class="[
-                  'flex-1 rounded-full px-3 py-2 text-sm transition',
-                  readerMargin === opt.key ? 'bg-emerald-500 text-white' : 'bg-black/10',
-                ]"
-                @click="setMargin(opt.key as ReaderMargin)"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <!-- Notes panel -->
-      <template v-else-if="activePanel === 'notes'">
-        <div class="mb-3 flex items-center justify-between gap-3">
-          <h3 class="text-lg font-semibold">笔记与想法</h3>
-          <button class="rounded-full border px-3 py-1.5 text-xs" :class="ts.border" @click="toggleCommentVisibility">
-            {{ showComments ? '隐藏讨论' : '显示讨论' }}
-          </button>
-        </div>
-
-        <div v-if="activeHighlight" class="rounded-2xl bg-black/10 p-3">
-          <p
-            :class="[
-              'rounded-2xl px-3 py-3 text-base leading-7 underline decoration-2 underline-offset-4',
-              colorMap[activeHighlight.color] || colorMap.amber,
-            ]"
-          >
-            {{ activeHighlight.selected_text }}
-          </p>
-          <p class="mt-3 text-sm leading-7">{{ activeHighlight.note || '这条划线还没有补充批注。' }}</p>
-          <textarea
-            v-if="showComments"
-            v-model="highlightCommentDraft"
-            class="mt-4 min-h-20 w-full rounded-2xl border border-stone-300 bg-transparent px-3 py-2 text-sm outline-none"
-            placeholder="补充一点你的理解..."
-          />
-          <button v-if="showComments" class="mt-3 rounded-full bg-stone-900 px-4 py-2 text-sm text-white" @click="submitHighlightComment">
-            发布想法
-          </button>
-        </div>
-
-        <div class="mt-4 max-h-[30vh] space-y-2 overflow-y-auto pr-1">
-          <button
-            v-for="item in reader.highlights"
-            :key="item.id"
-            class="block w-full rounded-2xl bg-black/10 px-3 py-3 text-left text-sm transition hover:bg-black/20"
-            @click="activeHighlightId = item.id"
-          >
-            <span class="line-clamp-2 leading-6">{{ item.selected_text }}</span>
-            <span class="mt-1 block text-xs opacity-70">{{ item.note || '无批注' }}</span>
-          </button>
-          <div v-if="reader.highlights.length === 0" class="rounded-2xl bg-black/10 px-3 py-6 text-sm" :class="ts.textMuted">
-            开启划线模式后选中正文，就能在这里沉淀笔记。
-          </div>
-        </div>
-
-        <div class="mt-4 border-t pt-4" :class="ts.border">
-          <h4 class="text-sm font-semibold">本书评论</h4>
-          <textarea
-            v-model="bookCommentDraft"
-            class="mt-3 min-h-20 w-full rounded-2xl border border-stone-300 bg-transparent px-3 py-2 text-sm outline-none"
-            placeholder="写下你对这本书的看法..."
-          />
-          <button class="mt-3 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white" @click="submitBookComment">
-            发表书评
-          </button>
-          <div class="mt-4 max-h-[20vh] space-y-2 overflow-y-auto pr-1">
-            <div v-for="comment in reader.book_comments" :key="comment.id" class="rounded-2xl bg-black/10 px-3 py-3 text-sm">
-              <div class="flex items-center justify-between text-xs opacity-70">
-                <span>{{ comment.author }}</span>
-                <span>{{ comment.created_at }}</span>
-              </div>
-              <p class="mt-1 leading-6">{{ comment.content }}</p>
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <!-- Bookmark panel -->
-      <template v-else-if="activePanel === 'bookmarks'">
-        <h3 class="mb-3 text-lg font-semibold">书签</h3>
-        <div class="rounded-2xl bg-black/10 p-3">
-          <p class="text-sm">当前位置：{{ currentSectionTitle || '正文起始' }}</p>
-          <textarea
-            v-model="bookmarkNoteDraft"
-            class="mt-3 min-h-16 w-full rounded-2xl border border-stone-300 bg-transparent px-3 py-2 text-sm outline-none"
-            placeholder="给这个位置补一句备注..."
-          />
-          <button class="mt-3 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-white" @click="saveBookmark">
-            {{ currentBookmark ? '更新当前位置' : '保存当前位置' }}
-          </button>
-        </div>
-        <div class="mt-4 max-h-[42vh] space-y-2 overflow-y-auto pr-1">
-          <div v-for="item in bookmarks" :key="item.id" class="rounded-2xl bg-black/10 px-3 py-3 text-sm">
-            <button class="block w-full text-left" @click="scrollToSection(item.section_id)">
-              <span class="font-medium">{{ sectionTitleById[item.section_id] || item.section_id }}</span>
-              <span class="mt-1 block text-xs opacity-70">{{ item.note || '书签位置' }}</span>
+          <div class="max-h-[58vh] overflow-y-auto pr-1">
+            <button
+              v-for="(item, index) in reader.outline"
+              :key="item.id"
+              class="flex w-full items-center gap-3 border-b py-4 text-left text-sm"
+              :class="[ts.border, activeSectionId === item.id ? 'text-[#ff5a2a]' : ts.text]"
+              @click="scrollToSection(item.id)"
+            >
+              <span class="w-8 shrink-0 text-xs" :class="ts.textMuted">{{ index + 1 }}</span>
+              <span class="min-w-0 flex-1 truncate" :class="item.level === 2 ? 'pl-4' : ''">{{ item.title }}</span>
+              <span v-if="activeSectionId === item.id" class="text-xs">阅读中</span>
             </button>
-            <button class="mt-2 text-xs opacity-70 hover:opacity-100" @click="removeBookmark(item.id)">删除</button>
           </div>
-          <div v-if="bookmarks.length === 0" class="rounded-2xl bg-black/10 px-3 py-6 text-sm" :class="ts.textMuted">
-            还没有书签，保存当前位置后会出现在这里。
-          </div>
-        </div>
-      </template>
+        </template>
 
-      <!-- Stats panel -->
-      <template v-else-if="activePanel === 'stats'">
-        <h3 class="mb-3 text-lg font-semibold">阅读统计</h3>
-        <div class="grid grid-cols-2 gap-3">
-          <div class="rounded-2xl bg-black/10 p-4">
-            <p class="text-xs opacity-70">当前进度</p>
-            <p class="mt-2 text-2xl font-semibold">{{ progressPercent }}%</p>
+        <template v-else-if="activePanel === 'settings'">
+          <h3 class="text-lg font-semibold">阅读设置</h3>
+        <div class="mt-5 space-y-6">
+            <div>
+              <p class="mb-3 text-sm font-medium">背景</p>
+              <div class="grid grid-cols-4 gap-2">
+                <button
+                  v-for="opt in [
+                    { key: 'light', label: '默认', cls: 'bg-white' },
+                    { key: 'green', label: '护眼', cls: 'bg-[#edf5e8]' },
+                    { key: 'parchment', label: '羊皮', cls: 'bg-[#f8edcf]' },
+                    { key: 'dark', label: '夜间', cls: 'bg-[#171b20] text-white' },
+                  ]"
+                  :key="opt.key"
+                  class="rounded-2xl border px-2 py-3 text-xs"
+                  :class="[opt.cls, readerTheme === opt.key ? 'border-[#ff5a2a]' : ts.border]"
+                  @click="setTheme(opt.key as ReaderTheme)"
+                >
+                  {{ opt.label }}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div class="mb-2 flex items-center justify-between text-sm">
+                <span>字号</span>
+                <span :class="ts.textMuted">{{ readerFontSize }}px</span>
+              </div>
+              <input class="w-full accent-[#ff5a2a]" type="range" min="16" max="30" :value="readerFontSize" @input="setFontSize(Number(($event.target as HTMLInputElement).value))" />
+            </div>
+
+            <div>
+              <div class="mb-2 flex items-center justify-between text-sm">
+                <span>行距</span>
+                <span :class="ts.textMuted">{{ readerLineHeight }}</span>
+              </div>
+              <input class="w-full accent-[#ff5a2a]" type="range" min="1.4" max="2.8" step="0.1" :value="readerLineHeight" @input="setLineHeight(Number(($event.target as HTMLInputElement).value))" />
+            </div>
+
+            <div>
+              <p class="mb-3 text-sm font-medium">页面宽度</p>
+              <div class="grid grid-cols-3 gap-2">
+                <button
+                  v-for="opt in [
+                    { key: 'narrow', label: '窄' },
+                    { key: 'medium', label: '中' },
+                    { key: 'wide', label: '宽' },
+                  ]"
+                  :key="opt.key"
+                  class="rounded-full px-3 py-2 text-sm"
+                  :class="readerMargin === opt.key ? 'bg-[#ff5a2a] text-white' : ts.subtle"
+                  @click="setMargin(opt.key as ReaderMargin)"
+                >
+                  {{ opt.label }}
+                </button>
+              </div>
+            </div>
           </div>
-          <div class="rounded-2xl bg-black/10 p-4">
-            <p class="text-xs opacity-70">预计剩余</p>
-            <p class="mt-2 text-2xl font-semibold">{{ estimatedMinutesLeft }} 分</p>
+        </template>
+
+        <template v-else-if="activePanel === 'comments'">
+          <div class="mb-4 text-center">
+            <h3 class="text-lg font-semibold">评论</h3>
+            <p class="mt-1 text-xs" :class="ts.textMuted">
+              {{ activeParagraphCommentCount }} 条 · 先看其他读者
+            </p>
           </div>
-          <div class="rounded-2xl bg-black/10 p-4">
-            <p class="text-xs opacity-70">累计阅读</p>
-            <p class="mt-2 text-2xl font-semibold">{{ readingStats.total_read_minutes }} 分</p>
+
+          <div class="mb-4 rounded-xl border px-3 py-3" :class="[ts.border, ts.subtle]">
+            <p class="line-clamp-3 text-sm leading-6" :class="ts.textSecondary">
+              “{{ commentDraft?.selectedText || activeParagraphMeta?.paragraph.text || '当前段落' }}”
+            </p>
           </div>
-          <div class="rounded-2xl bg-black/10 p-4">
-            <p class="text-xs opacity-70">书签</p>
-            <p class="mt-2 text-2xl font-semibold">{{ readingStats.bookmark_count }}</p>
+
+          <div v-if="!hasMyParagraphComment" class="mb-3 rounded-xl px-3 py-2 text-xs" :class="[ts.subtle, ts.textMuted]">
+            发表你的评论后，就可以为其他读者的评论点赞。
           </div>
-        </div>
-        <div class="mt-4 rounded-2xl bg-black/10 p-4 text-sm leading-7">
-          <p>最近阅读：{{ readingStats.last_read_at }}</p>
-          <p>划线笔记：{{ readingStats.highlight_count }} 条</p>
-          <p>本书评论：{{ readingStats.comment_count }} 条</p>
-        </div>
-      </template>
+          <div v-else class="mb-3 rounded-xl px-3 py-2 text-xs" :class="[ts.subtle, ts.textMuted]">
+            已发表本段评论，可以点赞其他读者的评论。
+          </div>
+
+          <div v-if="commentDraft && !hasMyParagraphComment" class="mb-4 rounded-xl border p-3" :class="[ts.border, ts.page]">
+            <textarea
+              v-model="commentDraftContent"
+              class="min-h-20 w-full rounded-xl border bg-transparent px-3 py-2 text-sm outline-none focus:border-[#ff5a2a]"
+              :class="ts.border"
+              placeholder="发一条友善的评论..."
+            />
+            <div class="mt-3 flex justify-end gap-2">
+              <button class="rounded-full px-4 py-2 text-sm" :class="ts.subtle" @click="clearCommentDraft">取消</button>
+              <button class="rounded-full bg-[#ff5a2a] px-4 py-2 text-sm font-medium text-white" @click="submitParagraphComment">
+                发布
+              </button>
+            </div>
+          </div>
+
+          <div class="max-h-[46vh] space-y-3 overflow-y-auto pr-1">
+            <div v-for="item in orderedParagraphComments" :key="item.id" class="rounded-xl border p-3" :class="[ts.border, ts.page]">
+              <div class="flex items-start gap-3">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#ff5a2a] text-xs font-semibold text-white">
+                  {{ item.created_by.slice(0, 1) }}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="flex min-w-0 items-center gap-2">
+                      <span class="truncate text-sm font-medium" :class="ts.text">{{ item.created_by }}</span>
+                      <span v-if="item.is_mine" class="shrink-0 rounded-full px-2 py-0.5 text-[10px] text-[#ff5a2a]" :class="ts.subtle">我的</span>
+                    </span>
+                    <span class="shrink-0 text-xs" :class="ts.textMuted">{{ item.created_at }}</span>
+                  </div>
+                  <p v-if="item.selected_text !== activeParagraphMeta?.paragraph.text" class="mt-2 line-clamp-2 text-xs leading-5" :class="ts.textMuted">
+                    “{{ item.selected_text }}”
+                  </p>
+                  <p class="mt-2 text-sm leading-6" :class="ts.text">{{ item.note || '这条评论还没有内容。' }}</p>
+                </div>
+              </div>
+              <div class="ml-11 mt-3 flex items-center gap-3">
+                <button
+                  v-if="!item.is_mine"
+                  class="rounded-full border px-3 py-1.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-50"
+                  :class="item.liked_by_me ? 'border-[#ff5a2a] bg-[#ff5a2a] text-white' : [ts.border, ts.textSecondary]"
+                  :disabled="!hasMyParagraphComment || reactingHighlightIds.has(item.id)"
+                  @click="toggleHighlightReaction(item)"
+                >
+                  {{ item.liked_by_me ? '已赞' : '赞' }} {{ item.likes_count || 0 }}
+                </button>
+                <span v-else class="text-xs" :class="ts.textMuted">我的评论放在下方展示</span>
+              </div>
+              <div v-if="item.comments.length" class="ml-11 mt-3 space-y-2 rounded-xl px-3 py-2" :class="ts.subtle">
+                <p v-for="comment in item.comments" :key="comment.id" class="text-xs leading-5" :class="ts.textSecondary">
+                  <span class="font-medium" :class="ts.text">{{ comment.author }}</span>：{{ comment.content }}
+                </p>
+              </div>
+              <div class="ml-11 mt-3 flex gap-2">
+                <input
+                  v-model="replyDrafts[item.id]"
+                  class="min-w-0 flex-1 rounded-full border bg-transparent px-3 py-2 text-xs outline-none"
+                  :class="ts.border"
+                  placeholder="回复"
+                />
+                <button class="rounded-full px-3 py-2 text-xs text-white bg-[#ff5a2a]" @click="submitCommentReply(item)">回复</button>
+              </div>
+            </div>
+            <div v-if="activeParagraphComments.length === 0" class="rounded-xl p-6 text-center text-sm" :class="[ts.subtle, ts.textMuted]">
+              当前段落还没有评论，来坐第一排。
+            </div>
+          </div>
+        </template>
+
+        <template v-else-if="activePanel === 'bookmarks'">
+          <h3 class="text-lg font-semibold">书签</h3>
+          <div class="mt-4 rounded-2xl p-3" :class="ts.subtle">
+            <p class="text-sm">当前位置：{{ currentSectionTitle || '正文起始' }}</p>
+            <textarea
+              v-model="bookmarkNoteDraft"
+              class="mt-3 min-h-16 w-full rounded-2xl border bg-transparent px-3 py-2 text-sm outline-none"
+              :class="ts.border"
+              placeholder="给这个位置补一句备注..."
+            />
+            <button class="mt-3 rounded-full bg-[#ff5a2a] px-4 py-2 text-sm font-medium text-white" @click="saveBookmark">
+              {{ currentBookmark ? '更新当前位置' : '保存当前位置' }}
+            </button>
+          </div>
+          <div class="mt-4 max-h-[42vh] space-y-2 overflow-y-auto pr-1">
+            <div v-for="item in bookmarks" :key="item.id" class="rounded-2xl p-3 text-sm" :class="ts.subtle">
+              <button class="block w-full text-left" @click="scrollToSection(item.section_id)">
+                <span class="font-medium">{{ sectionTitleById[item.section_id] || item.section_id }}</span>
+                <span class="mt-1 block text-xs" :class="ts.textMuted">{{ item.note || '书签位置' }}</span>
+              </button>
+              <button class="mt-2 text-xs" :class="ts.textMuted" @click="removeBookmark(item.id)">删除</button>
+            </div>
+            <div v-if="bookmarks.length === 0" class="rounded-2xl p-6 text-center text-sm" :class="[ts.subtle, ts.textMuted]">
+              还没有书签，保存当前位置后会出现在这里。
+            </div>
+          </div>
+        </template>
+      </section>
     </div>
   </div>
 </template>
